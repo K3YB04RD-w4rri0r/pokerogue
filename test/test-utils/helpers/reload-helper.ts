@@ -2,7 +2,7 @@ import { TitlePhase } from "#phases/title-phase";
 import type { GameManager } from "#test/test-utils/game-manager";
 import { GameManagerHelper } from "#test/test-utils/helpers/game-manager-helper";
 import type { SessionSaveData } from "#types/save-data";
-import { vi } from "vitest";
+import { spyOn } from "#app/rl/mocks/spy";
 
 /**
  * Helper to allow reloading sessions in unit tests.
@@ -14,7 +14,7 @@ export class ReloadHelper extends GameManagerHelper {
     super(game);
 
     // Whenever the game saves the session, save it to the reloadHelper instead
-    vi.spyOn(game.scene.gameData, "saveAll").mockImplementation(async () => {
+    spyOn(game.scene.gameData, "saveAll").mockImplementation(async () => {
       this.sessionData = game.scene.gameData.getSessionSaveData();
       return true;
     });
@@ -32,7 +32,7 @@ export class ReloadHelper extends GameManagerHelper {
     scene.phaseManager.clearPhaseQueue();
 
     // Set the last saved session to the desired session data
-    vi.spyOn(scene.gameData, "getSession").mockReturnValue(Promise.resolve(this.sessionData));
+    spyOn(scene.gameData, "getSession").mockReturnValue(Promise.resolve(this.sessionData));
     scene.phaseManager.unshiftPhase(titlePhase);
     this.game.endPhase(); // End the currently ongoing battle
 

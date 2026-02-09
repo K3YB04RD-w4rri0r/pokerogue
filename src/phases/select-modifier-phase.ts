@@ -40,6 +40,7 @@ export class SelectModifierPhase extends BattlePhase {
   private isCopy: boolean;
 
   private typeOptions: ModifierTypeOption[];
+  private _modifierSelectCallback: ModifierSelectCallback | null = null;
 
   constructor(
     rerollCount = 0,
@@ -76,7 +77,8 @@ export class SelectModifierPhase extends BattlePhase {
 
     this.typeOptions = this.getModifierTypeOptions(modifierCount);
 
-    const modifierSelectCallback = (rowCursor: number, cursor: number) => {
+    this._modifierSelectCallback = (rowCursor: number, cursor: number) => {
+      const cb = this._modifierSelectCallback!;
       if (rowCursor < 0 || cursor < 0) {
         globalScene.ui.showText(i18next.t("battle:skipItemQuestion"), null, () => {
           globalScene.ui.setOverlayMode(
@@ -86,7 +88,7 @@ export class SelectModifierPhase extends BattlePhase {
               globalScene.ui.setMode(UiMode.MESSAGE);
               super.end();
             },
-            () => this.resetModifierSelect(modifierSelectCallback),
+            () => this.resetModifierSelect(cb),
           );
         });
         return false;
@@ -99,11 +101,11 @@ export class SelectModifierPhase extends BattlePhase {
             case 0:
               return this.rerollModifiers();
             case 1:
-              return this.openModifierTransferScreen(modifierSelectCallback);
+              return this.openModifierTransferScreen(cb);
             // Check the party, pass a callback to restore the modifier select screen.
             case 2:
               globalScene.ui.setModeWithoutClear(UiMode.PARTY, PartyUiMode.CHECK, -1, () => {
-                this.resetModifierSelect(modifierSelectCallback);
+                this.resetModifierSelect(cb);
               });
               return true;
             case 3:
@@ -113,15 +115,15 @@ export class SelectModifierPhase extends BattlePhase {
           }
         // Pick an option from the rewards
         case 1:
-          return this.selectRewardModifierOption(cursor, modifierSelectCallback);
+          return this.selectRewardModifierOption(cursor, cb);
         // Pick an option from the shop
         default: {
-          return this.selectShopModifierOption(rowCursor, cursor, modifierSelectCallback);
+          return this.selectShopModifierOption(rowCursor, cursor, cb);
         }
       }
     };
 
-    this.resetModifierSelect(modifierSelectCallback);
+    this.resetModifierSelect(this._modifierSelectCallback);
   }
 
   // Pick a modifier from among the rewards and apply it
@@ -479,5 +481,55 @@ export class SelectModifierPhase extends BattlePhase {
 
   addModifier(modifier: Modifier): boolean {
     return globalScene.addModifier(modifier, false, true);
+  }
+
+  /** Returns the available reward modifier type options. */
+  getTypeOptions(): ModifierTypeOption[] {
+    return this.typeOptions;
+  }
+
+  /** Returns the modifier select callback created during start(). */
+  getModifierSelectCallback(): ModifierSelectCallback | null {
+    return this._modifierSelectCallback;
+  }
+
+  /** Returns the current reroll count for this phase. */
+  getRerollCount(): number {
+    return this.rerollCount;
+  }
+
+  /**
+   * Programmatically apply a modifier, bypassing the party menu UI.
+   * Used by the RL API for PokemonModifierType items where the target is known.
+   *
+   * Unlike the private `applyModifier`, this does NOT re-queue the phase
+   * for TM/RememberMove modifiers. The RL API manages its own phase flow
+   * and doesn't need the "return to modifier screen" behavior.
+   */
+  applyModifierDirectly(modifier: Modifier, cost = -1): void {
+    globalScene.addModifier(modifier, false, true, undefined, undefined, cost);
+    if (cost !== -1) {
+      if (!Overrides.WAIVE_ROLL_FEE_OVERRIDE) {
+        globalScene.money -= cost;
+        globalScene.updateMoneyText();
+        globalScene.animateMoneyChanged(false);
+      }
+      globalScene.playSound("se/buy");
+      // Stay in the modifier select phase so the player can continue shopping.
+      // Re-show the modifier UI with updated money via resetModifierSelect.
+      if (this._modifierSelectCallback) {
+        this.resetModifierSelect(this._modifierSelectCallback);
+      }
+    } else {
+      // Free reward — end the phase
+      globalScene.ui.clearText();
+      globalScene.ui.setMode(UiMode.MESSAGE).then(() => super.end());
+    }
+  }
+
+  /** Programmatically end this phase, skipping modifier selection entirely. */
+  skipPhase(): void {
+    globalScene.ui.clearText();
+    globalScene.ui.setMode(UiMode.MESSAGE).then(() => super.end());
   }
 }

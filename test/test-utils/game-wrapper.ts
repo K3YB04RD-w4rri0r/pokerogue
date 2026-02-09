@@ -15,7 +15,7 @@ import { MockContainer } from "#test/test-utils/mocks/mocks-container/mock-conta
 import { PokedexMonContainer } from "#ui/pokedex-mon-container";
 import fs from "node:fs";
 import Phaser from "phaser";
-import { vi } from "vitest";
+import { mockFn, spyOn } from "#app/rl/mocks/spy";
 
 const InputManager = Phaser.Input.InputManager;
 const KeyboardManager = Phaser.Input.Keyboard.KeyboardManager;
@@ -33,7 +33,7 @@ export class GameWrapper {
     Phaser.Math.RND.sow(["test"]);
     // vi.spyOn(Utils, "apiFetch", "get").mockReturnValue(fetch);
     if (bypassLogin) {
-      vi.spyOn(appConstants, "bypassLogin", "get").mockReturnValue(true);
+      spyOn(appConstants, "bypassLogin", "get").mockReturnValue(true);
     }
     this.game = phaserGame;
     // TODO: Move these mocks elsewhere
@@ -215,7 +215,7 @@ export class GameWrapper {
     };
     this.scene.make = new MockGameObjectCreator(mockTextureManager);
     this.scene.time = new MockClock(this.scene);
-    this.scene.remove = vi.fn(); // TODO: this should be stubbed differently
+    this.scene.remove = mockFn(); // TODO: this should be stubbed differently
     timedEventManager.disable();
   }
 }

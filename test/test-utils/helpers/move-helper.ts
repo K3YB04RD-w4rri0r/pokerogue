@@ -14,8 +14,8 @@ import type { MoveEffectPhase } from "#phases/move-effect-phase";
 import { GameManagerHelper } from "#test/test-utils/helpers/game-manager-helper";
 import { coerceArray } from "#utils/array";
 import { toTitleCase } from "#utils/strings";
-import type { MockInstance } from "vitest";
-import { expect, vi } from "vitest";
+import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
+import { standaloneExpect, expectValue } from "#app/rl/mocks/assert";
 
 /**
  * Helper to handle using a Pokemon's moves.
@@ -29,7 +29,7 @@ export class MoveHelper extends GameManagerHelper {
   public async forceHit(): Promise<void> {
     await this.game.phaseInterceptor.to("MoveEffectPhase", false);
     const moveEffectPhase = this.game.scene.phaseManager.getCurrentPhase() as MoveEffectPhase;
-    vi.spyOn(moveEffectPhase.move, "calculateBattleAccuracy").mockReturnValue(-1);
+    spyOn(moveEffectPhase.move, "calculateBattleAccuracy").mockReturnValue(-1);
   }
 
   /**
@@ -41,7 +41,7 @@ export class MoveHelper extends GameManagerHelper {
   public async forceMiss(firstTargetOnly = false): Promise<void> {
     await this.game.phaseInterceptor.to("MoveEffectPhase", false);
     const moveEffectPhase = this.game.scene.phaseManager.getCurrentPhase() as MoveEffectPhase;
-    const accuracy = vi.spyOn(moveEffectPhase.move, "calculateBattleAccuracy");
+    const accuracy = spyOn(moveEffectPhase.move, "calculateBattleAccuracy");
 
     if (firstTargetOnly) {
       accuracy.mockReturnValueOnce(0);
@@ -66,7 +66,7 @@ export class MoveHelper extends GameManagerHelper {
   ) {
     const movePosition = this.getMovePosition(pkmIndex, move);
     if (movePosition === -1) {
-      expect.fail(
+      standaloneExpect.fail(
         `MoveHelper.select called with move '${toTitleCase(MoveId[move])}' not in moveset!`
           + `\nBattler Index: ${toTitleCase(BattlerIndex[pkmIndex])}`
           + `\nMoveset: [${this.game.scene
@@ -114,7 +114,7 @@ export class MoveHelper extends GameManagerHelper {
   ) {
     const movePosition = this.getMovePosition(pkmIndex, move);
     if (movePosition === -1) {
-      expect.fail(
+      standaloneExpect.fail(
         `MoveHelper.selectWithTera called with move '${toTitleCase(MoveId[move])}' not in moveset!`
           + `\nBattler Index: ${toTitleCase(BattlerIndex[pkmIndex])}`
           + `\nMoveset: [${this.game.scene
@@ -177,7 +177,7 @@ export class MoveHelper extends GameManagerHelper {
     useTera = false,
   ): void {
     if ([Overrides.MOVESET_OVERRIDE].flat().length > 0) {
-      vi.spyOn(Overrides, "MOVESET_OVERRIDE", "get").mockReturnValue([]);
+      spyOn(Overrides, "MOVESET_OVERRIDE", "get").mockReturnValue([]);
       console.warn("Warning: `MoveHelper.use` overwriting player pokemon moveset and disabling moveset override!");
     }
 
@@ -200,9 +200,9 @@ export class MoveHelper extends GameManagerHelper {
    * @param activated - `true` to force the status to activate, `false` to force the status to not activate (will cause Freeze to heal)
    */
   public async forceStatusActivation(activated: boolean): Promise<void> {
-    vi.spyOn(Overrides, "STATUS_ACTIVATION_OVERRIDE", "get").mockReturnValue(activated);
+    spyOn(Overrides, "STATUS_ACTIVATION_OVERRIDE", "get").mockReturnValue(activated);
     await this.game.phaseInterceptor.to("MovePhase");
-    vi.spyOn(Overrides, "STATUS_ACTIVATION_OVERRIDE", "get").mockReturnValue(null);
+    spyOn(Overrides, "STATUS_ACTIVATION_OVERRIDE", "get").mockReturnValue(null);
   }
 
   /**
@@ -211,9 +211,9 @@ export class MoveHelper extends GameManagerHelper {
    * @param activated - `true` to force the Pokemon to hit themself, `false` to forcibly disable it
    */
   public async forceConfusionActivation(activated: boolean): Promise<void> {
-    vi.spyOn(Overrides, "CONFUSION_ACTIVATION_OVERRIDE", "get").mockReturnValue(activated);
+    spyOn(Overrides, "CONFUSION_ACTIVATION_OVERRIDE", "get").mockReturnValue(activated);
     await this.game.phaseInterceptor.to("MovePhase");
-    vi.spyOn(Overrides, "CONFUSION_ACTIVATION_OVERRIDE", "get").mockReturnValue(null);
+    spyOn(Overrides, "CONFUSION_ACTIVATION_OVERRIDE", "get").mockReturnValue(null);
   }
 
   /**
@@ -228,15 +228,15 @@ export class MoveHelper extends GameManagerHelper {
   public changeMoveset(pokemon: Pokemon, moveset: MoveId | MoveId[]): void {
     if (pokemon.isPlayer()) {
       if (coerceArray(Overrides.MOVESET_OVERRIDE).length > 0) {
-        vi.spyOn(Overrides, "MOVESET_OVERRIDE", "get").mockReturnValue([]);
+        spyOn(Overrides, "MOVESET_OVERRIDE", "get").mockReturnValue([]);
         console.warn("Player moveset override disabled due to use of `game.move.changeMoveset`!");
       }
     } else if (coerceArray(Overrides.ENEMY_MOVESET_OVERRIDE).length > 0) {
-      vi.spyOn(Overrides, "ENEMY_MOVESET_OVERRIDE", "get").mockReturnValue([]);
+      spyOn(Overrides, "ENEMY_MOVESET_OVERRIDE", "get").mockReturnValue([]);
       console.warn("Enemy moveset override disabled due to use of `game.move.changeMoveset`!");
     }
     moveset = coerceArray(moveset);
-    expect(moveset.length, "Cannot assign more than 4 moves to a moveset!").toBeLessThanOrEqual(4);
+    expectValue(moveset.length).toBeLessThanOrEqual(4);
     pokemon.moveset = [];
     moveset.forEach((move, i) => {
       pokemon.setMove(i, move);
@@ -266,7 +266,7 @@ export class MoveHelper extends GameManagerHelper {
 
     const legalTargets = getMoveTargets(enemy, moveId);
 
-    vi.spyOn(enemy, "getNextMove").mockReturnValueOnce({
+    spyOn(enemy, "getNextMove").mockReturnValueOnce({
       move: moveId,
       targets:
         target !== undefined && !legalTargets.multiple && legalTargets.targets.includes(target)
@@ -276,7 +276,7 @@ export class MoveHelper extends GameManagerHelper {
     });
 
     if (tera) {
-      (vi.spyOn(phase as any, "shouldTera") as MockInstance<(typeof phase)["shouldTera"]>).mockReturnValueOnce(true);
+      (spyOn(phase as any, "shouldTera") as MockInstance<(typeof phase)["shouldTera"]>).mockReturnValueOnce(true);
     }
 
     /**
@@ -311,7 +311,7 @@ export class MoveHelper extends GameManagerHelper {
     const enemy = this.game.scene.getEnemyField()[phase.getFieldIndex()];
 
     if ([Overrides.ENEMY_MOVESET_OVERRIDE].flat().length > 0) {
-      vi.spyOn(Overrides, "ENEMY_MOVESET_OVERRIDE", "get").mockReturnValue([]);
+      spyOn(Overrides, "ENEMY_MOVESET_OVERRIDE", "get").mockReturnValue([]);
       console.warn(
         "Warning: `forceEnemyMove` overwrites the Pokemon's moveset and disables the enemy moveset override!",
       );
@@ -319,7 +319,7 @@ export class MoveHelper extends GameManagerHelper {
     enemy.moveset = [new PokemonMove(moveId)];
     const legalTargets = getMoveTargets(enemy, moveId);
 
-    vi.spyOn(enemy, "getNextMove").mockReturnValueOnce({
+    spyOn(enemy, "getNextMove").mockReturnValueOnce({
       move: moveId,
       targets:
         target !== undefined && !legalTargets.multiple && legalTargets.targets.includes(target)
@@ -329,7 +329,7 @@ export class MoveHelper extends GameManagerHelper {
     });
 
     if (tera) {
-      (vi.spyOn(phase as any, "shouldTera") as MockInstance<(typeof phase)["shouldTera"]>).mockReturnValueOnce(true);
+      (spyOn(phase as any, "shouldTera") as MockInstance<(typeof phase)["shouldTera"]>).mockReturnValueOnce(true);
     }
 
     /**
@@ -353,7 +353,7 @@ export class MoveHelper extends GameManagerHelper {
    * ```
    */
   public forceMetronomeMove(move: MoveId, once = false): MockInstance {
-    const spy = vi.spyOn(allMoves[MoveId.METRONOME].getAttrs("RandomMoveAttr")[0], "getMoveOverride");
+    const spy = spyOn(allMoves[MoveId.METRONOME].getAttrs("RandomMoveAttr")[0], "getMoveOverride");
     if (once) {
       spy.mockReturnValueOnce(move);
     } else {

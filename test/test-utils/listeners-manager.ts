@@ -1,4 +1,4 @@
-import { expect } from "vitest";
+import { expectValue } from "#app/rl/mocks/assert";
 
 /**
  * Whether or not it is currently the first time running this manager.
@@ -21,7 +21,7 @@ export function manageListeners() {
   if (firstTime) {
     initialListeners.push(...process.listeners("message"));
   } else {
-    expect(process.listeners("message").length).toBeLessThan(7);
+    expectValue(process.listeners("message").length).toBeLessThan(7);
 
     // Remove the listener that was used during the previous test file
     if (currentListener) {

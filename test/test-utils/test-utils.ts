@@ -1,7 +1,7 @@
 import { Pokemon } from "#field/pokemon";
 import { GameManager } from "#test/test-utils/game-manager";
 import i18next, { type ParseKeys } from "i18next";
-import { vi } from "vitest";
+import { spyOn } from "#app/rl/mocks/spy";
 
 /**
  * Sets up the i18next mock.
@@ -10,12 +10,7 @@ import { vi } from "vitest";
  * @returns A spy/mock of i18next
  */
 export function mockI18next() {
-  return (
-    vi
-      .spyOn(i18next, "t")
-      // @ts-expect-error - ignoring type mismatch for mock
-      .mockImplementation((key: ParseKeys) => key)
-  );
+  return spyOn(i18next, "t").mockImplementation((key: ParseKeys) => key);
 }
 
 /**
@@ -91,7 +86,7 @@ export function isPokemonInstance(received: unknown): received is Pokemon {
  * @returns Whether `received` is an instance of {@linkcode GameManager}.
  */
 export function isGameManagerInstance(received: unknown): received is GameManager {
-  return isObject(received) && received instanceof GameManager;
+  return isObject(received) && received.constructor?.name === "GameManager";
 }
 
 // #endregion Matcher utilities

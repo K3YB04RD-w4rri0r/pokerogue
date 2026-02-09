@@ -7,7 +7,8 @@ import { Stat } from "#enums/stat";
 import type { EnemyPokemon, PlayerPokemon, Pokemon } from "#field/pokemon";
 import { GameManagerHelper } from "#test/test-utils/helpers/game-manager-helper";
 import type { MoveHelper } from "#test/test-utils/helpers/move-helper";
-import { expect, type MockInstance, vi } from "vitest";
+import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
+import { expectValue } from "#app/rl/mocks/assert";
 
 /** Helper to manage pokemon */
 export class FieldHelper extends GameManagerHelper {
@@ -22,7 +23,7 @@ export class FieldHelper extends GameManagerHelper {
    */
   public getPlayerPokemon(includeSwitching = true): PlayerPokemon {
     const pokemon = this.game.scene.getPlayerPokemon(includeSwitching);
-    expect(pokemon).toBeDefined();
+    expectValue(pokemon).toBeDefined();
     return pokemon!;
   }
 
@@ -37,7 +38,7 @@ export class FieldHelper extends GameManagerHelper {
    */
   public getEnemyPokemon(includeSwitching = true): EnemyPokemon {
     const pokemon = this.game.scene.getEnemyPokemon(includeSwitching);
-    expect(pokemon).toBeDefined();
+    expectValue(pokemon).toBeDefined();
     return pokemon!;
   }
 
@@ -47,7 +48,7 @@ export class FieldHelper extends GameManagerHelper {
    */
   public getPlayerParty(): PlayerPokemon[] {
     const party = this.game.scene.getPlayerParty();
-    expect(party.length).toBeGreaterThan(0);
+    expectValue(party.length).toBeGreaterThan(0);
     return party;
   }
 
@@ -57,7 +58,7 @@ export class FieldHelper extends GameManagerHelper {
    */
   public getEnemyParty(): EnemyPokemon[] {
     const party = this.game.scene.getEnemyParty();
-    expect(party.length).toBeGreaterThan(0);
+    expectValue(party.length).toBeGreaterThan(0);
     return party;
   }
 
@@ -103,11 +104,11 @@ export class FieldHelper extends GameManagerHelper {
    * @param pokemon - The pokemon to mock the ability of
    * @param ability - The ability to be mocked
    * @returns A {@linkcode MockInstance} object
-   * @see {@linkcode vi.spyOn}
+   * @see {@linkcode spyOn}
    * @see https://vitest.dev/api/mock#mockreturnvalue
    */
   public mockAbility(pokemon: Pokemon, ability: AbilityId): MockInstance<Pokemon["getAbility"]> {
-    return vi.spyOn(pokemon, "getAbility").mockReturnValue(allAbilities[ability]);
+    return spyOn(pokemon, "getAbility").mockReturnValue(allAbilities[ability]);
   }
 
   /**
@@ -122,7 +123,7 @@ export class FieldHelper extends GameManagerHelper {
    * or {@linkcode MoveHelper.selectWithTera} instead.
    */
   public forceTera(pokemon: Pokemon, teraType: PokemonType = pokemon.getSpeciesForm(true).type1): void {
-    vi.spyOn(pokemon, "isTerastallized", "get").mockReturnValue(true);
-    vi.spyOn(pokemon, "teraType", "get").mockReturnValue(teraType);
+    spyOn(pokemon, "isTerastallized", "get").mockReturnValue(true);
+    spyOn(pokemon, "teraType", "get").mockReturnValue(teraType);
   }
 }

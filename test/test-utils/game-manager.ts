@@ -49,7 +49,8 @@ import type { TargetSelectUiHandler } from "#ui/target-select-ui-handler";
 import fs from "node:fs";
 import { AES, enc } from "crypto-js";
 import type { NonEmptyTuple } from "type-fest";
-import { expect, vi } from "vitest";
+import { mockFn, spyOn, waitUntil } from "#app/rl/mocks/spy";
+import { expectValue, standaloneExpect } from "#app/rl/mocks/assert";
 
 /**
  * Class to manage the game state and transitions between phases.
@@ -113,7 +114,7 @@ export class GameManager {
     this.initDefaultOverrides();
 
     // TODO: remove `any` assertion
-    global.fetch = vi.fn(MockFetch) as any;
+    global.fetch = mockFn(MockFetch) as any;
   }
 
   /**
@@ -157,7 +158,7 @@ export class GameManager {
    */
   // TODO: This is unused
   async waitMode(mode: UiMode): Promise<void> {
-    await vi.waitUntil(() => this.scene.ui?.getMode() === mode);
+    await waitUntil(() => this.scene.ui?.getMode() === mode);
   }
 
   /**
@@ -218,7 +219,7 @@ export class GameManager {
     });
 
     // This will consider all battle entry dialog as seens and skip them
-    vi.spyOn(this.scene.ui, "shouldSkipDialogue").mockReturnValue(true);
+    spyOn(this.scene.ui, "shouldSkipDialogue").mockReturnValue(true);
 
     if (overrides.ENEMY_HELD_ITEMS_OVERRIDE.length === 0) {
       this.removeEnemyHeldItems();
@@ -268,7 +269,7 @@ export class GameManager {
 
     await this.phaseInterceptor.to("EncounterPhase");
     if (encounterType != null) {
-      expect(this.scene.currentBattle?.mysteryEncounter?.encounterType).toBe(encounterType);
+      expectValue(this.scene.currentBattle?.mysteryEncounter?.encounterType).toBe(encounterType);
     }
   }
 
@@ -293,7 +294,7 @@ export class GameManager {
         // Multi target attacks do not select a target
         if (move.isMultiTarget()) {
           if (targetIndex !== undefined) {
-            expect.fail(`targetIndex was passed to selectMove() but move ("${move.name}") is not targeted`);
+            standaloneExpect.fail(`targetIndex was passed to selectMove() but move ("${move.name}") is not targeted`);
           }
         } else {
           handler.setCursor(targetIndex ?? BattlerIndex.ENEMY);

@@ -85,6 +85,7 @@
         "./src/ui/*.ts"
       ],
       "#utils/*": ["./src/utils/*.ts"],
+      "#rl/*": ["./src/rl/*.ts"],
       "#data/*": ["./src/data/pokemon-forms/*.ts", "./src/data/pokemon/*.ts", "./src/data/*.ts"],
       "#test/*": ["./test/*.ts"],
       "#app/*": ["./src/*.ts"]
