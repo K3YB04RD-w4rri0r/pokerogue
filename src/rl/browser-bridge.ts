@@ -758,6 +758,17 @@ async function startBridge(): Promise<void> {
         continue;
       }
 
+      // Hide the pokemon info container if it's still visible (e.g. after
+      // a successful catch — AttemptCapturePhase.catch() shows IVs/stats
+      // overlay but the hide tween may not finish before the next decision).
+      try {
+        const pic = globalScene.pokemonInfoContainer;
+        if (pic && (pic as any).shown) {
+          pic.setVisible(false);
+          (pic as any).shown = false;
+        }
+      } catch (_) { /* ignore */ }
+
       // Check for game over
       if (state.phase === DecisionPhase.GAME_OVER || router.isGameOver()) {
         const gameState = buildFullGameState(state, step);

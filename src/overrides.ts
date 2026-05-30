@@ -49,7 +49,9 @@ import type { IntClosedRange, TupleOf } from "type-fest";
  * }
  * ```
  */
-const overrides = {} satisfies Partial<InstanceType<OverridesType>>;
+const overrides = {
+  MYSTERY_ENCOUNTER_RATE_OVERRIDE: 0,
+} satisfies Partial<InstanceType<OverridesType>>;
 
 /**
  * If you need to add Overrides values for local testing do that inside {@linkcode overrides}

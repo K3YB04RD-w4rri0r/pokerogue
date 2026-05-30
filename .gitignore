@@ -53,3 +53,8 @@ coverage
 
 # Script outputs
 ./*.csv
+
+
+/src/rl/diagnosis
+/src/rl/STATUS.md
+/src/rl/docs

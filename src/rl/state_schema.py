@@ -9,7 +9,7 @@ Design goals:
   - Human-readable: every field has a clear name and comment.
   - JSON-serializable: only int, float, bool, str, None, list, and dict.
   - Complete: captures everything an optimal agent could need, including
-    fields the current Float32 vector encoding (spaces.ts) omits.
+    fields the current Float32 vector encoding (spaces.ts, 5,786 dims) omits.
   - Typed: uses typing.TypedDict so agents get IDE autocomplete and
     static-analysis support out of the box.
 
@@ -44,6 +44,7 @@ NUM_EFFECTIVE_STATS = 5      # ATK, DEF, SPATK, SPDEF, SPD (nature-affected)
 NUM_WEATHER_TYPES = 10       # WeatherType: NONE=0 .. STRONG_WINDS=9
 NUM_TERRAIN_TYPES = 5        # TerrainType: NONE=0 .. PSYCHIC=4
 NUM_ARENA_TAG_TYPES = 28     # ArenaTagType values excluding NONE
+NUM_CURATED_TAGS = 48        # Strategically important volatile tags encoded as binary flags
 NUM_MOVE_CATEGORIES = 3      # MoveCategory: PHYSICAL=0, SPECIAL=1, STATUS=2
 NUM_BATTLE_TYPES = 4         # BattleType: WILD=0, TRAINER=1, CLEAR=2, MYSTERY_ENCOUNTER=3
 NUM_MODIFIER_TIERS = 6       # ModifierTier: COMMON=0 .. LUXURY=5
@@ -57,6 +58,20 @@ MAX_ACTIVE_PER_SIDE = 2      # Max active Pokemon per side (doubles)
 MAX_REWARD_OPTIONS = 3       # Free reward slots after a battle
 MAX_SHOP_OPTIONS = 12        # Purchasable shop slots
 ACTION_SPACE_SIZE = 58       # Total discrete actions
+
+# ─── Observation Vector Layout (mirrors spaces.ts) ───
+ABILITY_FEATURE_DIM = 40     # Semantic features per ability (v3: replaces ability_id/310)
+MODIFIER_FEATURE_DIM = 20   # Semantic features per modifier (v4: 20-dim feature vector)
+MOVE_BLOCK_DIM = 132         # Dims per move slot (v7: +46 MoveAttr boolean flags)
+POKEMON_BLOCK_DIM = 771      # 243 non-move + 4*132 moves (v7: MoveAttr boolean flags)
+FIELD_STATE_DIM = 94         # Weather/terrain/arena tags/turns
+BATTLE_META_DIM = 40         # Wave/turn/money/score/pokeballs/capabilities/game_mode_flags
+MODIFIER_PHASE_DIM = 225     # v4: header(3) + reward(3*28) + shop(6*23)
+MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8)
+DERIVED_FIELDS_DIM = 28      # Type effectiveness, STAB, speed ordering
+PHASE_INDICATOR_DIM = 16     # One-hot over DecisionPhase
+TOTAL_POKEMON_SLOTS = 12     # 2 active + 4 bench per side
+OBSERVATION_DIM = 9875       # 12*771 + 94 + 40 + 225 + 220 + 28 + 16
 
 # Move target enum values (MoveTarget) for reference
 MOVE_TARGET_USER = 0
@@ -122,7 +137,7 @@ class MoveSlot(TypedDict):
     category: int               # MoveCategory: PHYSICAL=0, SPECIAL=1, STATUS=2
 
     # --- Stats ---
-    power: int                  # Base power (0 for status moves)
+    power: int                  # Base power (-1 for status moves, >0 for attacks)
     accuracy: int               # Base accuracy (100 = 100%, -1 = always hits)
     priority: int               # Move priority (-7 to +5 typically)
 
@@ -146,7 +161,7 @@ class MoveSlot(TypedDict):
     is_ballistic: bool          # Whether the move is ballistic (Bulletproof)
 
     # --- Secondary Effects ---
-    effect_chance: int          # % chance of secondary effect (0 if none, 100 if guaranteed)
+    effect_chance: int          # % chance of secondary effect (-1 if none, 100 if guaranteed)
     status_effect: int          # StatusEffect inflicted (0=NONE, 1=POISON, ..., 7=FAINT)
     stat_changes: List[StatChange]  # Stat stage changes (e.g. [{stat:1, stages:2, self:True, chance:100}])
     drain_ratio: float          # Fraction of damage dealt healed back (Drain Punch=0.5, 0.0 if none)
@@ -175,6 +190,126 @@ class MoveSlot(TypedDict):
     # --- Ability-Interaction Flags ---
     is_pulse: bool              # Boosted by Mega Launcher (+50%)
     is_dance: bool              # Copied by Dancer ability
+
+    # --- v6: Move Semantic Encoding (+36 fields) ---
+
+    # Boolean attr flags (12)
+    can_flinch: bool            # Has FlinchAttr (Iron Head, Rock Slide)
+    can_confuse: bool           # Has ConfuseAttr (Hurricane, Confuse Ray)
+    is_recharge: bool           # Has RechargeAttr — user loses next turn (Hyper Beam)
+    is_frenzy: bool             # Has FrenzyAttr — locked for 2-3 turns, confused after (Outrage)
+    is_typeless: bool           # Has TypelessAttr — no type for effectiveness (Struggle)
+    creates_substitute: bool    # Has AddSubstituteAttr (Substitute)
+    suppresses_ability: bool    # Has SuppressAbilitiesAttr (Gastro Acid)
+    has_variable_power: bool    # Has VariablePowerAttr — power depends on context (Eruption, Gyro Ball)
+    has_variable_type: bool     # Has VariableMoveTypeAttr — type changes (Weather Ball, Tera Blast)
+    has_variable_category: bool # Has VariableMoveCategoryAttr (Photon Geyser, Shell Side Arm)
+    bypass_burn_penalty: bool   # Has BypassBurnDamageReductionAttr (Facade)
+    ignores_stat_stages: bool   # Has IgnoreOpponentStatStagesAttr (Sacred Sword, Chip Away)
+
+    # Field control (4)
+    weather_change: int         # WeatherType set by move (0=none, 1-9=specific)
+    terrain_change: int         # TerrainType set by move (0=none, 1-4=specific)
+    sets_arena_tag: bool        # Has AddArenaTagAttr
+    removes_arena_tags: bool    # Has RemoveArenaTagsAttr (Defog, Rapid Spin)
+
+    # Arena tag semantics (3)
+    sets_hazard: bool           # Arena tag is entry hazard (Stealth Rock, Spikes, etc.)
+    sets_screen: bool           # Arena tag is screen (Reflect, Light Screen, Aurora Veil)
+    arena_tag_self_side: bool   # Arena tag targets own side
+
+    # Battler tag semantics (3)
+    applies_battler_tag: bool   # Has AddBattlerTagAttr (excl. flinch/confuse/recharge)
+    applies_move_restriction: bool  # Tag restricts moves (Taunt, Encore, Disable, etc.)
+    applies_continuous_damage: bool # Tag applies ongoing damage (Leech Seed, Salt Cure, etc.)
+
+    # Fixed damage discrimination (4)
+    is_user_hp_damage: bool     # UserHpDamageAttr (Endeavor)
+    is_target_half_hp: bool     # TargetHalfHpDamageAttr (Super Fang)
+    is_counter_damage: bool     # CounterDamageAttr (Counter, Mirror Coat, Metal Burst)
+    is_level_damage: bool       # LevelDamageAttr (Seismic Toss, Night Shade)
+
+    # Additional strategic flags (2)
+    is_delayed_attack: bool     # DelayedAttackAttr (Future Sight, Doom Desire)
+    post_victory_stat_boost: bool  # PostVictoryStatStageChangeAttr
+
+    # Missing MoveFlags (8)
+    is_wind_move: bool          # WIND_MOVE — Wind Rider/Wind Power interaction
+    is_reckless_move: bool      # RECKLESS_MOVE — Reckless ability boost
+    is_reflectable: bool        # REFLECTABLE — Magic Bounce interaction
+    hides_user: bool            # HIDE_USER — semi-invulnerable (Fly, Dig)
+    is_triage_move: bool        # TRIAGE_MOVE — Triage ability priority boost
+    check_all_hits: bool        # CHECK_ALL_HITS — multi-hit interaction
+    affected_by_gravity: bool   # GRAVITY — disabled under Gravity
+    hides_target: bool          # HIDE_TARGET — Phantom Force etc.
+
+    # ── v7: MoveAttr boolean flags (+46 fields) ──
+
+    # Group 8: Item Manipulation (3)
+    steals_item: bool           # StealHeldItemChanceAttr (Thief, Covet)
+    removes_item: bool          # RemoveHeldItemAttr (Knock Off, Incinerate)
+    steals_berry: bool          # StealEatBerryAttr (Pluck, Bug Bite)
+
+    # Group 9: Stat Manipulation (8)
+    copies_stats: bool          # CopyStatsAttr (Psych Up)
+    inverts_stats: bool         # InvertStatsAttr (Topsy-Turvy)
+    resets_stats: bool          # ResetStatsAttr (Clear Smog, Haze, Freezy Frost)
+    swaps_stat_stages: bool     # SwapStatStagesAttr (Heart Swap, Power/Guard Swap)
+    steals_stat_boosts: bool    # SpectralThiefAttr (Spectral Thief)
+    averages_stats: bool        # AverageStatsAttr (Power/Guard Split)
+    swaps_single_stat: bool     # SwapStatAttr (Speed Swap)
+    shifts_own_stat: bool       # ShiftStatAttr (Power Shift)
+
+    # Group 10: HP / PP / Revival (3)
+    splits_hp: bool             # HpSplitAttr (Pain Split)
+    reduces_pp: bool            # ReducePpMoveAttr (Spite, Eerie Spell)
+    revives_ally: bool          # RevivalBlessingAttr (Revival Blessing)
+
+    # Group 11: Move-Calling (5)
+    copies_last_move: bool      # CopyMoveAttr (Mirror Move)
+    calls_random_move: bool     # RandomMoveAttr (Metronome)
+    calls_moveset_move: bool    # RandomMovesetMoveAttr (Sleep Talk, Assist)
+    copies_move_temp: bool      # MovesetCopyMoveAttr (Mimic)
+    copies_move_perm: bool      # SketchAttr (Sketch)
+
+    # Group 12: Ability Manipulation (5)
+    copies_ability: bool        # AbilityCopyAttr (Role Play, Doodle)
+    swaps_abilities: bool       # SwitchAbilitiesAttr (Skill Swap)
+    changes_ability: bool       # AbilityChangeAttr (Worry Seed, Simple Beam)
+    gives_ability: bool         # AbilityGiveAttr (Entrainment)
+    suppresses_if_acted: bool   # SuppressAbilitiesIfActedAttr (Core Enforcer)
+
+    # Group 13: Targeting & Priority (4)
+    bypass_redirect: bool       # BypassRedirectAttr (Snipe Shot)
+    forces_target_next: bool    # AfterYouAttr (After You)
+    forces_target_last: bool    # ForceLastAttr (Quash)
+    has_conditional_priority: bool  # IncrementMovePriorityAttr (Grassy Glide)
+
+    # Group 14: Status & Tag Manipulation (5)
+    cures_party_status: bool    # PartyStatusCureAttr (Aromatherapy, Heal Bell)
+    transfers_status: bool      # PsychoShiftEffectAttr (Psycho Shift)
+    heals_status: bool          # HealStatusEffectAttr (~10 self-cure moves)
+    removes_battler_tag: bool   # RemoveBattlerTagAttr (Rapid Spin)
+    removes_substitutes: bool   # RemoveAllSubstitutesAttr (Tidy Up)
+
+    # Group 15: Transform & Special Moves (4)
+    transforms_into_target: bool  # TransformAttr (Transform)
+    is_curse: bool              # CurseAttr (Curse)
+    is_wish: bool               # WishAttr (Wish)
+    is_destiny_bond: bool       # DestinyBondAttr (Destiny Bond)
+
+    # Group 16: Field Control (3)
+    swaps_arena_tags: bool      # SwapArenaTagsAttr (Court Change)
+    clears_weather: bool        # ClearWeatherAttr (weather-clearing moves)
+    clears_terrain: bool        # ClearTerrainAttr (terrain-clearing moves)
+
+    # Group 17: Damage Calc & Misc (6)
+    has_variable_target: bool   # VariableTargetAttr (Expanding Force)
+    resists_last_type: bool     # ResistLastMoveTypeAttr (Conversion 2)
+    has_variable_accuracy: bool # VariableAccuracyAttr (Thunder in rain)
+    uses_alt_stat: bool         # VariableAtkAttr || VariableDefAttr (Psyshock, Body Press)
+    overrides_type_chart: bool  # MoveTypeChartOverrideAttr (Freeze-Dry)
+    scatters_money: bool        # MoneyAttr (Pay Day, Happy Hour)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -597,6 +732,9 @@ class ChallengeInfo(TypedDict):
 
 class BattleState(TypedDict):
     """Metadata about the current battle and overall run."""
+
+    # --- Biome (B3 fix: also available at battle level for convenience) ---
+    biome_id: int               # BiomeId enum (0-40+), same as field.biome_id
 
     # --- Current Battle ---
     wave_index: int             # Current wave number (1-200 in Classic)
@@ -1045,6 +1183,107 @@ def empty_move_slot() -> MoveSlot:
         # Ability-interaction flags
         is_pulse=False,
         is_dance=False,
+        # ── v6: Move semantic encoding (+36 fields) ──
+        # Group 1: Boolean attr flags (12)
+        can_flinch=False,
+        can_confuse=False,
+        is_recharge=False,
+        is_frenzy=False,
+        is_typeless=False,
+        creates_substitute=False,
+        suppresses_ability=False,
+        has_variable_power=False,
+        has_variable_type=False,
+        has_variable_category=False,
+        bypass_burn_penalty=False,
+        ignores_stat_stages=False,
+        # Group 2: Field control (4)
+        weather_change=0,
+        terrain_change=0,
+        sets_arena_tag=False,
+        removes_arena_tags=False,
+        # Group 3: Arena tag semantics (3)
+        sets_hazard=False,
+        sets_screen=False,
+        arena_tag_self_side=False,
+        # Group 4: Battler tag semantics (3)
+        applies_battler_tag=False,
+        applies_move_restriction=False,
+        applies_continuous_damage=False,
+        # Group 5: Fixed damage discrimination (4)
+        is_user_hp_damage=False,
+        is_target_half_hp=False,
+        is_counter_damage=False,
+        is_level_damage=False,
+        # Group 6: Additional strategic flags (2)
+        is_delayed_attack=False,
+        post_victory_stat_boost=False,
+        # Group 7: Missing MoveFlags (8)
+        is_wind_move=False,
+        is_reckless_move=False,
+        is_reflectable=False,
+        hides_user=False,
+        is_triage_move=False,
+        check_all_hits=False,
+        affected_by_gravity=False,
+        hides_target=False,
+        # ── v7: MoveAttr boolean flags (+46 fields) ──
+        # Group 8: Item Manipulation (3)
+        steals_item=False,
+        removes_item=False,
+        steals_berry=False,
+        # Group 9: Stat Manipulation (8)
+        copies_stats=False,
+        inverts_stats=False,
+        resets_stats=False,
+        swaps_stat_stages=False,
+        steals_stat_boosts=False,
+        averages_stats=False,
+        swaps_single_stat=False,
+        shifts_own_stat=False,
+        # Group 10: HP / PP / Revival (3)
+        splits_hp=False,
+        reduces_pp=False,
+        revives_ally=False,
+        # Group 11: Move-Calling (5)
+        copies_last_move=False,
+        calls_random_move=False,
+        calls_moveset_move=False,
+        copies_move_temp=False,
+        copies_move_perm=False,
+        # Group 12: Ability Manipulation (5)
+        copies_ability=False,
+        swaps_abilities=False,
+        changes_ability=False,
+        gives_ability=False,
+        suppresses_if_acted=False,
+        # Group 13: Targeting & Priority (4)
+        bypass_redirect=False,
+        forces_target_next=False,
+        forces_target_last=False,
+        has_conditional_priority=False,
+        # Group 14: Status & Tag Manipulation (5)
+        cures_party_status=False,
+        transfers_status=False,
+        heals_status=False,
+        removes_battler_tag=False,
+        removes_substitutes=False,
+        # Group 15: Transform & Special Moves (4)
+        transforms_into_target=False,
+        is_curse=False,
+        is_wish=False,
+        is_destiny_bond=False,
+        # Group 16: Field Control (3)
+        swaps_arena_tags=False,
+        clears_weather=False,
+        clears_terrain=False,
+        # Group 17: Damage Calc & Misc (6)
+        has_variable_target=False,
+        resists_last_type=False,
+        has_variable_accuracy=False,
+        uses_alt_stat=False,
+        overrides_type_chart=False,
+        scatters_money=False,
     )
 
 
