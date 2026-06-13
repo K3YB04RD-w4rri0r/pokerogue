@@ -63,32 +63,32 @@ export const PKMN = {
   PASSIVE_FEAT: 107, // 40
   IS_TERA: 147, // 1
   TERA_TYPE: 148, // 19 one-hot
-  VOLATILE_TAGS: 167, // 48 (CURATED_VOLATILE_TAGS order)
-  OTHER_TAG_COUNT: 215, // 1 (/10)
-  IS_BOSS: 216, // 1
-  BOSS_SHIELD: 217, // 1
-  IS_TRAPPED: 218, // 1
-  IS_GROUNDED: 219, // 1
-  WEIGHT: 220, // 1 (/1000)
-  CATCH_RATE: 221, // 1 (/255)
-  IS_FAINTED: 222, // 1
-  WAVE_TURN_COUNT: 223, // 1 (/20)
-  DAMAGE_TAKEN: 224, // 1 (turn_data.damage_taken / max_hp)
-  ACTED: 225, // 1 (turn_data.acted)
-  TOXIC_TURNS: 226, // 1 (/16)
-  SLEEP_TURNS: 227, // 1 (/4)
-  HELD_ITEM_COUNT: 228, // 1 (/10)
-  SPECIES_ID: 229, // 1 (/1025)
-  GENDER: 230, // 1
-  FRIENDSHIP: 231, // 1 (/255)
-  MOVE_QUEUE_LEN: 232, // 1 (/2)
-  HIT_COUNT: 233, // 1 (battle_data.hit_count / 10)
-  ABILITY_SUPPRESSED: 234, // 1
-  IS_MEGA: 235, // 1
-  IS_MAX: 236, // 1
-  MOVE_EFF: 237, // 1 (turn_data.move_effectiveness / 4)
-  COMPUTED_STATS: 238, // 5 (stats[1..5] / 500)
-  MOVES: 243, // 4 × MOVE_BLOCK_DIM = 528 → 771 total
+  VOLATILE_TAGS: 167, // 76 (CURATED_VOLATILE_TAGS order; v8: 48 → 76)
+  OTHER_TAG_COUNT: 243, // 1 (/10)
+  IS_BOSS: 244, // 1
+  BOSS_SHIELD: 245, // 1
+  IS_TRAPPED: 246, // 1
+  IS_GROUNDED: 247, // 1
+  WEIGHT: 248, // 1 (/1000)
+  CATCH_RATE: 249, // 1 (/255)
+  IS_FAINTED: 250, // 1
+  WAVE_TURN_COUNT: 251, // 1 (/20)
+  DAMAGE_TAKEN: 252, // 1 (turn_data.damage_taken / max_hp)
+  ACTED: 253, // 1 (turn_data.acted)
+  TOXIC_TURNS: 254, // 1 (/16)
+  SLEEP_TURNS: 255, // 1 (/4)
+  HELD_ITEM_COUNT: 256, // 1 (/10)
+  SPECIES_ID: 257, // 1 (/1025)
+  GENDER: 258, // 1
+  FRIENDSHIP: 259, // 1 (/255)
+  MOVE_QUEUE_LEN: 260, // 1 (/2)
+  HIT_COUNT: 261, // 1 (battle_data.hit_count / 10)
+  ABILITY_SUPPRESSED: 262, // 1
+  IS_MEGA: 263, // 1
+  IS_MAX: 264, // 1
+  MOVE_EFF: 265, // 1 (turn_data.move_effectiveness / 4)
+  COMPUTED_STATS: 266, // 5 (stats[1..5] / 500)
+  MOVES: 271, // 4 × MOVE_BLOCK_DIM (136) = 544 → 815 total
 } as const;
 
 // ─── Intra-move offsets (encodeMoveFromDict, spaces.ts ~436-675) ─────
@@ -204,7 +204,12 @@ export const MOVE = {
   HAS_VARIABLE_ACCURACY: 128,
   USES_ALT_STAT: 129,
   OVERRIDES_TYPE_CHART: 130,
-  SCATTERS_MONEY: 131, // last move dim
+  SCATTERS_MONEY: 131,
+  // Group 18: v8 survival / HP-relative semantics (4)
+  SURVIVES_AT_1HP: 132,
+  MATCHES_USER_HP: 133,
+  HP_COST_STAT_BOOST: 134,
+  HITS_SEMI_INVULNERABLE: 135, // last move dim (MOVE_BLOCK_DIM 136)
 } as const;
 
 // ─── Block bases (encodeObservation, spaces.ts ~1518-1573) ───────────

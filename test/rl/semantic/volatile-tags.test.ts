@@ -125,4 +125,41 @@ describe("RL Semantic - Volatile Tags", () => {
     const obs = encodeObservation(state);
     expect(obs[pokemonDim("enemy_0", PKMN.VOLATILE_TAGS + volatileTagIndex(BattlerTagType.SALT_CURED))]).toBe(1);
   });
+
+  // ── v8: new curated tags ──
+  it("serializes Bind (BIND partial-trap) on the enemy", async () => {
+    await game.classicMode.startBattle(SpeciesId.SHUCKLE);
+
+    game.move.use(MoveId.BIND);
+    await game.move.forceHit(); // Bind is 85% accuracy
+    await game.toNextTurn();
+
+    const enemy = game.field.getEnemyPokemon();
+    expect(enemy.getTag(BattlerTagType.BIND)).toBeDefined();
+
+    const state = gs();
+    const tag = state.enemy_0.volatile_tags.find((t: any) => t.tag_type === BattlerTagType.BIND);
+    expect(tag).toBeDefined();
+
+    const obs = encodeObservation(state);
+    expect(obs[pokemonDim("enemy_0", PKMN.VOLATILE_TAGS + volatileTagIndex(BattlerTagType.BIND))]).toBe(1);
+  });
+
+  it("serializes Focus Energy (CRIT_BOOST) on the user", async () => {
+    game.override.moveset([MoveId.FOCUS_ENERGY]);
+    await game.classicMode.startBattle(SpeciesId.MEW);
+
+    game.move.select(MoveId.FOCUS_ENERGY);
+    await game.toEndOfTurn();
+
+    const player = game.field.getPlayerPokemon();
+    expect(player.getTag(BattlerTagType.CRIT_BOOST)).toBeDefined();
+
+    const state = gs();
+    const tag = state.player_0.volatile_tags.find((t: any) => t.tag_type === BattlerTagType.CRIT_BOOST);
+    expect(tag).toBeDefined();
+
+    const obs = encodeObservation(state);
+    expect(obs[pokemonDim("player_0", PKMN.VOLATILE_TAGS + volatileTagIndex(BattlerTagType.CRIT_BOOST))]).toBe(1);
+  });
 });

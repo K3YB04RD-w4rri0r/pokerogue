@@ -5,7 +5,7 @@
  * Float32Array observation vector, and extracts action masks from it.
  *
  * Layout (9,875 float32):
- *   Pokemon block:            771 dims × 12 slots = 9,252
+ *   Pokemon block:            815 dims × 12 slots = 9,780
  *   Field block:              94
  *   Battle block:             40
  *   Modifier phase block:     225
@@ -124,8 +124,12 @@ export const MAX_SHOP_OPTIONS = 12;
  *   has_variable_target(1) + resists_last_type(1) + has_variable_accuracy(1) +
  *   uses_alt_stat(1) + overrides_type_chart(1) + scatters_money(1)
  * = 132
+ * v8 additions (+4):
+ *   survives_at_1hp(1) + matches_user_hp(1) + hp_cost_stat_boost(1) +
+ *   hits_semi_invulnerable(1)
+ * = 136
  */
-export const MOVE_BLOCK_DIM = 132;
+export const MOVE_BLOCK_DIM = 136;
 
 // ─── Curated Volatile Tags ────────────────────────────────────────────
 
@@ -181,12 +185,42 @@ export const CURATED_VOLATILE_TAGS: BattlerTagType[] = [
   BattlerTagType.COMMANDED,           // Commander ability — merged into ally
   BattlerTagType.BURNED_UP,           // Lost Fire type after Burn Up
   BattlerTagType.DOUBLE_SHOCKED,      // Lost Electric type after Double Shock
+  // v8: 28 additional tags (partial-trap family, charge/crit/boost states,
+  // exposure/ignore states, paradox/overlord boosts, misc disables)
+  BattlerTagType.BIND,                // Partial-trap: damage + no switch
+  BattlerTagType.WRAP,                // Partial-trap
+  BattlerTagType.CLAMP,               // Partial-trap
+  BattlerTagType.FIRE_SPIN,           // Partial-trap
+  BattlerTagType.WHIRLPOOL,           // Partial-trap
+  BattlerTagType.MAGMA_STORM,         // Partial-trap
+  BattlerTagType.SAND_TOMB,           // Partial-trap
+  BattlerTagType.SNAP_TRAP,           // Partial-trap
+  BattlerTagType.THUNDER_CAGE,        // Partial-trap
+  BattlerTagType.INFESTATION,         // Partial-trap
+  BattlerTagType.CHARGED,             // Electric move charged (2x next)
+  BattlerTagType.CRIT_BOOST,          // Focus Energy / Dragon Cheer — +crit stage
+  BattlerTagType.DRAGON_CHEER,        // Ally crit boost (doubles)
+  BattlerTagType.FIRE_BOOST,          // Charcoal-like fire boost state
+  BattlerTagType.GORILLA_TACTICS,     // Locked into one move, +ATK
+  BattlerTagType.HIDDEN,              // Commander/other hidden-from-field state
+  BattlerTagType.IGNORE_ACCURACY,     // Lock-On/Mind Reader — next move always hits
+  BattlerTagType.IGNORE_DARK,         // Miracle Eye — hit Dark with Psychic
+  BattlerTagType.IGNORE_FLYING,       // Smack Down/Roost — grounded
+  BattlerTagType.IGNORE_GHOST,        // Foresight/Odor Sleuth — hit Ghost
+  BattlerTagType.NIGHTMARE,           // 1/4 HP loss per turn while asleep
+  BattlerTagType.PROTOSYNTHESIS,      // Paradox boost (sun/booster)
+  BattlerTagType.QUARK_DRIVE,         // Paradox boost (electric terrain/booster)
+  BattlerTagType.SUPREME_OVERLORD,    // ATK/SPATK boost per fainted ally
+  BattlerTagType.TAR_SHOT,            // Speed drop + fire weakness
+  BattlerTagType.TELEKINESIS,         // Floating + always-hit
+  BattlerTagType.TRUANT,              // Loafs every other turn
+  BattlerTagType.ALWAYS_GET_HIT,      // Cannot avoid the next hit
 ];
 
 const CURATED_TAG_SET = new Set(CURATED_VOLATILE_TAGS);
 
 /** Number of curated volatile tag flags */
-export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 48
+export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 76
 
 // ─── Pokemon Block ────────────────────────────────────────────────────
 
@@ -195,20 +229,20 @@ export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 48
  *   valid(1) + hp_ratio(1) + level(1) + base_stats(6) + stat_stages(7) +
  *   type1_onehot(19) + type2_onehot(19) + status_onehot(8) + nature_mults(5) +
  *   ability_features(40) + passive_ability_features(40) + is_tera(1) + tera_type_onehot(19) +
- *   volatile_tags(48) + other_tag_count(1) + is_boss(1) + boss_shield(1) +
+ *   volatile_tags(76) + other_tag_count(1) + is_boss(1) + boss_shield(1) +
  *   is_trapped(1) + is_grounded(1) + weight(1) + catch_rate(1) + is_fainted(1) +
  *   wave_turn_count(1) + damage_taken(1) + acted(1) + toxic_turn_count(1) +
  *   sleep_turns_remaining(1) + held_item_count(1) +
  *   species_id(1) + gender(1) + friendship(1) + move_queue_len(1) +
  *   battle_data_hit_count(1) + ability_suppressed(1) +
  *   is_mega(1) + is_max(1) + move_effectiveness(1) + computed_stats(5)
- * = 243
+ * = 271 (v8: volatile_tags 48 → 76, +28)
  *
- * Move sub-block: 132 × 4 = 528
+ * Move sub-block: 136 × 4 = 544
  *
- * Total: 243 + 528 = 771
+ * Total: 271 + 544 = 815
  */
-export const POKEMON_BLOCK_DIM = 771;
+export const POKEMON_BLOCK_DIM = 815;
 
 // ─── Field State Block ────────────────────────────────────────────────
 
@@ -312,7 +346,7 @@ export const OBSERVATION_DIM =
   MODIFIER_PHASE_DIM +
   MODIFIER_INVENTORY_DIM +
   DERIVED_FIELDS_DIM +
-  PHASE_INDICATOR_DIM; // 12*771 + 94 + 40 + 225 + 220 + 28 + 16 = 9875
+  PHASE_INDICATOR_DIM; // 12*815 + 94 + 40 + 225 + 220 + 28 + 16 = 10403
 
 // ─── Action Space ─────────────────────────────────────────────────────
 
@@ -431,7 +465,7 @@ const SINGLE_ENEMY_TARGETS = new Set([1, 3, 5, 9]);
 
 /**
  * Encode a single move slot from a dict into the buffer.
- * @returns number of floats written (always MOVE_BLOCK_DIM = 132)
+ * @returns number of floats written (always MOVE_BLOCK_DIM = 136)
  */
 function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<string, unknown>): number {
   const moveId = num(moveDict, "move_id");
@@ -672,6 +706,12 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
   buf[pos++] = bool(moveDict, "overrides_type_chart") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "scatters_money") ? 1.0 : 0.0;
 
+  // Group 18: v8 survival / HP-relative semantics (4)
+  buf[pos++] = bool(moveDict, "survives_at_1hp") ? 1.0 : 0.0;
+  buf[pos++] = bool(moveDict, "matches_user_hp") ? 1.0 : 0.0;
+  buf[pos++] = bool(moveDict, "hp_cost_stat_boost") ? 1.0 : 0.0;
+  buf[pos++] = bool(moveDict, "hits_semi_invulnerable") ? 1.0 : 0.0;
+
   return MOVE_BLOCK_DIM;
 }
 
@@ -679,7 +719,7 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
 
 /**
  * Encode a single Pokemon from a dict into the observation buffer.
- * @returns number of floats written (always POKEMON_BLOCK_DIM = 771)
+ * @returns number of floats written (always POKEMON_BLOCK_DIM = 815)
  */
 function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<string, unknown>): number {
   if (!bool(poke, "valid")) {
@@ -1513,7 +1553,7 @@ const POKEMON_SLOT_KEYS = [
  * Encode a full observation vector from a GameState dict.
  *
  * @param gameState - The GameState dict from buildGameState()
- * @returns Float32Array of size OBSERVATION_DIM (9875)
+ * @returns Float32Array of size OBSERVATION_DIM (10403)
  */
 export function encodeObservation(gameState: Record<string, unknown>): Float32Array {
   const buf = new Float32Array(OBSERVATION_DIM);

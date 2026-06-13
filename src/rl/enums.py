@@ -630,6 +630,13 @@ CURATED_VOLATILE_TAGS: List[str] = [
     "COMMANDED",            # Commander ability — merged into ally
     "BURNED_UP",            # Lost Fire type after Burn Up
     "DOUBLE_SHOCKED",       # Lost Electric type after Double Shock
+    # v8: 28 additional tags (must match spaces.ts CURATED_VOLATILE_TAGS order)
+    "BIND", "WRAP", "CLAMP", "FIRE_SPIN", "WHIRLPOOL", "MAGMA_STORM",
+    "SAND_TOMB", "SNAP_TRAP", "THUNDER_CAGE", "INFESTATION",  # partial-trap family
+    "CHARGED", "CRIT_BOOST", "DRAGON_CHEER", "FIRE_BOOST", "GORILLA_TACTICS",
+    "HIDDEN", "IGNORE_ACCURACY", "IGNORE_DARK", "IGNORE_FLYING", "IGNORE_GHOST",
+    "NIGHTMARE", "PROTOSYNTHESIS", "QUARK_DRIVE", "SUPREME_OVERLORD",
+    "TAR_SHOT", "TELEKINESIS", "TRUANT", "ALWAYS_GET_HIT",
 ]
 
 # 28 arena tag types in spaces.ts order (lines 232-261)

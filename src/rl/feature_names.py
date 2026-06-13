@@ -5,7 +5,7 @@ Provides a human-readable name for every dimension written by
 ``encode_observation()`` in observation.py. The name list mirrors the EXACT
 write order of the encoders:
 
-  Pokemon blocks:     12 x 771 = 9,252   (_encode_pokemon / _encode_move)
+  Pokemon blocks:     12 x 815 = 9,780   (_encode_pokemon / _encode_move)
   Field state:        94                 (_encode_field)
   Battle meta:        40                 (_encode_battle)
   Modifier phase:     225                (_encode_modifier)
@@ -198,6 +198,11 @@ _MOVE_V7_FIELDS = [
     "uses_alt_stat", "overrides_type_chart", "scatters_money",
 ]
 
+# v8: +4 survival / HP-relative move flags (appended after the v7 block)
+_MOVE_V8_FIELDS = [
+    "survives_at_1hp", "matches_user_hp", "hp_cost_stat_boost", "hits_semi_invulnerable",
+]
+
 # Non-move scalar pokemon fields between tera one-hot bank and the move blocks
 _POKEMON_TAIL_FIELDS = [
     "other_tag_count",
@@ -265,11 +270,13 @@ def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
             add(f"{prefix}/{f}")
         for f in _MOVE_V7_FIELDS:
             add(f"{prefix}/{f}")
+        for f in _MOVE_V8_FIELDS:
+            add(f"{prefix}/{f}")
         assert len(names) - start == MOVE_BLOCK_DIM, (
             f"move block for {prefix} is {len(names) - start}, expected {MOVE_BLOCK_DIM}"
         )
 
-    # ── Pokemon block (771 dims), mirrors _encode_pokemon ────────────────
+    # ── Pokemon block (815 dims), mirrors _encode_pokemon ────────────────
     def add_pokemon(slot: str) -> None:
         start = len(names)
         add(f"{slot}/valid")
@@ -482,7 +489,7 @@ assert NUM_ARENA_TAG_TYPES == len(ARENA_TAG_ORDER)
 assert MODIFIER_FEATURE_DIM == len(MODIFIER_FEATURE_LABELS)
 assert ABILITY_FEATURE_DIM == len(ABILITY_FEATURE_LABELS)
 assert PHASE_INDICATOR_DIM == len(_PHASE_LABELS)
-assert len(_MOVE_V6_FIELDS) == 36 and len(_MOVE_V7_FIELDS) == 46
+assert len(_MOVE_V6_FIELDS) == 36 and len(_MOVE_V7_FIELDS) == 46 and len(_MOVE_V8_FIELDS) == 4
 
 # Block ranges: (label, start, size) in observation order
 _POKEMON_TOTAL = TOTAL_POKEMON_SLOTS * POKEMON_BLOCK_DIM

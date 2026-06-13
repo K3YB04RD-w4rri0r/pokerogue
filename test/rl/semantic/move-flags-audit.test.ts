@@ -48,6 +48,11 @@ const MOVE_FLAG_TRUTH: [MoveId, Record<string, unknown>][] = [
   [MoveId.COURT_CHANGE, { swaps_arena_tags: true }],
   [MoveId.EXPLOSION, { is_sacrifice: true }],
   [MoveId.DOUBLE_EDGE, { is_reckless_move: true, makes_contact: true }],
+  // v8 (Group 18): survival / HP-relative semantics
+  [MoveId.FALSE_SWIPE, { survives_at_1hp: true }],
+  [MoveId.ENDEAVOR, { matches_user_hp: true }],
+  [MoveId.BELLY_DRUM, { hp_cost_stat_boost: true }],
+  [MoveId.STOMP, { hits_semi_invulnerable: true }], // HitsTagForDoubleDamageAttr extends HitsTagAttr
 ];
 
 describe("RL Semantic - Move Flag Audit", () => {

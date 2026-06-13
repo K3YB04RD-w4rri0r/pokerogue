@@ -1063,7 +1063,7 @@ async function main(): Promise<void> {
         bootTime: initMs,
         obsDim: OBSERVATION_DIM,
         actionDim: ACTION_SPACE_SIZE,
-        protocolVersion: 3,
+        protocolVersion: 4,
         ...(options.rewardConfig ? { rewardConfig: options.rewardConfig } : {}),
       });
       await runInteractiveEpisode(

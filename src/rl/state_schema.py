@@ -310,6 +310,11 @@ class MoveSlot(TypedDict):
     uses_alt_stat: bool         # VariableAtkAttr || VariableDefAttr (Psyshock, Body Press)
     overrides_type_chart: bool  # MoveTypeChartOverrideAttr (Freeze-Dry)
     scatters_money: bool        # MoneyAttr (Pay Day, Happy Hour)
+    # Group 18: v8 survival / HP-relative semantics
+    survives_at_1hp: bool       # SurviveDamageAttr (False Swipe, Hold Back)
+    matches_user_hp: bool       # MatchHpAttr (Endeavor)
+    hp_cost_stat_boost: bool    # CutHpStatStageBoostAttr (Belly Drum)
+    hits_semi_invulnerable: bool  # HitsTagAttr / HitsTagForDoubleDamageAttr (Stomp; Earthquake vs Dig)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1284,6 +1289,10 @@ def empty_move_slot() -> MoveSlot:
         uses_alt_stat=False,
         overrides_type_chart=False,
         scatters_money=False,
+        survives_at_1hp=False,
+        matches_user_hp=False,
+        hp_cost_stat_boost=False,
+        hits_semi_invulnerable=False,
     )
 
 

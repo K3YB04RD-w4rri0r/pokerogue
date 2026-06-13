@@ -7,6 +7,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 MODE="${1:-full}"
 ART=".rl-verify"
+# Start each run from a clean slate. The parity/dim-exercise checks glob
+# $ART/{smoke,parity,corpus}/*.jsonl, so a stale dump from a prior run (a
+# removed scenario, or an older OBSERVATION_DIM) would shape-mismatch and fail
+# the suite. Wipe before regenerating.
+rm -rf "$ART"
 mkdir -p "$ART/smoke" "$ART/parity" "$ART/corpus"
 
 step() { printf '\n\033[1;36m=== %s ===\033[0m\n' "$*"; }

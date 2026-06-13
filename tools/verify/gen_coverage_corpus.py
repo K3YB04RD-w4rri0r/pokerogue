@@ -124,7 +124,10 @@ def run_scenario(name: str, spec: dict, out_dir: Path) -> tuple[bool, list[str]]
             probe_invalid=0.0,
             dump_dir=out_dir,
             boot_timeout=180,
-            step_timeout=60,
+            # 60s was tight for the 35-wave longrun under full-suite CPU load
+            # (transient stalls -> killed -> "EOF before done"); it completes
+            # well within this in isolation.
+            step_timeout=150,
             run_weight=spec.get("run_weight", 0.1),
             extra_args=extra_args,
         )

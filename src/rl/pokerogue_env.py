@@ -48,7 +48,7 @@ DEFAULT_CLI = REPO_ROOT / "dist" / "rl" / "cli.js"
 # Setup phases auto-played by reset(); check_switch is left to the agent.
 SETUP_PHASES = {"title", "select_gender", "starter"}
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4  # v8 observation: 76 curated tags, 136-dim moves, 10403 dims
 
 
 class ProtocolError(RuntimeError):

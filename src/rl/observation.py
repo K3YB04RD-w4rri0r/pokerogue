@@ -56,7 +56,7 @@ NUM_MOVE_CATEGORIES = 3
 NUM_BATTLE_TYPES = 4
 NUM_MODIFIER_TIERS = 6
 NUM_POKEBALL_TYPES = 5  # Tracked in pokeball_counts (0-4)
-NUM_CURATED_TAGS = 48   # 32 original + 7 strategic + 9 audit additions
+NUM_CURATED_TAGS = 76   # 48 + 28 v8 additions (partial-trap family, charge/boost/ignore states)
 NUM_ARENA_TAG_TYPES = 28
 MAX_MOVES = 4
 MAX_REWARD_OPTIONS = 3
@@ -66,8 +66,8 @@ MAX_HELD_ITEMS_ENCODED = 2   # Top-N held items encoded per active slot
 
 ABILITY_FEATURE_DIM = 40     # v3: semantic features per ability (replaces ability_id/310)
 MODIFIER_FEATURE_DIM = 20    # v4: semantic features per modifier
-MOVE_BLOCK_DIM = 132          # v7: +46 MoveAttr boolean flags (was 86)
-POKEMON_BLOCK_DIM = 771      # 243 non-move + 4*132 moves (v7: MoveAttr boolean flags)
+MOVE_BLOCK_DIM = 136          # v8: +4 survival/HP-relative flags (was 132)
+POKEMON_BLOCK_DIM = 815      # 271 non-move (v8: tags 48->76) + 4*136 moves
 FIELD_STATE_DIM = 94         # +11: weather/terrain permanence, arena tag turns, teras
 BATTLE_META_DIM = 40         # +9: game mode flags, inverse_battle
 MODIFIER_PHASE_DIM = 225     # v4: header(3) + reward(3*28) + shop(6*23)
@@ -75,7 +75,7 @@ MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8
 DERIVED_FIELDS_DIM = 28      # type effectiveness, STAB, speed ordering
 PHASE_INDICATOR_DIM = 16
 TOTAL_POKEMON_SLOTS = 12
-OBSERVATION_DIM = 9875       # 12*771 + 94 + 40 + 225 + 220 + 28 + 16
+OBSERVATION_DIM = 10403      # 12*815 + 94 + 40 + 225 + 220 + 28 + 16
 ACTION_SPACE_SIZE = 58
 
 # Held item slot dims: valid(1) + features(20) + stack_ratio(1) = 22
@@ -258,6 +258,11 @@ class ObsMove:
     uses_alt_stat: bool = False
     overrides_type_chart: bool = False
     scatters_money: bool = False
+    # Group 18: v8 survival / HP-relative semantics (4)
+    survives_at_1hp: bool = False
+    matches_user_hp: bool = False
+    hp_cost_stat_boost: bool = False
+    hits_semi_invulnerable: bool = False
 
 
 @dataclass(slots=True)
@@ -789,6 +794,10 @@ def _parse_move(d: dict) -> ObsMove:
         uses_alt_stat=_gb(d, "uses_alt_stat"),
         overrides_type_chart=_gb(d, "overrides_type_chart"),
         scatters_money=_gb(d, "scatters_money"),
+        survives_at_1hp=_gb(d, "survives_at_1hp"),
+        matches_user_hp=_gb(d, "matches_user_hp"),
+        hp_cost_stat_boost=_gb(d, "hp_cost_stat_boost"),
+        hits_semi_invulnerable=_gb(d, "hits_semi_invulnerable"),
     )
 
 
@@ -2082,7 +2091,12 @@ def _encode_move(buf: np.ndarray, offset: int, m: ObsMove) -> None:
     buf[pos] = float(m.has_variable_accuracy); pos += 1
     buf[pos] = float(m.uses_alt_stat); pos += 1
     buf[pos] = float(m.overrides_type_chart); pos += 1
-    buf[pos] = float(m.scatters_money)
+    buf[pos] = float(m.scatters_money); pos += 1
+    # Group 18: v8 survival / HP-relative semantics (4)
+    buf[pos] = float(m.survives_at_1hp); pos += 1
+    buf[pos] = float(m.matches_user_hp); pos += 1
+    buf[pos] = float(m.hp_cost_stat_boost); pos += 1
+    buf[pos] = float(m.hits_semi_invulnerable)
 
 
 def _encode_pokemon(buf: np.ndarray, offset: int, poke: ObsPokemon) -> None:

@@ -306,6 +306,11 @@ function emptyMoveSlot(): Record<string, unknown> {
     uses_alt_stat: false,
     overrides_type_chart: false,
     scatters_money: false,
+    // Group 18: v8 survival / HP-relative semantics (4)
+    survives_at_1hp: false,
+    matches_user_hp: false,
+    hp_cost_stat_boost: false,
+    hits_semi_invulnerable: false,
   };
 }
 
@@ -873,6 +878,14 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     const overridesTypeChart = safe(() => move.hasAttr("MoveTypeChartOverrideAttr"), false);
     const scattersMoney = safe(() => move.hasAttr("MoneyAttr"), false);
 
+    // ── v8: survival / HP-relative semantics (4) ──
+    // hasAttr uses instanceof, so HitsTagForDoubleDamageAttr (extends HitsTagAttr)
+    // is caught by the HitsTagAttr check.
+    const survivesAt1hp = safe(() => move.hasAttr("SurviveDamageAttr"), false);
+    const matchesUserHp = safe(() => move.hasAttr("MatchHpAttr"), false);
+    const hpCostStatBoost = safe(() => move.hasAttr("CutHpStatStageBoostAttr"), false);
+    const hitsSemiInvulnerable = safe(() => move.hasAttr("HitsTagAttr"), false);
+
     return {
       move_id: pokemonMove.moveId ?? 0,
       name: move.name ?? "",
@@ -1017,6 +1030,11 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
       uses_alt_stat: usesAltStat,
       overrides_type_chart: overridesTypeChart,
       scatters_money: scattersMoney,
+      // Group 18: v8 survival / HP-relative semantics (4)
+      survives_at_1hp: survivesAt1hp,
+      matches_user_hp: matchesUserHp,
+      hp_cost_stat_boost: hpCostStatBoost,
+      hits_semi_invulnerable: hitsSemiInvulnerable,
     };
   } catch (err) {
     console.error("[state-builder] Error building move slot:", err);

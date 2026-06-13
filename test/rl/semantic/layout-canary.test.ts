@@ -48,28 +48,28 @@ import {
 describe("RL Semantic Audit — Layout Canary", () => {
   describe("block-base arithmetic", () => {
     it("block bases land on the expected absolute indices", () => {
-      expect(POKEMON_BLOCK_DIM).toBe(771);
-      expect(MOVE_BLOCK_DIM).toBe(132);
-      expect(FIELD_BASE).toBe(9252);
-      expect(BATTLE_BASE).toBe(9346);
-      expect(MODPHASE_BASE).toBe(9386);
-      expect(MODINV_BASE).toBe(9611);
-      expect(DERIVED_BASE).toBe(9831);
-      expect(PHASE_BASE).toBe(9859);
+      expect(POKEMON_BLOCK_DIM).toBe(815);
+      expect(MOVE_BLOCK_DIM).toBe(136);
+      expect(FIELD_BASE).toBe(9780);
+      expect(BATTLE_BASE).toBe(9874);
+      expect(MODPHASE_BASE).toBe(9914);
+      expect(MODINV_BASE).toBe(10139);
+      expect(DERIVED_BASE).toBe(10359);
+      expect(PHASE_BASE).toBe(10387);
       expect(PHASE_BASE + PHASE_INDICATOR_DIM).toBe(OBSERVATION_DIM);
-      expect(OBSERVATION_DIM).toBe(9875);
+      expect(OBSERVATION_DIM).toBe(10403);
     });
 
     it("intra-block offsets tile their blocks exactly", () => {
       // Pokemon non-move segment + 4 move blocks fill the pokemon block
-      expect(PKMN.MOVES).toBe(243);
+      expect(PKMN.MOVES).toBe(271);
       expect(PKMN.MOVES + 4 * MOVE_BLOCK_DIM).toBe(POKEMON_BLOCK_DIM);
       // Last named offsets are the last dims of their blocks
-      expect(MOVE.SCATTERS_MONEY).toBe(MOVE_BLOCK_DIM - 1);
+      expect(MOVE.HITS_SEMI_INVULNERABLE).toBe(MOVE_BLOCK_DIM - 1);
       expect(FIELD.PLAYER_TERAS_USED).toBe(FIELD_STATE_DIM - 1);
       expect(BATTLE.INVERSE_BATTLE).toBe(BATTLE_META_DIM - 1);
       // Last dim of move slot 3 is the last dim of the pokemon block
-      expect(moveDim("player_0", 3, MOVE.SCATTERS_MONEY)).toBe(POKEMON_BLOCK_DIM - 1);
+      expect(moveDim("player_0", 3, MOVE.HITS_SEMI_INVULNERABLE)).toBe(POKEMON_BLOCK_DIM - 1);
       // 12 slots, no gaps
       expect(SLOT_ORDER.length).toBe(12);
       expect(pokemonDim("enemy_5", PKMN.VALID) + POKEMON_BLOCK_DIM).toBe(FIELD_BASE);
@@ -77,9 +77,9 @@ describe("RL Semantic Audit — Layout Canary", () => {
   });
 
   describe("constant table sizes", () => {
-    it("CURATED_VOLATILE_TAGS has 48 entries", () => {
-      expect(CURATED_VOLATILE_TAGS.length).toBe(48);
-      expect(NUM_CURATED_TAGS).toBe(48);
+    it("CURATED_VOLATILE_TAGS has 76 entries", () => {
+      expect(CURATED_VOLATILE_TAGS.length).toBe(76);
+      expect(NUM_CURATED_TAGS).toBe(76);
     });
 
     it("ARENA_TAG_ORDER has 28 entries", () => {
