@@ -524,3 +524,47 @@ MaskablePPO smoke pass, ~96 steps/s interactive throughput.
   src/rl/runner.ts (854 lines, superseded by cli.ts + pokerogue_env.py) and
   src/rl/standalone-runner.ts (53 lines). References in older CHANGELOG
   sections are historical.
+
+---
+
+## 2026-06-13 — Headless leak fix + Observation v8
+
+### Cross-episode memory/throughput leak (the big one) — fixed
+- **Root cause**: `MockContainer` never set `this.scene`. Phaser's
+  `Container.destroy()` only cascades into children whose `.scene` is truthy
+  (`removeAll`: `if (list[i] && list[i].scene) list[i].destroy()`), so every
+  real container holding mock-container children (each `BattleInfo`'s
+  statsContainer → statValuesContainer → stat sprites) left them undestroyed,
+  stranding ~575 sprites/episode on the process-global `AnimationManager`
+  `remove` event. That listener array grew unbounded → per-step sprite churn
+  went O(n²) — the real throughput collapse. The game never leaks in the
+  browser; this was purely a headless-mock artifact.
+- **Fixes** (faithful to Phaser, no monkey-patching): `MockContainer` sets
+  `this.scene` + recursive `destroy()`; `MockTextureManager` dropped its
+  write-only object registry; `BattleScene.reset()` clears the sparkle
+  handler's sprite Set; deduped duplicate `addedToScene`/`removedFromScene`.
+- **Result** (pure 100-episode in-process soak, no recycling): FAIL → OK;
+  steps/s collapse 75% → 19% drift; anim-listener growth 575/ep → ~6/ep;
+  retained heap unbounded → 1.08 MB/ep. KNOWN RESIDUALS in docs/VERIFICATION.md
+  (per-episode CanvasPool ~1MB/ep, respawn-bounded; per-wave intra-episode
+  ~1.5MB/wave field-sprite accumulation, UNSOLVED, not respawn-bounded).
+
+### Observation v8 (9,875 → 10,403; protocolVersion 4)
+- **CURATED_VOLATILE_TAGS 48 → 76** (+28×12 = +336): partial-trap family,
+  charge/crit/boost states, exposure/ignore states, paradox/overlord boosts,
+  NIGHTMARE, TRUANT, ALWAYS_GET_HIT.
+- **MOVE_BLOCK_DIM 132 → 136** (+4×4×12 = +192): survives_at_1hp
+  (SurviveDamageAttr), matches_user_hp (MatchHpAttr), hp_cost_stat_boost
+  (CutHpStatStageBoostAttr), hits_semi_invulnerable (HitsTagAttr — instanceof
+  catches HitsTagForDoubleDamageAttr).
+- POKEMON_BLOCK_DIM 771 → 815. Lockstep TS (spaces.ts/state-builder.ts) +
+  Python (observation.py/enums.py/state_schema.py/feature_names.py), bitwise
+  parity 0 diffs. Canary re-pinned, goldens regenerated, 6 new semantic tests
+  (4 flags + Bind→BIND, Focus Energy→CRIT_BOOST). Coverage manifests shrunk to
+  0 backlog (28 tags + 8 move-attrs reclassified encoded/covered).
+- Mystery Encounters removed env-wide (MYSTERY_ENCOUNTER_RATE_OVERRIDE=0).
+- `rl-verify.sh` wipes `$ART` each run (a stale 9875-dim corpus dump broke
+  parity); corpus longrun step_timeout 60→150s.
+- KNOWN: rl:verify's longrun corpus intermittently hits a PRE-EXISTING game bug
+  (berry/ability infinite recursion → stack overflow at deep waves), unrelated
+  to v8 and tracked separately. All v8-observation gates pass.

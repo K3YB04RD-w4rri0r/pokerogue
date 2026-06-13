@@ -27,12 +27,12 @@ Generated: 2026-02-09 by research team (8 parallel agents).
 
 ## 1. Observation Space Overview
 
-Current encoding: **9,875 float32** values (v7 — verified TS↔Python
+Current encoding: **10,403 float32** values (v8 — verified TS↔Python
 bit-identical, see `docs/VERIFICATION.md`).
 
 | Block | Dimensions | Content |
 |-------|-----------|---------|
-| Pokemon x12 | 9,252 | 12 slots × 771 dims (243 non-move + 4 moves × 132; slot order: player_0, player_1, enemy_0, enemy_1, player bench ×4, enemy bench ×4) |
+| Pokemon x12 | 9,780 | 12 slots × 815 dims (271 non-move + 4 moves × 136; slot order: player_0, player_1, enemy_0, enemy_1, player bench ×4, enemy bench ×4) |
 | Field State | 94 | Weather/terrain one-hots + turns, per-side arena tag banks (28×2), hazard layers, key-tag turn counters, teras used |
 | Battle Meta | 40 | Wave, turn, money, pokeballs, alive/faint counts, biome, game-mode flags |
 | Modifier Phase | 225 | Header (3) + 3 reward options × 28 + 6 shop options × 23 |
@@ -40,7 +40,10 @@ bit-identical, see `docs/VERIFICATION.md`).
 | Derived | 28 | Type effectiveness (2×4×2), STAB (2×4), speed ranks (4) |
 | Phase Indicator | 16 | One-hot decision phase |
 
-Per-move 132 dims = 50 base + 36 v6 semantic flags + 46 v7 MoveAttr flags.
+Per-move 136 dims = 50 base + 36 v6 semantic flags + 46 v7 MoveAttr flags +
+4 v8 survival/HP-relative flags (survives_at_1hp, matches_user_hp,
+hp_cost_stat_boost, hits_semi_invulnerable). Volatile-tag bank is 76 curated
+tags (v8: +28 — partial-trap family, charge/crit/boost, exposure/ignore states).
 Per-Pokemon ability encoding = 2 × 40-dim semantic feature vectors
 (ability-features.ts). The historical 2,951-dim table that used to live here
 described the pre-v5 layout.
