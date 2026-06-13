@@ -23,6 +23,14 @@ export class MockContainer implements MockGameObject {
     this.y = y;
     this.frame = {};
     this.textureManager = textureManager;
+    // Real Phaser GameObjects carry a `scene` reference, and Container.destroy()
+    // only cascades into children for which `child.scene` is truthy
+    // (removeAll → `if (list[i] && list[i].scene) list[i].destroy()`). Without
+    // this, a real Container holding mock-container children (e.g. a BattleInfo
+    // with its statsContainer) never destroys them, stranding the whole nested
+    // subtree's sprites on the global AnimationManager. MockSprite already sets
+    // `scene` for the same reason.
+    this.scene = textureManager.scene;
   }
   setVisible(visible: boolean): this {
     this.visible = visible;
@@ -45,10 +53,6 @@ export class MockContainer implements MockGameObject {
   removeBetween(_startIndex, _endIndex, _destroyChild): this {
     // Removes multiple children across an index range
     return this;
-  }
-
-  addedToScene() {
-    // This callback is invoked when this Game Object is added to a Scene.
   }
 
   setSize(_width: number, _height: number): this {
@@ -108,8 +112,34 @@ export class MockContainer implements MockGameObject {
   }
 
   destroy() {
+    // Re-entry guard (real GameObject.destroy bails when already destroyed),
+    // also prevents infinite recursion on any accidental container cycle.
+    if ((this as { __rlDestroyed?: boolean }).__rlDestroyed) {
+      return;
+    }
+    // Mark destroyed so headless reset sweeps can drop this object from any
+    // mock display list it still sits in (mock containers don't track
+    // parentage; setting parentContainer on real Phaser children drags their
+    // destroy through real display-list internals that need a real scene)
+    (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
+    // Recurse into children, mirroring Phaser's Container.preDestroy (which
+    // calls removeAll with destroyChild=true). Without this, destroying a
+    // container that holds nested mock containers (e.g. a BattleInfo's
+    // statsContainer → statValuesContainer → stat sprites) strands the leaf
+    // sprites: their real phaserSprite stays registered on the process-global
+    // AnimationManager 'remove' event forever — ~600 listeners/episode.
+    const children = this.list;
     this.list = [];
+    for (const child of children) {
+      child?.destroy?.();
+    }
   }
+
+  // Phaser scene-lifecycle callbacks invoked by real display-list code paths
+  // (e.g. a real BBCodeText.destroy() detaching from a container) — no-ops
+  addedToScene() {}
+
+  removedFromScene() {}
 
   setShadow(_shadowXpos, _shadowYpos, _shadowColor): this {
     // Sets the shadow settings for this Game Object.
@@ -222,9 +252,15 @@ export class MockContainer implements MockGameObject {
     return this;
   }
 
-  removeAll(): this {
+  removeAll(destroyChild = false): this {
     // Removes all Game Objects from this Container.
+    const removed = this.list;
     this.list = [];
+    if (destroyChild) {
+      for (const item of removed) {
+        item.destroy?.();
+      }
+    }
     return this;
   }
 

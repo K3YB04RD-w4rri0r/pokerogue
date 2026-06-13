@@ -41,7 +41,9 @@
     "update-submodules": "git submodule update --progress --init --recursive --force --depth 1",
     "update-submodules:remote": "pnpm update-submodules --remote",
     "rl:build": "vite build --config vite.headless.config.ts",
-    "rl:run": "node dist/rl/cli.js"
+    "rl:run": "node dist/rl/cli.js",
+    "rl:verify": "bash scripts/rl-verify.sh",
+    "rl:verify:quick": "bash scripts/rl-verify.sh quick"
   },
   "dependencies": {
     "@material/material-color-utilities": "^0.3.0",

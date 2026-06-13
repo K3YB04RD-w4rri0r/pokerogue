@@ -137,8 +137,6 @@ export class MockText implements MockGameObject {
 
   off(_event, _callback, _obj) {}
 
-  removedFromScene() {}
-
   addToDisplayList(): this {
     return this;
   }
@@ -153,11 +151,6 @@ export class MockText implements MockGameObject {
     // same as remove or destroy
     // return this.phaserText.removeFromDisplayList();
     return this;
-  }
-
-  addedToScene() {
-    // This callback is invoked when this Game Object is added to a Scene.
-    // return this.phaserText.addedToScene();
   }
 
   setVisible(_visible): this {
@@ -259,7 +252,14 @@ export class MockText implements MockGameObject {
   destroy() {
     // return this.phaserText.destroy();
     this.list = [];
+    // Mark destroyed so headless reset sweeps drop this from mock display lists
+    (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
   }
+
+  // Phaser scene-lifecycle callbacks invoked by real display-list code paths — no-ops
+  addedToScene() {}
+
+  removedFromScene() {}
 
   setAlpha(_alpha): this {
     // return this.phaserText.setAlpha(alpha);

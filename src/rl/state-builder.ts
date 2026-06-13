@@ -7,57 +7,56 @@
  * Replaces the minimal 6-field buildGameState() previously in cli.ts.
  */
 
+import type { AttackMoveResult } from "#app/@types/attack-move-result";
+import type { TurnMove } from "#app/@types/turn-move";
 import { globalScene } from "#app/global-scene";
-import type { Pokemon } from "#field/pokemon";
-import type { PokemonMove } from "#moves/pokemon-move";
-import { MoveFlags } from "#enums/move-flags";
-import { StatusEffect } from "#enums/status-effect";
-import { Stat, EFFECTIVE_STATS, PERMANENT_STATS } from "#enums/stat";
-import { ArenaTagType } from "#enums/arena-tag-type";
-import { ArenaTagSide } from "#enums/arena-tag-side";
-import { getNatureStatMultiplier } from "#data/nature";
-import { getLevelTotalExp } from "#data/exp";
-import { getAvailableModifiers } from "#rl/modifier-api";
-import type { PhaseState } from "#rl/phase-router";
-import { BiomeId } from "#enums/biome-id";
-
+import type { ArenaTag } from "#data/arena-tag";
+import type { BattlerTag } from "#data/battler-tags";
 // BattlerTag subclass imports for instanceof checks
 import {
-  SubstituteTag,
-  StockpilingTag,
-  EncoreTag,
-  DisabledTag,
-  TypeBoostTag,
+  AutotomizedTag,
   CritBoostTag,
+  DisabledTag,
+  EncoreTag,
   GorillaTacticsTag,
   HighestStatBoostTag,
+  StockpilingTag,
+  SubstituteTag,
   SupremeOverlordTag,
-  AutotomizedTag,
+  TypeBoostTag,
 } from "#data/battler-tags";
-import type { BattlerTag } from "#data/battler-tags";
-import type { ArenaTag } from "#data/arena-tag";
+import { getLevelTotalExp } from "#data/exp";
+import { getNatureStatMultiplier } from "#data/nature";
+import type { PokemonBattleData, PokemonTurnData, PokemonWaveData } from "#data/pokemon/pokemon-data";
 import { DelayedAttackTag, WishTag } from "#data/positional-tags/positional-tag";
+import { ArenaTagSide } from "#enums/arena-tag-side";
+import { ArenaTagType } from "#enums/arena-tag-type";
+import { BiomeId } from "#enums/biome-id";
 import { Challenges } from "#enums/challenges";
+import { MoveFlags } from "#enums/move-flags";
+import { MoveTarget } from "#enums/move-target";
+import { EFFECTIVE_STATS } from "#enums/stat";
+import { StatusEffect } from "#enums/status-effect";
+import type { Pokemon } from "#field/pokemon";
+import type { PersistentModifier } from "#modifiers/modifier";
 // Modifier subclass imports for instanceof checks
 import {
-  PokemonHeldItemModifier,
   AttackTypeBoosterModifier,
   BaseStatModifier,
   BerryModifier,
-  TurnStatusEffectModifier,
+  CritBoosterModifier,
+  EnemyAttackStatusEffectChanceModifier,
+  LapsingPersistentModifier,
   PokemonBaseStatTotalModifier,
   PokemonFormChangeItemModifier,
-  LapsingPersistentModifier,
-  TempStatStageBoosterModifier,
-  EnemyAttackStatusEffectChanceModifier,
+  PokemonHeldItemModifier,
   StatBoosterModifier,
-  CritBoosterModifier,
+  TempStatStageBoosterModifier,
+  TurnStatusEffectModifier,
 } from "#modifiers/modifier";
-import type { PersistentModifier } from "#modifiers/modifier";
-
-import type { PokemonTurnData, PokemonBattleData, PokemonWaveData } from "#data/pokemon/pokemon-data";
-import type { AttackMoveResult } from "#app/@types/attack-move-result";
-import type { TurnMove } from "#app/@types/turn-move";
+import type { PokemonMove } from "#moves/pokemon-move";
+import { getAvailableModifiers } from "#rl/modifier-api";
+import type { PhaseState } from "#rl/phase-router";
 
 // ─── Empty State Factories ───────────────────────────────────────────
 
@@ -322,7 +321,9 @@ function safe<T>(fn: () => T, fallback: T): T {
 
 function getHazardLayers(tagType: ArenaTagType, side: ArenaTagSide): number {
   const arena = globalScene.arena;
-  if (!arena?.tags) return 0;
+  if (!arena?.tags) {
+    return 0;
+  }
   for (const tag of arena.tags) {
     if (tag.tagType === tagType && (tag.side === side || tag.side === ArenaTagSide.BOTH)) {
       return (tag as any).layers ?? 1;
@@ -333,10 +334,10 @@ function getHazardLayers(tagType: ArenaTagType, side: ArenaTagSide): number {
 
 function hasArenaTag(tagType: ArenaTagType, side: ArenaTagSide): boolean {
   const arena = globalScene.arena;
-  if (!arena?.tags) return false;
-  return arena.tags.some(
-    t => t.tagType === tagType && (t.side === side || t.side === ArenaTagSide.BOTH),
-  );
+  if (!arena?.tags) {
+    return false;
+  }
+  return arena.tags.some(t => t.tagType === tagType && (t.side === side || t.side === ArenaTagSide.BOTH));
 }
 
 // ─── QueuedMove / AttackReceived ─────────────────────────────────────
@@ -364,7 +365,9 @@ function buildAttackReceived(atk: AttackMoveResult): Record<string, unknown> {
 // ─── TurnData / BattleData ───────────────────────────────────────────
 
 function buildTurnData(td: PokemonTurnData | null | undefined): Record<string, unknown> {
-  if (!td) return emptyTurnData();
+  if (!td) {
+    return emptyTurnData();
+  }
   return {
     damage_taken: td.damageTaken ?? 0,
     total_damage_dealt: td.totalDamageDealt ?? 0,
@@ -518,15 +521,16 @@ function buildHeldItem(modifier: PokemonHeldItemModifier): Record<string, unknow
 
 // ─── Move Slot ───────────────────────────────────────────────────────
 
-function buildMoveSlot(
-  pokemonMove: PokemonMove | null | undefined,
-  pokemon: Pokemon | null,
-): Record<string, unknown> {
-  if (!pokemonMove) return emptyMoveSlot();
+function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pokemon | null): Record<string, unknown> {
+  if (!pokemonMove) {
+    return emptyMoveSlot();
+  }
 
   try {
     const move = pokemonMove.getMove();
-    if (!move) return emptyMoveSlot();
+    if (!move) {
+      return emptyMoveSlot();
+    }
 
     const ppMax = safe(() => pokemonMove.getMovePp(), 0);
     const ppUsed = pokemonMove.ppUsed ?? 0;
@@ -549,7 +553,9 @@ function buildMoveSlot(
       if (statusAttrs.length > 0) {
         statusEffect = (statusAttrs[0] as any).effect ?? StatusEffect.NONE;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Stat changes
     const statChanges: Record<string, unknown>[] = [];
@@ -566,7 +572,9 @@ function buildMoveSlot(
           });
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Drain ratio (HitHealAttr)
     let drainRatio = 0.0;
@@ -575,7 +583,9 @@ function buildMoveSlot(
       if (hitHealAttrs.length > 0) {
         drainRatio = (hitHealAttrs[0] as any).healRatio ?? 0.5;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Recoil ratio (RecoilAttr)
     let recoilRatio = 0.0;
@@ -584,7 +594,9 @@ function buildMoveSlot(
       if (recoilAttrs.length > 0) {
         recoilRatio = (recoilAttrs[0] as any).damageRatio ?? 0.25;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Heal ratio (HealAttr)
     let healRatio = 0.0;
@@ -593,7 +605,9 @@ function buildMoveSlot(
       if (healAttrs.length > 0) {
         healRatio = (healAttrs[0] as any).healRatio ?? 0.5;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Multi-hit
     let isMultiHit = false;
@@ -604,7 +618,9 @@ function buildMoveSlot(
         isMultiHit = true;
         multiHitType = (multiHitAttrs[0] as any).intrinsicMultiHitType ?? (multiHitAttrs[0] as any).multiHitType ?? -1;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Crit stage boost
     let critStageBoost = 0;
@@ -614,7 +630,9 @@ function buildMoveSlot(
       } else if (move.hasAttr("HighCritAttr")) {
         critStageBoost = 1;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Charging move
     const isCharging = safe(() => move.isChargingMove(), false);
@@ -631,7 +649,9 @@ function buildMoveSlot(
           forceSwitch = true;
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Traps target
     const trapsTarget = safe(() => move.hasAttr("TrapAttr"), false);
@@ -640,11 +660,11 @@ function buildMoveSlot(
     const isProtect = safe(() => move.hasAttr("ProtectAttr"), false);
 
     // Sacrifice
-    const isSacrifice = safe(() =>
-      move.hasAttr("SacrificialAttr") ||
-      move.hasAttr("SacrificialAttrOnHit") ||
-      move.hasAttr("HalfSacrificialAttr"),
-    false);
+    const isSacrifice = safe(
+      () =>
+        move.hasAttr("SacrificialAttr") || move.hasAttr("SacrificialAttrOnHit") || move.hasAttr("HalfSacrificialAttr"),
+      false,
+    );
 
     // OHKO
     const isOhko = safe(() => move.hasAttr("OneHitKOAttr"), false);
@@ -656,7 +676,9 @@ function buildMoveSlot(
       if (fixedDmgAttrs.length > 0) {
         fixedDamage = (fixedDmgAttrs[0] as any).damage ?? 0;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // ── v6: Move semantic encoding (+36 fields) ──
 
@@ -681,7 +703,9 @@ function buildMoveSlot(
       if (weatherAttrs.length > 0) {
         weatherChange = (weatherAttrs[0] as any).weatherType ?? 0;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     let terrainChange = 0;
     try {
@@ -689,7 +713,9 @@ function buildMoveSlot(
       if (terrainAttrs.length > 0) {
         terrainChange = (terrainAttrs[0] as any).terrainType ?? 0;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     const setsArenaTag = safe(() => move.hasAttr("AddArenaTagAttr"), false);
     const removesArenaTags = safe(() => move.hasAttr("RemoveArenaTagsAttr"), false);
@@ -702,21 +728,27 @@ function buildMoveSlot(
       const arenaTagAttrs = move.getAttrs("AddArenaTagAttr");
       if (arenaTagAttrs.length > 0) {
         const tagType = (arenaTagAttrs[0] as any).tagType as string;
-        arenaTagSelfSide = !!(arenaTagAttrs[0] as any).selfSideTarget;
+        // The side a tag lands on is determined by the move's TARGET
+        // (screens: USER_SIDE, hazards: ENEMY_SIDE, Trick Room: BOTH_SIDES).
+        // The attr's `selfSideTarget` constructor param is NOT that semantic —
+        // e.g. Reflect is `AddArenaTagAttr(REFLECT, 5, true)` where `true` is
+        // failOnOverlap and selfSideTarget stays default false.
+        arenaTagSelfSide = move.moveTarget === MoveTarget.USER_SIDE || move.moveTarget === MoveTarget.BOTH_SIDES;
         // Hazards: enemy-side entry hazards
         const HAZARD_TAGS = new Set([
-          ArenaTagType.STEALTH_ROCK, ArenaTagType.SPIKES,
-          ArenaTagType.TOXIC_SPIKES, ArenaTagType.STICKY_WEB,
+          ArenaTagType.STEALTH_ROCK,
+          ArenaTagType.SPIKES,
+          ArenaTagType.TOXIC_SPIKES,
+          ArenaTagType.STICKY_WEB,
         ]);
         // Screens: self-side damage reduction
-        const SCREEN_TAGS = new Set([
-          ArenaTagType.REFLECT, ArenaTagType.LIGHT_SCREEN,
-          ArenaTagType.AURORA_VEIL,
-        ]);
+        const SCREEN_TAGS = new Set([ArenaTagType.REFLECT, ArenaTagType.LIGHT_SCREEN, ArenaTagType.AURORA_VEIL]);
         setsHazard = HAZARD_TAGS.has(tagType as ArenaTagType);
         setsScreen = SCREEN_TAGS.has(tagType as ArenaTagType);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Group 4: Battler tag semantics (excluding Flinch/Confuse/Recharge subclasses)
     let appliesBattlerTag = false;
@@ -727,25 +759,41 @@ function buildMoveSlot(
       // Filter out FlinchAttr/ConfuseAttr/RechargeAttr which are subclasses
       const isFlinchOrConfuseOrRecharge = (a: unknown): boolean => {
         try {
-          return move.hasAttr("FlinchAttr") && (a as any).tagType === "FLINCHED"
-            || move.hasAttr("ConfuseAttr") && (a as any).tagType === "CONFUSED"
-            || move.hasAttr("RechargeAttr") && (a as any).tagType === "RECHARGING";
-        } catch { return false; }
+          return (
+            (move.hasAttr("FlinchAttr") && (a as any).tagType === "FLINCHED")
+            || (move.hasAttr("ConfuseAttr") && (a as any).tagType === "CONFUSED")
+            || (move.hasAttr("RechargeAttr") && (a as any).tagType === "RECHARGING")
+          );
+        } catch {
+          return false;
+        }
       };
       const MOVE_RESTRICTION_TAGS = new Set([
-        "TAUNT", "ENCORE", "DISABLED", "TORMENT", "IMPRISON", "HEAL_BLOCK", "THROAT_CHOPPED",
+        "TAUNT",
+        "ENCORE",
+        "DISABLED",
+        "TORMENT",
+        "IMPRISON",
+        "HEAL_BLOCK",
+        "THROAT_CHOPPED",
       ]);
-      const CONTINUOUS_DAMAGE_TAGS = new Set([
-        "SEEDED", "SALT_CURED", "CURSED", "NIGHTMARE", "PERISH_SONG",
-      ]);
+      const CONTINUOUS_DAMAGE_TAGS = new Set(["SEEDED", "SALT_CURED", "CURSED", "NIGHTMARE", "PERISH_SONG"]);
       for (const attr of battlerTagAttrs) {
         const tagType = String((attr as any).tagType ?? "");
-        if (isFlinchOrConfuseOrRecharge(attr)) continue;
+        if (isFlinchOrConfuseOrRecharge(attr)) {
+          continue;
+        }
         appliesBattlerTag = true;
-        if (MOVE_RESTRICTION_TAGS.has(tagType)) appliesMoveRestriction = true;
-        if (CONTINUOUS_DAMAGE_TAGS.has(tagType)) appliesContinuousDamage = true;
+        if (MOVE_RESTRICTION_TAGS.has(tagType)) {
+          appliesMoveRestriction = true;
+        }
+        if (CONTINUOUS_DAMAGE_TAGS.has(tagType)) {
+          appliesContinuousDamage = true;
+        }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Group 5: Fixed damage discrimination
     const isUserHpDamage = safe(() => move.hasAttr("UserHpDamageAttr"), false);
@@ -983,7 +1031,9 @@ function buildPokemonState(
   isPlayer: boolean,
   slotIndex: number,
 ): Record<string, unknown> {
-  if (!pokemon) return emptyPokemonState();
+  if (!pokemon) {
+    return emptyPokemonState();
+  }
 
   try {
     const maxHp = safe(() => pokemon.getMaxHp(), 0);
@@ -1019,14 +1069,10 @@ function buildPokemonState(
       : [];
 
     // Volatile tags
-    const volatileTags = hasSummonData
-      ? safe(() => (pokemon.summonData.tags ?? []).map(buildVolatileTag), [])
-      : [];
+    const volatileTags = hasSummonData ? safe(() => (pokemon.summonData.tags ?? []).map(buildVolatileTag), []) : [];
 
     // Move queue
-    const moveQueue = hasSummonData
-      ? safe(() => (pokemon.summonData.moveQueue ?? []).map(buildQueuedMove), [])
-      : [];
+    const moveQueue = hasSummonData ? safe(() => (pokemon.summonData.moveQueue ?? []).map(buildQueuedMove), []) : [];
 
     // Boss detection
     const isBoss = "bossSegments" in pokemon && (pokemon as any).bossSegments > 0;
@@ -1039,17 +1085,16 @@ function buildPokemonState(
     const battleData = buildBattleDataDict(pokemon.battleData, pokemon.waveData);
 
     // Attacks received (convenience copy from turnData)
-    const attacksReceived = safe(
-      () => (pokemon.turnData?.attacksReceived ?? []).map(buildAttackReceived),
-      [],
-    );
+    const attacksReceived = safe(() => (pokemon.turnData?.attacksReceived ?? []).map(buildAttackReceived), []);
 
     // Exp to next level
     let expToNextLevel = 0;
     try {
       const nextLevelExp = getLevelTotalExp(pokemon.level + 1, pokemon.species.growthRate);
       expToNextLevel = Math.max(0, nextLevelExp - pokemon.exp);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Types
     const types = safe(() => pokemon.getTypes(false, false, false), []);
@@ -1155,15 +1200,30 @@ function buildFieldState(): Record<string, unknown> {
 
     if (!arena) {
       return {
-        biome_id: 0, biome_name: "", weather_type: 0, weather_turns_left: 0,
-        weather_is_permanent: false, weather_suppressed: false, terrain_type: 0,
-        terrain_turns_left: 0, terrain_is_permanent: false, player_teras_used: 0,
-        arena_tags: [], positional_tags: [], is_double_battle: false,
-        trick_room_active: false, gravity_active: false, ignore_abilities: false,
-        player_spikes_layers: 0, player_toxic_spikes_layers: 0,
-        player_stealth_rock: false, player_sticky_web: false,
-        enemy_spikes_layers: 0, enemy_toxic_spikes_layers: 0,
-        enemy_stealth_rock: false, enemy_sticky_web: false,
+        biome_id: 0,
+        biome_name: "",
+        weather_type: 0,
+        weather_turns_left: 0,
+        weather_is_permanent: false,
+        weather_suppressed: false,
+        terrain_type: 0,
+        terrain_turns_left: 0,
+        terrain_is_permanent: false,
+        player_teras_used: 0,
+        arena_tags: [],
+        positional_tags: [],
+        is_double_battle: false,
+        trick_room_active: false,
+        gravity_active: false,
+        ignore_abilities: false,
+        player_spikes_layers: 0,
+        player_toxic_spikes_layers: 0,
+        player_stealth_rock: false,
+        player_sticky_web: false,
+        enemy_spikes_layers: 0,
+        enemy_toxic_spikes_layers: 0,
+        enemy_stealth_rock: false,
+        enemy_sticky_web: false,
       };
     }
 
@@ -1171,10 +1231,7 @@ function buildFieldState(): Record<string, unknown> {
     const weatherType = arena.weather?.weatherType ?? 0;
     const weatherTurnsLeft = arena.weather?.turnsLeft ?? 0;
     const weatherIsPermanent = arena.weather ? weatherTurnsLeft === 0 : false;
-    const weatherSuppressed = safe(
-      () => arena.weather ? arena.weather.isEffectSuppressed() : false,
-      false,
-    );
+    const weatherSuppressed = safe(() => (arena.weather ? arena.weather.isEffectSuppressed() : false), false);
 
     // Terrain
     const terrainType = arena.terrain?.terrainType ?? 0;
@@ -1209,7 +1266,9 @@ function buildFieldState(): Record<string, unknown> {
         }
         positionalTags.push(ptDict);
       }
-    } catch { /* ignore positional tag errors */ }
+    } catch {
+      /* ignore positional tag errors */
+    }
 
     return {
       biome_id: arena.biomeId ?? 0,
@@ -1240,15 +1299,30 @@ function buildFieldState(): Record<string, unknown> {
   } catch (err) {
     console.error("[state-builder] Error building field state:", err);
     return {
-      biome_id: 0, biome_name: "", weather_type: 0, weather_turns_left: 0,
-      weather_is_permanent: false, weather_suppressed: false, terrain_type: 0,
-      terrain_turns_left: 0, terrain_is_permanent: false, player_teras_used: 0,
-      arena_tags: [], positional_tags: [], is_double_battle: false,
-      trick_room_active: false, gravity_active: false, ignore_abilities: false,
-      player_spikes_layers: 0, player_toxic_spikes_layers: 0,
-      player_stealth_rock: false, player_sticky_web: false,
-      enemy_spikes_layers: 0, enemy_toxic_spikes_layers: 0,
-      enemy_stealth_rock: false, enemy_sticky_web: false,
+      biome_id: 0,
+      biome_name: "",
+      weather_type: 0,
+      weather_turns_left: 0,
+      weather_is_permanent: false,
+      weather_suppressed: false,
+      terrain_type: 0,
+      terrain_turns_left: 0,
+      terrain_is_permanent: false,
+      player_teras_used: 0,
+      arena_tags: [],
+      positional_tags: [],
+      is_double_battle: false,
+      trick_room_active: false,
+      gravity_active: false,
+      ignore_abilities: false,
+      player_spikes_layers: 0,
+      player_toxic_spikes_layers: 0,
+      player_stealth_rock: false,
+      player_sticky_web: false,
+      enemy_spikes_layers: 0,
+      enemy_toxic_spikes_layers: 0,
+      enemy_stealth_rock: false,
+      enemy_sticky_web: false,
     };
   }
 }
@@ -1256,7 +1330,9 @@ function buildFieldState(): Record<string, unknown> {
 // ─── Trainer Info ────────────────────────────────────────────────────
 
 function buildTrainerInfo(trainer: any): Record<string, unknown> | null {
-  if (!trainer) return null;
+  if (!trainer) {
+    return null;
+  }
   try {
     return {
       trainer_type: trainer.config?.trainerType ?? 0,
@@ -1315,7 +1391,7 @@ function buildBattleState(): Record<string, unknown> {
     const canRun = battle?.battleType === 0; // WILD
 
     // Can catch
-    const canCatch = battle?.battleType === 0 && !(battle?.double);
+    const canCatch = battle?.battleType === 0 && !battle?.double;
 
     // Challenges
     const challenges: Record<string, unknown>[] = [];
@@ -1331,7 +1407,9 @@ function buildBattleState(): Record<string, unknown> {
           });
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     // Mystery encounter
     let mysteryEncounter: Record<string, unknown> | null = null;
@@ -1350,7 +1428,9 @@ function buildBattleState(): Record<string, unknown> {
           options,
         };
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     return {
       biome_id: arena?.biomeId ?? 0,
@@ -1403,24 +1483,58 @@ function buildBattleState(): Record<string, unknown> {
       has_short_biomes: globalScene.gameMode?.hasShortBiomes ?? false,
       has_random_biomes: globalScene.gameMode?.hasRandomBiomes ?? false,
       has_random_bosses: (globalScene.gameMode as any)?.hasRandomBosses ?? false,
-      inverse_battle: challenges.some(c => (c.challenge_type as number) === Challenges.INVERSE_BATTLE && (c.value as number) > 0),
+      inverse_battle: challenges.some(
+        c => (c.challenge_type as number) === Challenges.INVERSE_BATTLE && (c.value as number) > 0,
+      ),
     };
   } catch (err) {
     console.error("[state-builder] Error building battle state:", err);
     return {
-      biome_id: 0, wave_index: 0, turn: 0, battle_type: 0, battle_spec: 0, is_double: false,
-      escape_attempts: 0, player_alive_count: 0, enemy_alive_count: 0,
-      player_faints_battle: 0, enemy_faints_battle: 0, last_move_id: null,
-      money: 0, score: 0, pokeball_counts: { pokeball: 0, great_ball: 0, ultra_ball: 0, rogue_ball: 0, master_ball: 0 },
-      can_run: false, can_catch: false, tera_available: false,
-      game_mode: 0, seed: "", trainer: null, mystery_encounter: null,
-      battle_style: 0, time_of_day: 0, player_faints_biome: 0, money_scattered: 0,
-      challenges: [], lock_modifier_tiers: false, reroll_count: 0, failed_run_away: false,
-      has_no_shop: false, has_trainers: true, is_spliced_only: false,
-      seen_enemy_count: 0, enemy_switch_counter: 0, offset_gym: false,
-      is_classic: false, is_endless: false, is_daily: false, is_challenge: false,
-      has_mystery_encounters: false, has_short_biomes: false, has_random_biomes: false,
-      has_random_bosses: false, inverse_battle: false,
+      biome_id: 0,
+      wave_index: 0,
+      turn: 0,
+      battle_type: 0,
+      battle_spec: 0,
+      is_double: false,
+      escape_attempts: 0,
+      player_alive_count: 0,
+      enemy_alive_count: 0,
+      player_faints_battle: 0,
+      enemy_faints_battle: 0,
+      last_move_id: null,
+      money: 0,
+      score: 0,
+      pokeball_counts: { pokeball: 0, great_ball: 0, ultra_ball: 0, rogue_ball: 0, master_ball: 0 },
+      can_run: false,
+      can_catch: false,
+      tera_available: false,
+      game_mode: 0,
+      seed: "",
+      trainer: null,
+      mystery_encounter: null,
+      battle_style: 0,
+      time_of_day: 0,
+      player_faints_biome: 0,
+      money_scattered: 0,
+      challenges: [],
+      lock_modifier_tiers: false,
+      reroll_count: 0,
+      failed_run_away: false,
+      has_no_shop: false,
+      has_trainers: true,
+      is_spliced_only: false,
+      seen_enemy_count: 0,
+      enemy_switch_counter: 0,
+      offset_gym: false,
+      is_classic: false,
+      is_endless: false,
+      is_daily: false,
+      is_challenge: false,
+      has_mystery_encounters: false,
+      has_short_biomes: false,
+      has_random_biomes: false,
+      has_random_bosses: false,
+      inverse_battle: false,
     };
   }
 }
@@ -1460,7 +1574,9 @@ function buildPartyModifier(modifier: PersistentModifier): Record<string, unknow
     if (result.status_effect === null && (modifier as any).effect !== undefined) {
       result.status_effect = (modifier as any).effect ?? null;
     }
-  } catch { /* ignore subclass extraction errors */ }
+  } catch {
+    /* ignore subclass extraction errors */
+  }
 
   return result;
 }
@@ -1512,7 +1628,9 @@ function buildModifierInventory(): Record<string, unknown> {
         } else if (!(mod instanceof PokemonHeldItemModifier)) {
           partyModifiers.push(buildPartyModifier(mod));
         }
-      } catch { /* ignore individual modifier errors */ }
+      } catch {
+        /* ignore individual modifier errors */
+      }
     }
 
     // Enemy modifiers
@@ -1520,7 +1638,9 @@ function buildModifierInventory(): Record<string, unknown> {
     for (const mod of (globalScene as any).enemyModifiers ?? []) {
       try {
         enemyModifiers.push(buildPartyModifier(mod));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     return {
@@ -1543,7 +1663,7 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
       current_phase: "unknown",
       command_field_index: -1,
       command_pokemon_species: null,
-      action_mask: Array(58).fill(false),
+      action_mask: new Array(58).fill(false),
       valid_actions: [],
       learn_move_id: null,
       learn_move_name: null,
@@ -1562,7 +1682,7 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
     current_phase: phaseState.phase ?? "unknown",
     command_field_index: (meta.fieldIndex as number) ?? -1,
     command_pokemon_species: (meta.pokemonSpecies as string) ?? null,
-    action_mask: phaseState.actionMask ?? Array(58).fill(false),
+    action_mask: phaseState.actionMask ?? new Array(58).fill(false),
     valid_actions: phaseState.validActions ?? [],
     learn_move_id: (meta.learnMoveId as number) ?? null,
     learn_move_name: (meta.learnMoveName as string) ?? null,
@@ -1578,50 +1698,80 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
 // ─── Modifier Type Helpers ────────────────────────────────────────────
 
 function extractModifierTypeId(modType: any): number | null {
-  if (!modType) return null;
+  if (!modType) {
+    return null;
+  }
   try {
     // AttackTypeBoosterModifierType has .moveType
-    if (modType.moveType !== undefined) return modType.moveType;
+    if (modType.moveType !== undefined) {
+      return modType.moveType;
+    }
     // TerastallizeModifierType has .teraType
-    if (modType.teraType !== undefined) return modType.teraType;
-  } catch { /* ignore */ }
+    if (modType.teraType !== undefined) {
+      return modType.teraType;
+    }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function extractModifierStatId(modType: any): number | null {
-  if (!modType) return null;
+  if (!modType) {
+    return null;
+  }
   try {
     // Stat-boosting modifier types may have .stat
-    if (modType.stat !== undefined) return modType.stat;
-  } catch { /* ignore */ }
+    if (modType.stat !== undefined) {
+      return modType.stat;
+    }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function extractModifierMoveId(modType: any): number | null {
-  if (!modType) return null;
+  if (!modType) {
+    return null;
+  }
   try {
     // TmModifierType has .moveId
-    if (modType.moveId !== undefined) return modType.moveId;
-  } catch { /* ignore */ }
+    if (modType.moveId !== undefined) {
+      return modType.moveId;
+    }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function extractModifierBerryType(modType: any): number | null {
-  if (!modType) return null;
+  if (!modType) {
+    return null;
+  }
   try {
     // BerryModifierType has .berryType
-    if (modType.berryType !== undefined) return modType.berryType;
-  } catch { /* ignore */ }
+    if (modType.berryType !== undefined) {
+      return modType.berryType;
+    }
+  } catch {
+    /* ignore */
+  }
   return null;
 }
 
 function extractModifierDescription(modType: any): string {
-  if (!modType) return "";
+  if (!modType) {
+    return "";
+  }
   try {
     if (typeof modType.getDescription === "function") {
       return modType.getDescription() ?? "";
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return "";
 }
 
@@ -1630,7 +1780,9 @@ function extractModifierDescription(modType: any): string {
 function buildShopState(): Record<string, unknown> | null {
   try {
     const modifiers = getAvailableModifiers();
-    if (!modifiers) return null;
+    if (!modifiers) {
+      return null;
+    }
 
     const rewardOptions = modifiers.rewards.map((r, i) => {
       const modType = r.raw?.type;
@@ -1692,10 +1844,7 @@ function buildShopState(): Record<string, unknown> | null {
  * @param step - Decision step counter
  * @returns GameState dict matching state_schema.py
  */
-export function buildGameState(
-  phaseState: PhaseState | null,
-  step: number,
-): Record<string, unknown> {
+export function buildGameState(phaseState: PhaseState | null, step: number): Record<string, unknown> {
   // ── Gather parties ──
   // IMPORTANT: Do NOT .filter() on getPlayerField/getEnemyField — it shifts indices.
   const playerField = safe(() => globalScene.getPlayerField() ?? [], []);
@@ -1706,11 +1855,15 @@ export function buildGameState(
   // ── Build active field pokemon IDs for bench exclusion ──
   const playerFieldIds = new Set<number>();
   for (let i = 0; i < playerField.length; i++) {
-    if (playerField[i]) playerFieldIds.add(playerField[i].id);
+    if (playerField[i]) {
+      playerFieldIds.add(playerField[i].id);
+    }
   }
   const enemyFieldIds = new Set<number>();
   for (let i = 0; i < enemyField.length; i++) {
-    if (enemyField[i]) enemyFieldIds.add(enemyField[i].id);
+    if (enemyField[i]) {
+      enemyFieldIds.add(enemyField[i].id);
+    }
   }
 
   // ── Player bench: party members NOT on the active field ──

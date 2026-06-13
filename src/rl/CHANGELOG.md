@@ -433,3 +433,94 @@ Implementation tasks:
 - Task #16: Dual-mode runner (src/rl/runner.ts) -- DONE
 - Task #17: Vite build config (vite.headless.config.ts) -- DONE
 - Task #18: Integration test (dummy-agent.ts)
+
+---
+
+## 2026-06-09/10 — Verification Sprint (Task #18 superseded)
+
+**Goal**: systematic correctness verification of the full RL stack, a
+gymnasium wrapper, and restored/updated documentation.
+
+### New infrastructure
+- `tools/verify/` — verification harness: `check_parity.py` (TS↔Python
+  element-wise observation/mask compare with feature-name reporting),
+  `run_episodes.py` (masked-random smoke driver + hang watchdog +
+  invalid-action probes), `check_determinism.py` (same-seed bitwise replay),
+  `bench_throughput.py` (steps/s + soak), `check_parser_completeness.py`
+  (static AST sweep), `fixture_parity.py` (cross-language goldens),
+  `invariants.py`, `common.py`.
+- `src/rl/feature_names.py` — dim→name table for all 9,875 dims + 199
+  one-hot groups (import-time asserted against observation.py constants).
+- `test/rl/` — `rewards.test.ts` (20 unit tests), `spaces-encoding.test.ts`
+  (golden fixtures, `UPDATE_RL_GOLDEN=1` regen), `semantic/` (11 files, 53
+  game-truth audit tests: arena tag sides, move-flag extraction, volatile
+  tags, weather/terrain, stats/status, doubles slots, KO/switch, type
+  effectiveness, ability features, held items, positional tags, shop state).
+- `src/rl/pokerogue_env.py` — `PokeRogueEnv(gymnasium.Env)` with
+  `action_masks()`, version guard, subprocess lifecycle management.
+- `examples/rl/random_agent.py`, `examples/rl/train_maskable_ppo.py`,
+  `requirements-rl.txt`, `scripts/rl-verify.sh`, `pnpm rl:verify[:quick]`.
+
+### Protocol changes (cli.ts, backward compatible)
+- `--dump-obs=<path>`: per-step JSONL records (gameState + base64 float32
+  observation + mask) for the parity harness.
+- `state`/`game_over` messages now carry `reward` (computed by the TS
+  RewardCalculator, mirroring runner.ts snapshot logic).
+- `ready` message carries `obsDim`/`actionDim`/`protocolVersion` (stale-build
+  guard, enforced by the wrapper).
+- Terminal `game_over` reuses the last decision state (patched to game_over
+  phase + all-false mask) instead of the post-reset scene; stdout drained
+  before `process.exit`.
+
+### Bugs fixed (14)
+See `docs/VERIFICATION.md` §"Bugs found & fixed" — 7 Python parser/encoder
+parity bugs, `arena_tag_self_side` semantics, 2 missing `MoveAttrs` registry
+entries (game code), full-party capture hang, i18n boot-ordering crash on
+rival encounters, title-phase determinism break, terminal-state
+non-determinism, stdout flush loss.
+
+### Results
+All checks green: 91/91 tests, bitwise TS↔Python parity on 700+ live states,
+bitwise determinism in both modes, 9/9 smoke episodes clean, `check_env` +
+MaskablePPO smoke pass, ~96 steps/s interactive throughput.
+
+---
+
+## 2026-06-11 — Architecture Improvements (protocolVersion 3)
+
+- **TS-authoritative wire**: state/game_over carry obsB64 + mask + wave;
+  `--lean` drops gameState JSON (wrapper default). Python encoder stays the
+  parity-checked reference.
+- **In-process episode reset**: `{"cmd":"reset","seed","waves"}` after `done`
+  (~3-10ms vs ~2s respawn; first reset captures a display baseline, later
+  resets purge episode debris). `{"cmd":"quit"}`/EOF exits. Gated by
+  check_determinism `--mode inprocess` (in-process == fresh-process, bitwise)
+  and a 100-episode soak.
+- **Wrapper**: respawn_every=50 recycling (bounds a residual ~4.5MB/episode
+  UI-handler leak), overrides kwarg, mystery_encounters=False default
+  (ME phases aren't routable yet — U5 — and would burn step-timeouts).
+- **--reward-config / --override** CLI flags (reward experimentation,
+  scripted scenarios).
+- **Coverage assurance**: check_obs_coverage (every battler tag / move attr /
+  modifier type / move flag / ability classified: encoded, excluded-with-
+  reason, or fails), check_dim_exercise (never-varied dims must be ledger-
+  classified; scenario-ran-but-flat = suspected-bug gate),
+  gen_coverage_corpus (doubles/trainers/longrun/weather/fullparty/status
+  scenarios that assert their target situations).
+- **7 more bugs fixed** (terminal-reward post-reset sampling, MockClock
+  interval leak, two stacked-wrapper leaks, field/fieldUI display-list
+  accumulation, ScanIvsPhase nameless-sprite crash, Memory Mushroom
+  moveId=undefined crash, stdout flush loss). Details: docs/VERIFICATION.md.
+- Throughput: ~96-105 steps/s sustained; reset 3ms; PPO end-to-end 59 fps.
+
+### 2026-06-11 (later) — Hot-path audit + dead code removal
+- `--profile` flag: per-step section timings. Measured (lean, ~10ms/step @ ~96
+  steps/s): game simulation 80% (execute 4.6ms + advance 3.7ms), buildGameState
+  1.2ms (12%), encode 0.3ms, send 0.2ms, labels/reward/dump ~0. The RL layer is
+  NOT the bottleneck; further speedups are game-engine surgery.
+- Lean mode now skips human-only action labels and silences console.log/info/
+  debug (warn/error kept).
+- DELETED dead modules (zero importers, not in any runtime path):
+  src/rl/runner.ts (854 lines, superseded by cli.ts + pokerogue_env.py) and
+  src/rl/standalone-runner.ts (53 lines). References in older CHANGELOG
+  sections are historical.

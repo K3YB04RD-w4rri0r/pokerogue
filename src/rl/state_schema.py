@@ -9,7 +9,7 @@ Design goals:
   - Human-readable: every field has a clear name and comment.
   - JSON-serializable: only int, float, bool, str, None, list, and dict.
   - Complete: captures everything an optimal agent could need, including
-    fields the current Float32 vector encoding (spaces.ts, 5,786 dims) omits.
+    fields the current Float32 vector encoding (spaces.ts, 9,875 dims) omits.
   - Typed: uses typing.TypedDict so agents get IDE autocomplete and
     static-analysis support out of the box.
 

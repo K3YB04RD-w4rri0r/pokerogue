@@ -11,7 +11,6 @@ import {
   PokemonPpRestoreModifierType,
   PokemonPpUpModifierType,
   RememberMoveModifierType,
-  TmModifierType,
 } from "#modifiers/modifier-type";
 import type { SelectModifierPhase } from "#phases/select-modifier-phase";
 import { SHOP_OPTIONS_ROW_LIMIT } from "#ui/modifier-select-ui-handler";
@@ -58,10 +57,10 @@ function getTargetKind(modifierType: ModifierType): ModifierTargetKind {
     return "pokemon_pair";
   }
   if (
-    modifierType instanceof PokemonMoveModifierType ||
-    modifierType instanceof PokemonPpRestoreModifierType ||
-    modifierType instanceof PokemonPpUpModifierType ||
-    modifierType instanceof RememberMoveModifierType
+    modifierType instanceof PokemonMoveModifierType
+    || modifierType instanceof PokemonPpRestoreModifierType
+    || modifierType instanceof PokemonPpUpModifierType
+    || modifierType instanceof RememberMoveModifierType
   ) {
     return "move";
   }
@@ -71,7 +70,12 @@ function getTargetKind(modifierType: ModifierType): ModifierTargetKind {
   return "none";
 }
 
-function buildModifierInfo(opt: ModifierTypeOption, index: number, source: "reward" | "shop", cost: number): ModifierInfo {
+function buildModifierInfo(
+  opt: ModifierTypeOption,
+  index: number,
+  source: "reward" | "shop",
+  cost: number,
+): ModifierInfo {
   return {
     index,
     source,
@@ -127,11 +131,7 @@ export function getAvailableModifiers(): {
  * For pokemon-targeting modifiers, provide pokemonIndex (defaults to 0).
  * For move-targeting modifiers, also provide moveIndex.
  */
-export function selectRewardModifier(
-  index: number,
-  pokemonIndex?: number,
-  moveIndex?: number,
-): ModifierActionResult {
+export function selectRewardModifier(index: number, pokemonIndex?: number, moveIndex?: number): ModifierActionResult {
   const phase = getCurrentSelectModifierPhase();
   if (!phase) {
     return { success: false, error: "Not in SelectModifierPhase" };
@@ -161,11 +161,7 @@ export function selectRewardModifier(
  * Select a shop modifier by index (purchasable items).
  * Checks money before purchase. For pokemon-targeting modifiers, provide pokemonIndex.
  */
-export function selectShopModifier(
-  index: number,
-  pokemonIndex?: number,
-  moveIndex?: number,
-): ModifierActionResult {
+export function selectShopModifier(index: number, pokemonIndex?: number, moveIndex?: number): ModifierActionResult {
   const phase = getCurrentSelectModifierPhase();
   if (!phase) {
     return { success: false, error: "Not in SelectModifierPhase" };
@@ -294,8 +290,13 @@ function applyPokemonModifier(
   }
 
   let modifier: Modifier | null;
-  if (targetKind === "move" && moveIndex !== undefined) {
-    modifier = modifierType.newModifier(pokemon, moveIndex);
+  if (targetKind === "move") {
+    // Move-targeting modifiers (e.g. Memory Mushroom / RememberMoveModifierType)
+    // index into the pokemon's learnable-move list. The RL action space has no
+    // move sub-selection, so default to the first learnable move — passing
+    // undefined would build a modifier with moveId=undefined and crash
+    // LearnMovePhase.start (allMoves[undefined].id).
+    modifier = modifierType.newModifier(pokemon, moveIndex ?? 0);
   } else {
     modifier = modifierType.newModifier(pokemon);
   }
@@ -308,7 +309,11 @@ function applyPokemonModifier(
 
   // Update the pokemon's battle info (HP bar, status, etc.) to reflect the modifier's effect.
   // In headless mode this may be a no-op if battleInfo is mocked.
-  try { pokemon.updateInfo(true); } catch { /* ignore in headless mode */ }
+  try {
+    pokemon.updateInfo(true);
+  } catch {
+    /* ignore in headless mode */
+  }
 
   return { success: true };
 }

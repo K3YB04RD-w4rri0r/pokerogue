@@ -5,15 +5,10 @@ import { MoveId } from "#enums/move-id";
 import { SpeciesId } from "#enums/species-id";
 import type { CustomModifierSettings } from "#modifiers/modifier-type";
 import { SelectModifierPhase } from "#phases/select-modifier-phase";
-import {
-  getAvailableModifiers,
-  rerollModifiers,
-  selectRewardModifier,
-  skipModifiers,
-} from "#rl/modifier-api";
+import { getAvailableModifiers, rerollModifiers, selectRewardModifier, skipModifiers } from "#rl/modifier-api";
 import { GameManager } from "#test/test-utils/game-manager";
 import Phaser from "phaser";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 describe("RL Modifier API", () => {
   let phaserGame: Phaser.Game;
@@ -32,10 +27,6 @@ describe("RL Modifier API", () => {
       .ability(AbilityId.NO_GUARD)
       .startingLevel(200)
       .enemySpecies(SpeciesId.MAGIKARP);
-  });
-
-  afterEach(() => {
-    game.phaseInterceptor.restoreOg();
   });
 
   describe("getAvailableModifiers", () => {
@@ -66,11 +57,7 @@ describe("RL Modifier API", () => {
     it("should correctly identify targetKind for known modifier types", async () => {
       await game.classicMode.startBattle([SpeciesId.ABRA]);
       const customModifiers: CustomModifierSettings = {
-        guaranteedModifierTypeFuncs: [
-          modifierTypes.AMULET_COIN,
-          modifierTypes.LEFTOVERS,
-          modifierTypes.TM_ULTRA,
-        ],
+        guaranteedModifierTypeFuncs: [modifierTypes.AMULET_COIN, modifierTypes.LEFTOVERS, modifierTypes.TM_ULTRA],
       };
       const selectModifierPhase = new SelectModifierPhase(0, undefined, customModifiers);
       scene.phaseManager.unshiftPhase(selectModifierPhase);

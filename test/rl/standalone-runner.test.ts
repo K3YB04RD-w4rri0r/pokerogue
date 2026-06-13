@@ -6,12 +6,12 @@
  * but the GameManager, GameWrapper, and all helpers use only the standalone
  * mock utilities from `src/rl/mocks/spy.ts` — not `vi.fn()` or `vi.spyOn()`.
  */
-import { restoreAllMocks } from "#app/rl/mocks/spy";
-import { GameManager } from "#test/test-utils/game-manager";
+
 import { MoveId } from "#enums/move-id";
 import { SpeciesId } from "#enums/species-id";
+import { GameManager } from "#test/test-utils/game-manager";
 import Phaser from "phaser";
-import { afterEach, beforeAll, beforeEach, describe, it } from "vitest";
+import { beforeAll, beforeEach, describe, it } from "vitest";
 
 describe("Standalone Runner", () => {
   let phaserGame: Phaser.Game;
@@ -23,10 +23,6 @@ describe("Standalone Runner", () => {
 
   beforeEach(() => {
     game = new GameManager(phaserGame);
-  });
-
-  afterEach(() => {
-    game.phaseInterceptor.restoreOg();
   });
 
   it("runs a 3-wave battle without vi.* utilities", async () => {

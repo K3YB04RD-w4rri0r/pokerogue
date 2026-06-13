@@ -14,58 +14,57 @@
  * Does NOT import from 'vitest'. Uses existing src/rl/modifier-api.ts for modifier handling.
  */
 
+import { getGameMode } from "#app/game-mode";
 import { globalScene } from "#app/global-scene";
 import { Phase } from "#app/phase";
-import { UI } from "#ui/ui";
-import { UiMode } from "#enums/ui-mode";
-import { Command } from "#enums/command";
-import { BattlerIndex } from "#enums/battler-index";
-import { MoveUseMode } from "#enums/move-use-mode";
+import { allMoves } from "#data/data-lists";
 import { BattleType } from "#enums/battle-type";
+import { BattlerIndex } from "#enums/battler-index";
 import { BiomeId } from "#enums/biome-id";
 import { Button } from "#enums/buttons";
-import { MoveTarget } from "#enums/move-target";
-import { SwitchType } from "#enums/switch-type";
-import { IvScannerModifier } from "#modifiers/modifier";
-import type { CommandPhase } from "#phases/command-phase";
-import type { SelectTargetPhase } from "#phases/select-target-phase";
-import { SelectStarterPhase } from "#phases/select-starter-phase";
-import { EncounterPhase } from "#phases/encounter-phase";
-import { getMoveTargets } from "#moves/move-utils";
-import { allMoves } from "#data/data-lists";
-import { getGameMode } from "#app/game-mode";
+import { Command } from "#enums/command";
 import { GameModes } from "#enums/game-modes";
-import { generateStarters } from "#test/test-utils/game-manager-utils";
+import { MoveTarget } from "#enums/move-target";
+import { MoveUseMode } from "#enums/move-use-mode";
+import { SwitchType } from "#enums/switch-type";
+import { UiMode } from "#enums/ui-mode";
+import { getMoveTargets } from "#moves/move-utils";
+import type { CommandPhase } from "#phases/command-phase";
+import { EncounterPhase } from "#phases/encounter-phase";
+import { SelectStarterPhase } from "#phases/select-starter-phase";
+import type { SelectTargetPhase } from "#phases/select-target-phase";
 import {
   getAvailableModifiers,
   getEligiblePokemon,
+  rerollModifiers,
   selectRewardModifier,
   selectShopModifier,
   skipModifiers,
-  rerollModifiers,
 } from "#rl/modifier-api";
 import {
-  ACTION_SPACE_SIZE,
-  MAX_MOVES,
-  MAX_PARTY_SIZE,
-  NUM_POKEBALL_TYPES,
-  MAX_REWARD_OPTIONS,
-  MAX_SHOP_OPTIONS,
+  ACTION_BALL_START,
+  ACTION_BUY_SHOP_START,
+  ACTION_FIGHT_ALLY_START,
   ACTION_FIGHT_ENEMY_START,
   ACTION_FIGHT_ENEMY2_START,
-  ACTION_FIGHT_ALLY_START,
-  ACTION_SWITCH_START,
-  ACTION_BALL_START,
+  ACTION_PARTY_TARGET_START,
+  ACTION_REROLL,
   ACTION_RUN,
+  ACTION_SELECT_REWARD_START,
+  ACTION_SKIP,
+  ACTION_SPACE_SIZE,
+  ACTION_SWITCH_START,
+  ACTION_TERA_ALLY_START,
   ACTION_TERA_ENEMY_START,
   ACTION_TERA_ENEMY2_START,
-  ACTION_TERA_ALLY_START,
-  ACTION_SELECT_REWARD_START,
-  ACTION_REROLL,
-  ACTION_SKIP,
-  ACTION_BUY_SHOP_START,
-  ACTION_PARTY_TARGET_START,
+  MAX_MOVES,
+  MAX_PARTY_SIZE,
+  MAX_REWARD_OPTIONS,
+  MAX_SHOP_OPTIONS,
+  NUM_POKEBALL_TYPES,
 } from "#rl/spaces";
+import { generateStarters } from "#test/test-utils/game-manager-utils";
+import { UI } from "#ui/ui";
 
 // ─── Decision Phase Enum ──────────────────────────────────────────────
 
@@ -226,19 +225,24 @@ const CALLBACK_DECISION_PHASES = new Set<string>([
  * setModeForceTransition, setOverlayMode, or showText with prompt=true.
  */
 const AUTO_SKIP_PHASES = new Set<string>([
-  "EggLapsePhase",             // PH2: CONFIRM dialog for skip preference
-  "EggHatchPhase",             // PH3: EGG_HATCH_SCENE requires ACTION
-  "EggSummaryPhase",           // PH4: EGG_HATCH_SUMMARY requires CANCEL
-  "EndCardPhase",              // PH5: Classic victory card, waits for ACTION
-  "UnlockPhase",               // PH6: "Unlocked X" message, waits for ACTION
-  "EvolutionPhase",            // PH7: EVOLUTION_SCENE + possible pause CONFIRM
-  "FormChangePhase",           // Extends EvolutionPhase, same patterns
-  "ModifierRewardPhase",       // PH8: "Obtained X" showText with prompt
+  "EggLapsePhase", // PH2: CONFIRM dialog for skip preference
+  "EggHatchPhase", // PH3: EGG_HATCH_SCENE requires ACTION
+  "EggSummaryPhase", // PH4: EGG_HATCH_SUMMARY requires CANCEL
+  "EndCardPhase", // PH5: Classic victory card, waits for ACTION
+  "UnlockPhase", // PH6: "Unlocked X" message, waits for ACTION
+  "EvolutionPhase", // PH7: EVOLUTION_SCENE + possible pause CONFIRM
+  "FormChangePhase", // Extends EvolutionPhase, same patterns
+  "ModifierRewardPhase", // PH8: "Obtained X" showText with prompt
   "RibbonModifierRewardPhase", // PH9: Same pattern as PH8
   "GameOverModifierRewardPhase", // PH10: Same pattern as PH8
-  "MoneyRewardPhase",          // PH11: "Won X money" showText with prompt
-  "TrainerVictoryPhase",       // PH12: Trainer defeat dialogue
-  "LevelCapPhase",             // PH13: "Level cap raised" message
+  "MoneyRewardPhase", // PH11: "Won X money" showText with prompt
+  "TrainerVictoryPhase", // PH12: Trainer defeat dialogue
+  "LevelCapPhase", // PH13: "Level cap raised" message
+  // Full-party capture: the "Your party is full. Release a Pokemon?" showText
+  // prompt blocks in MESSAGE mode BEFORE the CONFIRM dialog the dedicated
+  // setMode handlers cover. The poll advances the prompt; the CONFIRM branch
+  // below routes to the release option (cursor 2).
+  "AttemptCapturePhase",
 ]);
 
 // ─── Implementation ───────────────────────────────────────────────────
@@ -296,10 +300,14 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
   function hookedSetMode(this: UI, mode: UiMode, ...args: unknown[]): Promise<void> {
     const ret = originalSetMode.apply(this, [mode, ...args]);
 
-    if (destroyed) return ret;
+    if (destroyed) {
+      return ret;
+    }
 
     const currentPhase = globalScene.phaseManager?.getCurrentPhase();
-    if (!currentPhase) return ret;
+    if (!currentPhase) {
+      return ret;
+    }
 
     const phaseName = currentPhase.phaseName;
 
@@ -313,7 +321,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     const isDecisionMode = DECISION_UI_MODES.has(mode);
 
     if (verbose) {
-      console.log(`[PhaseRouter] setMode: phase=${phaseName} mode=${UiMode[mode]} isDecision=${isDecisionMode} endBySetMode=${isEndBySetMode} callbackPhase=${isCallbackPhase}`);
+      console.log(
+        `[PhaseRouter] setMode: phase=${phaseName} mode=${UiMode[mode]} isDecision=${isDecisionMode} endBySetMode=${isEndBySetMode} callbackPhase=${isCallbackPhase}`,
+      );
     }
 
     // Auto-handle AttemptCapturePhase (full party) — the game shows a multi-step
@@ -321,51 +331,12 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     //   CONFIRM ("fullParty") → PARTY (RELEASE mode) → release selected Pokemon
     // Without handling, the game hangs permanently (P0 bug).
     if (phaseName === "AttemptCapturePhase") {
-      if (mode === UiMode.CONFIRM) {
-        // The "fullParty" CONFIRM has 4 options passed as args:
-        //   args[0] = Summary callback, args[1] = Pokedex callback,
-        //   args[2] = Release callback (opens PARTY), args[3] = Cancel callback
-        // We pick option 2 ("Yes, release a party member") to proceed.
-        setTimeout(() => {
-          const phase = globalScene.phaseManager.getCurrentPhase();
-          if (phase?.phaseName !== "AttemptCapturePhase") return;
-          const handler = globalScene.ui.getHandler();
-          if (!handler) return;
-          // Select option index 2 ("Yes") and press ACTION
-          (handler as { setCursor(cursor: number): boolean }).setCursor(2);
-          (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-          if (verbose) {
-            console.log("[PhaseRouter] AttemptCapturePhase: auto-accepted release (CONFIRM option 2)");
-          }
-        }, 0);
-        return ret;
-      }
-
-      if (mode === UiMode.PARTY) {
-        // PARTY in RELEASE mode: pick the lowest-level Pokemon to release.
-        // This auto-selects so the RL agent doesn't need to handle this sub-decision.
-        setTimeout(() => {
-          const phase = globalScene.phaseManager.getCurrentPhase();
-          if (phase?.phaseName !== "AttemptCapturePhase") return;
-          const handler = globalScene.ui.getHandler();
-          if (!handler) return;
-          // Find the lowest-level party member to release
-          const party = globalScene.getPlayerParty() ?? [];
-          let lowestIdx = 0;
-          let lowestLevel = Infinity;
-          for (let i = 0; i < party.length; i++) {
-            if (party[i].level < lowestLevel) {
-              lowestLevel = party[i].level;
-              lowestIdx = i;
-            }
-          }
-          if (verbose) {
-            console.log(`[PhaseRouter] AttemptCapturePhase: auto-releasing party slot ${lowestIdx} (${party[lowestIdx]?.name}, Lv${lowestLevel})`);
-          }
-          infoMessages.push(`AutoRelease: ${party[lowestIdx]?.name ?? "?"} Lv${lowestLevel} (slot ${lowestIdx})`);
-          (handler as { setCursor(cursor: number): boolean }).setCursor(lowestIdx);
-          (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-        }, 0);
+      // CONFIRM ("fullParty") and PARTY (RELEASE mode) are driven by the
+      // polling state machine in tryAutoSkipPhase — the flow needs multiple
+      // inputs at UI states that open asynchronously (options submenu, goodbye
+      // prompt), so per-setMode setTimeout chains race the UI. The poll reads
+      // the actual UI state each 50ms tick and acts on it.
+      if (mode === UiMode.CONFIRM || mode === UiMode.PARTY) {
         return ret;
       }
 
@@ -373,9 +344,13 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
         // Summary/Pokedex view during capture — auto-dismiss by pressing CANCEL
         setTimeout(() => {
           const phase = globalScene.phaseManager.getCurrentPhase();
-          if (phase?.phaseName !== "AttemptCapturePhase") return;
+          if (phase?.phaseName !== "AttemptCapturePhase") {
+            return;
+          }
           const handler = globalScene.ui.getHandler();
-          if (!handler) return;
+          if (!handler) {
+            return;
+          }
           (handler as { processInput(button: Button): boolean }).processInput(Button.CANCEL);
           if (verbose) {
             console.log(`[PhaseRouter] AttemptCapturePhase: auto-dismissed ${UiMode[mode]}`);
@@ -391,7 +366,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     if (phaseName === "ScanIvsPhase" && mode === UiMode.CONFIRM) {
       const statNames = ["HP", "ATK", "DEF", "SP.ATK", "SP.DEF", "SPD"];
       for (const enemy of globalScene.getEnemyField()) {
-        if (!enemy) continue;
+        if (!enemy) {
+          continue;
+        }
         const enemyIvs = enemy.ivs;
         const dexIvs = globalScene.gameData.dexData[enemy.species.getRootSpeciesId()]?.ivs;
         const ivDetails: string[] = [];
@@ -403,9 +380,7 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
             ivDetails.push(`${label}=${eiv}${eiv === 31 ? "(perfect)" : ""}`);
           }
         }
-        const summary = ivDetails.length > 0
-          ? ivDetails.join(", ")
-          : "none above baseline";
+        const summary = ivDetails.length > 0 ? ivDetails.join(", ") : "none above baseline";
         infoMessages.push(`IVScanner ${enemy.name}: ${summary}`);
       }
       if (verbose) {
@@ -477,7 +452,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     }
 
     const state = buildPhaseState(decision, phaseName, uiMode);
-    if (!state) return;
+    if (!state) {
+      return;
+    }
 
     // Only resolve if there's something actionable (at least one valid action)
     // Exception: GAME_OVER and setup phases always resolve
@@ -494,7 +471,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     }
 
     if (verbose) {
-      console.log(`[PhaseRouter] Decision resolved: ${decision} validActions=${state.validActions.length} pending=${!!pendingDecision}`);
+      console.log(
+        `[PhaseRouter] Decision resolved: ${decision} validActions=${state.validActions.length} pending=${!!pendingDecision}`,
+      );
     }
 
     currentPhaseState = state;
@@ -518,11 +497,16 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
 
   // ── Phase State Builders ───────────────────────────────────────────
 
-  function buildPhaseState(
-    decision: DecisionPhase,
-    phaseName: string,
-    uiMode: UiMode,
-  ): PhaseState | null {
+  function buildPhaseState(decision: DecisionPhase, phaseName: string, uiMode: UiMode): PhaseState | null {
+    // TitlePhase stays current while initBattle() runs asynchronously, so it
+    // can be re-detected by the poll a timing-dependent number of times.
+    // Present TITLE exactly once per episode — otherwise the number of
+    // decision steps (and any seeded action RNG consuming them) varies
+    // between identical runs, breaking determinism.
+    if (decision === DecisionPhase.TITLE && titleActionExecuted) {
+      return null;
+    }
+
     const metadata: Record<string, unknown> = {
       phaseName,
       uiMode,
@@ -585,7 +569,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
 
     const validActions: number[] = [];
     for (let i = 0; i < actionMask.length; i++) {
-      if (actionMask[i]) validActions.push(i);
+      if (actionMask[i]) {
+        validActions.push(i);
+      }
     }
 
     return { phase: decision, validActions, actionMask, metadata };
@@ -596,11 +582,15 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
   function buildCommandActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
     const currentPhase = globalScene.phaseManager.getCurrentPhase();
-    if (!currentPhase?.is("CommandPhase")) return mask;
+    if (!currentPhase?.is("CommandPhase")) {
+      return mask;
+    }
 
     const commandPhase = currentPhase as CommandPhase;
     const pokemon = commandPhase.getPokemon();
-    if (!pokemon) return mask;
+    if (!pokemon) {
+      return mask;
+    }
 
     const moveset = pokemon.getMoveset(false);
     const battle = globalScene.currentBattle;
@@ -621,11 +611,7 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     const isTrapped = pokemon.isTrapped(trappedMessages);
 
     // Move targets that require the player to choose a specific target
-    const SINGLE_TARGET_ENEMY = new Set([
-      MoveTarget.NEAR_ENEMY,
-      MoveTarget.NEAR_OTHER,
-      MoveTarget.OTHER,
-    ]);
+    const SINGLE_TARGET_ENEMY = new Set([MoveTarget.NEAR_ENEMY, MoveTarget.NEAR_OTHER, MoveTarget.OTHER]);
 
     const anyEnemyActive = enemy0Active || enemy1Active;
 
@@ -675,9 +661,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
           const [usable] = move.isUsable(pokemon);
           const moveData = move.getMove();
           const canTargetAlly =
-            moveData.moveTarget === MoveTarget.NEAR_ALLY ||
-            moveData.moveTarget === MoveTarget.USER_OR_NEAR_ALLY ||
-            moveData.moveTarget === MoveTarget.ALLY;
+            moveData.moveTarget === MoveTarget.NEAR_ALLY
+            || moveData.moveTarget === MoveTarget.USER_OR_NEAR_ALLY
+            || moveData.moveTarget === MoveTarget.ALLY;
           if (usable && canTargetAlly) {
             mask[ACTION_FIGHT_ALLY_START + i] = true;
           }
@@ -718,9 +704,15 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     const teraAvailable = !playerField.some(p => p?.isTerastallized);
     if (teraAvailable && !pokemon.isTerastallized) {
       for (let i = 0; i < MAX_MOVES; i++) {
-        if (mask[ACTION_FIGHT_ENEMY_START + i]) mask[ACTION_TERA_ENEMY_START + i] = true;
-        if (mask[ACTION_FIGHT_ENEMY2_START + i]) mask[ACTION_TERA_ENEMY2_START + i] = true;
-        if (mask[ACTION_FIGHT_ALLY_START + i]) mask[ACTION_TERA_ALLY_START + i] = true;
+        if (mask[ACTION_FIGHT_ENEMY_START + i]) {
+          mask[ACTION_TERA_ENEMY_START + i] = true;
+        }
+        if (mask[ACTION_FIGHT_ENEMY2_START + i]) {
+          mask[ACTION_TERA_ENEMY2_START + i] = true;
+        }
+        if (mask[ACTION_FIGHT_ALLY_START + i]) {
+          mask[ACTION_TERA_ALLY_START + i] = true;
+        }
       }
     }
 
@@ -732,7 +724,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
   function buildSelectTargetActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
     const currentPhase = globalScene.phaseManager.getCurrentPhase();
-    if (!currentPhase?.is("SelectTargetPhase")) return mask;
+    if (!currentPhase?.is("SelectTargetPhase")) {
+      return mask;
+    }
 
     const selectTargetPhase = currentPhase as SelectTargetPhase;
     const fieldIndex = (selectTargetPhase as unknown as { fieldIndex: number }).fieldIndex;
@@ -880,7 +874,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
           mask[ACTION_SWITCH_START + (i - 1)] = true;
         }
       }
-      if (i > 0) slotIdx++;
+      if (i > 0) {
+        slotIdx++;
+      }
     }
 
     return mask;
@@ -953,7 +949,7 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     // OptionSelectUiHandler stores options in a protected `config` property
     const handler = globalScene.ui.getHandler() as unknown as { config?: { options?: { label?: string }[] } };
     const handlerOptions = handler?.config?.options;
-    if (handlerOptions?.length) {
+    if (handlerOptions?.length > 0) {
       optionCount = Math.min(handlerOptions.length, 4);
       for (let i = 0; i < optionCount; i++) {
         biomeNames.push(handlerOptions[i]?.label ?? `Biome ${i}`);
@@ -1010,8 +1006,8 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     // Validate action against mask
     if (!currentPhaseState.actionMask[action]) {
       console.warn(
-        `[PhaseRouter] Action ${action} is not valid for phase ${currentPhaseState.phase}. ` +
-        `Valid actions: [${currentPhaseState.validActions.join(", ")}]`
+        `[PhaseRouter] Action ${action} is not valid for phase ${currentPhaseState.phase}. `
+          + `Valid actions: [${currentPhaseState.validActions.join(", ")}]`,
       );
       // Fall back to first valid action
       if (currentPhaseState.validActions.length > 0) {
@@ -1104,11 +1100,11 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     if (action >= ACTION_FIGHT_ENEMY_START && action < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
       const moveIndex = action - ACTION_FIGHT_ENEMY_START;
       const moveData = moveset[moveIndex]?.getMove();
-      const needsExplicitTarget = moveData && (
-        moveData.moveTarget === MoveTarget.NEAR_ENEMY ||
-        moveData.moveTarget === MoveTarget.NEAR_OTHER ||
-        moveData.moveTarget === MoveTarget.OTHER
-      );
+      const needsExplicitTarget =
+        moveData
+        && (moveData.moveTarget === MoveTarget.NEAR_ENEMY
+          || moveData.moveTarget === MoveTarget.NEAR_OTHER
+          || moveData.moveTarget === MoveTarget.OTHER);
       if (needsExplicitTarget) {
         // Single-target move: specify enemy slot 0
         const moveId = moveset[moveIndex]?.moveId ?? 0;
@@ -1174,11 +1170,11 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     if (action >= ACTION_TERA_ENEMY_START && action < ACTION_TERA_ENEMY_START + MAX_MOVES) {
       const moveIndex = action - ACTION_TERA_ENEMY_START;
       const moveData = moveset[moveIndex]?.getMove();
-      const needsExplicitTarget = moveData && (
-        moveData.moveTarget === MoveTarget.NEAR_ENEMY ||
-        moveData.moveTarget === MoveTarget.NEAR_OTHER ||
-        moveData.moveTarget === MoveTarget.OTHER
-      );
+      const needsExplicitTarget =
+        moveData
+        && (moveData.moveTarget === MoveTarget.NEAR_ENEMY
+          || moveData.moveTarget === MoveTarget.NEAR_OTHER
+          || moveData.moveTarget === MoveTarget.OTHER);
       if (needsExplicitTarget) {
         const moveId = moveset[moveIndex]?.moveId ?? 0;
         commandPhase.handleCommand(Command.TERA, moveIndex, MoveUseMode.NORMAL, {
@@ -1265,10 +1261,25 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
    * by killing all tweens/timers and destroying old UI children first.
    */
   function patchModifierHandler(): void {
-    if (modifierHandlerPatched) return;
+    if (modifierHandlerPatched) {
+      return;
+    }
     try {
       const handler = (globalScene as any).ui?.handlers?.[UiMode.MODIFIER_SELECT];
-      if (!handler) return;
+      if (!handler) {
+        return;
+      }
+
+      // The handler INSTANCE outlives this router (the scene is reused across
+      // in-process episode resets), but `modifierHandlerPatched` is closure
+      // state and resets with every new router. Without this marker each
+      // episode would wrap the PREVIOUS wrapper — N stacked layers after N
+      // episodes, every layer pinning its router's closures (observed as
+      // steps/s decaying 109->43 and RSS tripling over a 100-episode soak).
+      if ((handler.show as { __rlPatched?: boolean }).__rlPatched) {
+        modifierHandlerPatched = true;
+        return;
+      }
 
       const originalShow = handler.show.bind(handler);
       handler.show = function (args: unknown[]): boolean {
@@ -1281,7 +1292,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
         const currentPhase = globalScene.phaseManager?.getCurrentPhase();
         if (!currentPhase?.is("SelectModifierPhase")) {
           if (verbose) {
-            console.log(`[PhaseRouter] ModifierSelectUiHandler.show() blocked — not in SelectModifierPhase (current: ${currentPhase?.phaseName})`);
+            console.log(
+              `[PhaseRouter] ModifierSelectUiHandler.show() blocked — not in SelectModifierPhase (current: ${currentPhase?.phaseName})`,
+            );
           }
           return false;
         }
@@ -1290,11 +1303,19 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
         // show() has no explicit target, so killTweensOf() can't find it.
         // killAll() is the only way. This is safe — we're entering a new
         // modifier phase, so any running tweens are stale.
-        try { globalScene.tweens.killAll(); } catch { /* ignore */ }
+        try {
+          globalScene.tweens.killAll();
+        } catch {
+          /* ignore */
+        }
 
         // Remove ALL pending timer events. show()'s delayedCall events
         // would fire later and corrupt handler state with stale callbacks.
-        try { globalScene.time.removeAllEvents(); } catch { /* ignore */ }
+        try {
+          globalScene.time.removeAllEvents();
+        } catch {
+          /* ignore */
+        }
 
         // Destroy ALL old children in modifierContainer (undestroyed options
         // from a previous show/clear cycle whose destroy-onComplete was
@@ -1303,7 +1324,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
           if (this.modifierContainer) {
             this.modifierContainer.removeAll(true);
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         // Reset arrays that may have been repopulated by stale callbacks
         this.options = [];
@@ -1320,6 +1343,7 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
 
         return originalShow(args);
       };
+      (handler.show as { __rlPatched?: boolean }).__rlPatched = true;
 
       modifierHandlerPatched = true;
       if (verbose) {
@@ -1352,11 +1376,17 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
       scene.shopOverlayShown = false;
 
       // Hide luck text
-      if (scene.luckText) scene.luckText.setAlpha(0);
-      if (scene.luckLabelText) scene.luckLabelText.setAlpha(0);
+      if (scene.luckText) {
+        scene.luckText.setAlpha(0);
+      }
+      if (scene.luckLabelText) {
+        scene.luckLabelText.setAlpha(0);
+      }
 
       const handler = scene.ui?.handlers?.[UiMode.MODIFIER_SELECT];
-      if (!handler) return;
+      if (!handler) {
+        return;
+      }
 
       // Destroy ALL children in modifierContainer
       if (handler.modifierContainer) {
@@ -1812,11 +1842,13 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
         if (pendingDecision) {
           const pd = pendingDecision;
           pendingDecision = null;
-          pd.reject(new Error(
-            `[PhaseRouter] Timeout waiting for next decision after ${timeoutMs}ms. ` +
-            `Last phase: ${globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? "none"}, ` +
-            `UI mode: ${UiMode[globalScene.ui?.getMode()] ?? "unknown"}`
-          ));
+          pd.reject(
+            new Error(
+              `[PhaseRouter] Timeout waiting for next decision after ${timeoutMs}ms. `
+                + `Last phase: ${globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? "none"}, `
+                + `UI mode: ${UiMode[globalScene.ui?.getMode()] ?? "unknown"}`,
+            ),
+          );
         }
       }, timeoutMs);
 
@@ -1847,10 +1879,14 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
    */
   function tryAutoSkipPhase(): boolean {
     const currentPhase = globalScene.phaseManager?.getCurrentPhase();
-    if (!currentPhase) return false;
+    if (!currentPhase) {
+      return false;
+    }
 
     const phaseName = currentPhase.phaseName;
-    if (!AUTO_SKIP_PHASES.has(phaseName)) return false;
+    if (!AUTO_SKIP_PHASES.has(phaseName)) {
+      return false;
+    }
 
     const handler = globalScene.ui.getHandler() as {
       active?: boolean;
@@ -1858,12 +1894,88 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
       awaitingActionInput?: boolean;
       onActionInput?: (() => void) | null;
     };
-    if (!handler) return false;
+    if (!handler) {
+      return false;
+    }
 
     // For CONFIRM dialogs:
     // - EggLapsePhase: "Skip hatching?" → Yes (cursor 0) = skip animations
     // - EvolutionPhase: "Pause evolutions?" → No (cursor 1) = DON'T pause
     const uiMode = globalScene.ui.getMode();
+
+    // ── AttemptCapturePhase full-party release: poll-driven state machine ──
+    // Catching with a full party opens: CONFIRM ("fullParty", 4 options) →
+    // PARTY (RELEASE mode) → slot options submenu (RELEASE = option 0) →
+    // goodbye text (prompt=true) → release done, phase continues. Each tick
+    // reads the actual UI state and advances exactly one input.
+    if (phaseName === "AttemptCapturePhase") {
+      if (uiMode === UiMode.CONFIRM && handler.active) {
+        // Option 2 = "Yes, release a party member"
+        if (verbose) {
+          console.log("[PhaseRouter] AttemptCapturePhase: CONFIRM → selecting release (option 2)");
+        }
+        (handler as { setCursor?(cursor: number): boolean }).setCursor?.(2);
+        handler.processInput?.(Button.ACTION);
+        return true;
+      }
+      if (uiMode === UiMode.PARTY) {
+        const party = globalScene.getPlayerParty() ?? [];
+        let lowestIdx = 0;
+        let lowestLevel = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < party.length; i++) {
+          if (party[i].level < lowestLevel) {
+            lowestLevel = party[i].level;
+            lowestIdx = i;
+          }
+        }
+        const partyHandler = handler as {
+          awaitingActionInput?: boolean;
+          optionsMode?: boolean;
+          cursor?: number;
+          setCursor?(cursor: number): boolean;
+          processInput?(button: Button): boolean;
+        };
+        if (partyHandler.awaitingActionInput) {
+          // Goodbye text (or other prompt) inside the party UI — dismiss it
+          if (verbose) {
+            console.log("[PhaseRouter] AttemptCapturePhase: PARTY prompt → ACTION");
+          }
+          partyHandler.processInput?.(Button.ACTION);
+          return true;
+        }
+        if (!partyHandler.optionsMode) {
+          // Select the lowest-level slot (opens its options submenu)
+          if (verbose) {
+            console.log(
+              `[PhaseRouter] AttemptCapturePhase: PARTY → selecting slot ${lowestIdx} (${party[lowestIdx]?.name}, Lv${lowestLevel})`,
+            );
+          }
+          infoMessages.push(`AutoRelease: ${party[lowestIdx]?.name ?? "?"} Lv${lowestLevel} (slot ${lowestIdx})`);
+          partyHandler.setCursor?.(lowestIdx);
+          partyHandler.processInput?.(Button.ACTION);
+          return true;
+        }
+        if (partyHandler.cursor === lowestIdx) {
+          // Options submenu open on the right slot: RELEASE is option 0
+          if (verbose) {
+            console.log("[PhaseRouter] AttemptCapturePhase: PARTY options → RELEASE");
+          }
+          partyHandler.setCursor?.(0);
+          partyHandler.processInput?.(Button.ACTION);
+        } else {
+          // Submenu open on the wrong slot (stale input) — back out and retry
+          if (verbose) {
+            console.log(
+              `[PhaseRouter] AttemptCapturePhase: PARTY options on wrong slot ${partyHandler.cursor} → CANCEL`,
+            );
+          }
+          partyHandler.processInput?.(Button.CANCEL);
+        }
+        return true;
+      }
+      // MESSAGE-mode prompts fall through to the generic handling below
+    }
+
     if (uiMode === UiMode.CONFIRM && handler.active) {
       if (phaseName === "EvolutionPhase" || phaseName === "FormChangePhase") {
         // Select "No" (don't pause evolutions) — CANCEL sets cursor to last option (No)
@@ -1947,22 +2059,32 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     }
 
     const currentPhase = globalScene.phaseManager?.getCurrentPhase();
-    if (!currentPhase) return null;
+    if (!currentPhase) {
+      return null;
+    }
 
     const phaseName = currentPhase.phaseName;
     const decision = PHASE_NAME_TO_DECISION[phaseName];
-    if (decision === undefined) return null;
+    if (decision === undefined) {
+      return null;
+    }
 
     const uiMode = globalScene.ui?.getMode();
-    if (uiMode === undefined || uiMode === null) return null;
+    if (uiMode === undefined || uiMode === null) {
+      return null;
+    }
 
     // Check if the UI is in a decision mode for this phase
     const isDecisionMode = DECISION_UI_MODES.has(uiMode);
-    if (!isDecisionMode) return null;
+    if (!isDecisionMode) {
+      return null;
+    }
 
     // Verify the handler is active
     const handler = globalScene.ui?.getHandler();
-    if (!handler || !handler.active) return null;
+    if (!handler || !handler.active) {
+      return null;
+    }
 
     return buildPhaseState(decision, phaseName, uiMode);
   }
@@ -1971,7 +2093,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
    * Check if the game has ended by inspecting game state.
    */
   function checkGameOver(): boolean {
-    if (gameOverFlag) return true;
+    if (gameOverFlag) {
+      return true;
+    }
 
     const currentPhase = globalScene.phaseManager?.getCurrentPhase();
     if (currentPhase?.is("GameOverPhase")) {
@@ -1997,7 +2121,9 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     },
 
     getCurrentPhaseState(): PhaseState | null {
-      if (currentPhaseState) return currentPhaseState;
+      if (currentPhaseState) {
+        return currentPhaseState;
+      }
       const detected = detectCurrentDecision();
       if (detected) {
         currentPhaseState = detected;
@@ -2066,19 +2192,25 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
  * Used for auto-handling phases the RL agent shouldn't control.
  */
 export function pickDefaultAction(state: PhaseState): number {
-  if (state.validActions.length === 0) return 0;
+  if (state.validActions.length === 0) {
+    return 0;
+  }
 
   switch (state.phase) {
     case DecisionPhase.COMMAND:
       // Prefer the first available fight action
       for (const a of state.validActions) {
-        if (a >= ACTION_FIGHT_ENEMY_START && a < ACTION_FIGHT_ENEMY_START + MAX_MOVES) return a;
+        if (a >= ACTION_FIGHT_ENEMY_START && a < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
+          return a;
+        }
       }
       return state.validActions[0];
 
     case DecisionPhase.SELECT_MODIFIER:
       // Default: skip items
-      if (state.actionMask[ACTION_SKIP]) return ACTION_SKIP;
+      if (state.actionMask[ACTION_SKIP]) {
+        return ACTION_SKIP;
+      }
       return state.validActions[0];
 
     case DecisionPhase.MODIFIER_TARGET:
@@ -2091,12 +2223,16 @@ export function pickDefaultAction(state: PhaseState): number {
 
     case DecisionPhase.CHECK_SWITCH:
       // Default: decline
-      if (state.actionMask[ACTION_SKIP]) return ACTION_SKIP;
+      if (state.actionMask[ACTION_SKIP]) {
+        return ACTION_SKIP;
+      }
       return state.validActions[0];
 
     case DecisionPhase.LEARN_MOVE:
       // Default: don't learn
-      if (state.actionMask[ACTION_SKIP]) return ACTION_SKIP;
+      if (state.actionMask[ACTION_SKIP]) {
+        return ACTION_SKIP;
+      }
       return state.validActions[0];
 
     case DecisionPhase.GAME_OVER:

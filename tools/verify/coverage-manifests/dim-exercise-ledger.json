@@ -1,0 +1,106 @@
+{
+  "_comment": "Classification of never-varying observation dim GROUPS (see check_dim_exercise.py for status semantics and the group-key collapsing rules). Keys match by prefix against collapsed feature names. Order matters: first match wins, so specific keys go before broad ones.",
+  "groups": {
+    "active-slot/move_effectiveness": {
+      "status": "structurally-constant",
+      "reason": "the game nulls turn_data.moveEffectiveness at MoveEffectPhase end, before any decision point (move-effect-phase.ts ~900); see UNSOLVED.md U8"
+    },
+    "bench-slot/move_effectiveness": {
+      "status": "structurally-constant",
+      "reason": "see active-slot/move_effectiveness"
+    },
+    "active-slot/is_mega": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "needs a mega evolution: the STARTING_MODIFIER_OVERRIDE bracelet scenario crashes during the title flow (getBattlerCount on null battle) — mid-run bracelet acquisition not scripted yet"
+    },
+    "active-slot/is_max": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "needs dynamax — same situation as is_mega"
+    },
+    "bench-slot/is_mega": { "status": "unexercised", "scenario": "", "reason": "see active-slot/is_mega" },
+    "bench-slot/is_max": { "status": "unexercised", "scenario": "", "reason": "see active-slot/is_max" },
+    "bench-slot/stat_stages[": {
+      "status": "bench-structural",
+      "reason": "stat stages reset on switch-out; a benched mon's stages are always 0"
+    },
+    "bench-slot/damage_taken": { "status": "bench-structural", "reason": "turn-data field, on-field only" },
+    "bench-slot/acted": { "status": "bench-structural", "reason": "turn-data field, on-field only" },
+    "bench-slot/move_queue_len": { "status": "bench-structural", "reason": "move queues only exist for on-field mons" },
+    "bench-slot/other_tag_count": { "status": "bench-structural", "reason": "volatile tags clear on switch-out" },
+    "bench-slot/ability_suppressed": { "status": "bench-structural", "reason": "suppression clears on switch-out" },
+    "bench-slot/hit_count": {
+      "status": "bench-structural",
+      "reason": "battle-data accumulates while fielded; stays 0 for never-fielded bench in short runs"
+    },
+    "bench-slot/wave_turn_count": { "status": "bench-structural", "reason": "on-field turn counter" },
+    "bench-slot/is_boss": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "a benched boss requires catching a boss Pokemon; not scripted"
+    },
+    "bench-slot/boss_shield": { "status": "unexercised", "scenario": "", "reason": "see bench-slot/is_boss" },
+    "bench-slot/is_terastallized": {
+      "status": "bench-structural",
+      "reason": "tera state clears on switch-out/faint in classic flow"
+    },
+    "bench-slot/toxic_turn_count": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "requires a badly-poisoned mon to be switched out (toxic persists); status corpus uses active mons"
+    },
+    "bench-slot/sleep_turns_remaining": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "requires a sleeping mon switched to bench"
+    },
+    "shop/shop[]/": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "shop slots 4-5: the shop only offers 5-6 options at higher wave tiers than the current longest scenario (~35 waves) reaches"
+    },
+    "phase_onehot[mystery": {
+      "status": "structurally-constant",
+      "reason": "Mystery Encounters are REMOVED from the env by decision: the CLI forces MYSTERY_ENCOUNTER_RATE_OVERRIDE=0 at boot (standalone-setup.ts); the mystery phase one-hot can never fire"
+    },
+    "phase_onehot[": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "rare decision phases (evolution/form_change/revival_blessing/select_biome: occurrence depends on party/run length; learn_move/target appear in smoke runs)"
+    },
+    "battle/": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "non-classic game-mode flags (is_endless/is_daily/is_challenge/has_random_*/inverse_battle) and special battle specs require other game modes; corpus is classic-only"
+    },
+    "field/": {
+      "status": "sparse-categorical",
+      "reason": "weather/terrain one-hot cells and per-side arena tag cells vary only when that exact weather/terrain/tag occurs; bank correctness is pinned by semantic tests (arena-tags-sides, weather-terrain) and goldens"
+    },
+    "inventory/": {
+      "status": "sparse-categorical",
+      "reason": "held/party/lapsing/enemy modifier feature cells vary with the specific items held; bank correctness pinned by held-items semantic tests, goldens and live parity"
+    },
+    "derived/": {
+      "status": "sparse-categorical",
+      "reason": "type-effectiveness/STAB cells for move x enemy combinations not seen in the corpus; computation pinned by type-effectiveness semantic tests"
+    },
+    "shop/reward[]/": {
+      "status": "sparse-categorical",
+      "reason": "reward option tier/feature cells depend on which items roll; covered by shop-state semantic test + parity"
+    },
+    "shop/header/": {
+      "status": "sparse-categorical",
+      "reason": "header cells (reroll cost ratio bands) vary with money/waves; covered by parity"
+    },
+    "active-slot/": {
+      "status": "sparse-categorical",
+      "reason": "remaining active-slot cells are one-hot/flag-bank members (types, tera, status, ability/passive feature cells, rare move flags like is_ohko/transforms_into_target) that need the specific species/move/ability to appear; banks are pinned by semantic tests, golden fixtures and 3000+-state live parity"
+    },
+    "bench-slot/": {
+      "status": "sparse-categorical",
+      "reason": "same as active-slot/ for bench positions"
+    }
+  }
+}

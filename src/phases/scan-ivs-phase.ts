@@ -25,7 +25,7 @@ export class ScanIvsPhase extends PokemonPhase {
       // we are using getRootSpeciesId() here because we want to check against the baby form, not the mid form if it exists
       const currentIvs = globalScene.gameData.dexData[enemy.species.getRootSpeciesId()].ivs;
       const statsContainer = enemy.getBattleInfo().getStatsValueContainer().list as Phaser.GameObjects.Sprite[];
-      const statsContainerLabels = statsContainer.filter(m => m.name.includes("icon_stat_label"));
+      const statsContainerLabels = statsContainer.filter(m => m.name?.includes("icon_stat_label"));
       for (const statContainer of statsContainerLabels) {
         const ivStat = Stat[statContainer.frame.name] as Stat;
         if (enemyIvs[ivStat] > currentIvs[ivStat] && PERMANENT_STATS.includes(Number(ivStat))) {

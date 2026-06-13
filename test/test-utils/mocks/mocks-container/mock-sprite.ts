@@ -92,11 +92,6 @@ export class MockSprite implements MockGameObject {
     return this;
   }
 
-  addedToScene() {
-    // This callback is invoked when this Game Object is added to a Scene.
-    return this.phaserSprite.addedToScene();
-  }
-
   setVisible(visible): this {
     this.phaserSprite.setVisible(visible);
     return this;
@@ -198,8 +193,17 @@ export class MockSprite implements MockGameObject {
   }
 
   destroy() {
+    // Mark the WRAPPER destroyed so headless reset sweeps drop it from mock
+    // display lists — the inner phaserSprite.destroy() only handles the real
+    // sprite, but this wrapper is what lives in MockContainer.list
+    (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
     return this.phaserSprite.destroy();
   }
+
+  // Phaser scene-lifecycle callbacks invoked by real display-list code paths — no-ops
+  addedToScene() {}
+
+  removedFromScene() {}
 
   setName(name: string): this {
     this.phaserSprite.setName(name);

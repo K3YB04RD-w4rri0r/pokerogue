@@ -523,6 +523,8 @@ class ObsRewardOption:
     is_pokemon_modifier: bool = False
     type_id: int = -1
     stat_id: int = -1
+    status_effect: int = -1
+    berry_type: int = -1
 
 
 @dataclass(slots=True)
@@ -536,6 +538,8 @@ class ObsShopOption:
     affordable: bool = False
     type_id: int = -1
     stat_id: int = -1
+    status_effect: int = -1
+    berry_type: int = -1
 
 
 @dataclass(slots=True)
@@ -602,7 +606,8 @@ class ObsPhase:
     action_mask: List[bool] = dc_field(default_factory=lambda: [False] * ACTION_SPACE_SIZE)
     valid_actions: List[int] = dc_field(default_factory=list)
     learn_move_id: int = -1
-    biome_options: List[int] = dc_field(default_factory=list)
+    # Biome names offered by the select_biome phase (not encoded; decision metadata)
+    biome_options: List[str] = dc_field(default_factory=list)
     mystery_option_count: int = -1
     is_game_over: bool = False
     is_victory: bool = False
@@ -835,7 +840,8 @@ def _parse_held_item(d: dict) -> ObsHeldItem:
         modifier_class_id=lookup_modifier_class(d.get("modifier_class", "")),
         modifier_type_id=lookup_modifier_type(d.get("modifier_id", "")),
         stack_count=_g(d, "stack_count"),
-        max_stack_count=_g(d, "max_stack_count"),
+        # Default 1 mirrors TS num(dict, "max_stack_count", 1); explicit 0 stays 0
+        max_stack_count=_g(d, "max_stack_count", 1),
         is_transferable=_gb(d, "is_transferable"),
         type_id=_g(d, "type_id", -1),
         stat_id=_g(d, "stat_id", -1),
@@ -860,6 +866,9 @@ def _parse_turn_data(d: dict) -> ObsTurnData:
         stat_stages_increased=_gb(d, "stat_stages_increased"),
         stat_stages_decreased=_gb(d, "stat_stages_decreased"),
         berries_eaten=_gl(d, "berries_eaten"),
+        move_effectiveness=float(_g(d, "move_effectiveness", 0.0)),
+        hits_left=_g(d, "hits_left"),
+        single_hit_damage_dealt=_g(d, "single_hit_damage_dealt"),
     )
 
 
@@ -926,7 +935,9 @@ def _parse_pokemon(d: dict) -> ObsPokemon:
         is_fainted=_gb(d, "is_fainted"),
         is_active=_gb(d, "is_active"),
         is_trapped=_gb(d, "is_trapped"),
-        is_grounded=_gb(d, "is_grounded", True),
+        # Default False mirrors the TS encoder's bool() helper (missing -> 0);
+        # state-builder always emits the key for real states
+        is_grounded=_gb(d, "is_grounded", False),
         transform_species_id=_g(d, "transform_species_id", -1),
         illusion_species_id=_g(d, "illusion_species_id", -1),
         attacks_received=[_parse_attack_received(a) for a in _gl(d, "attacks_received")],
@@ -940,6 +951,8 @@ def _parse_pokemon(d: dict) -> ObsPokemon:
         exp_to_next_level=_g(d, "exp_to_next_level"),
         luck=_g(d, "luck"),
         endured_this_wave=_gb(d, "endured_this_wave"),
+        is_mega=_gb(d, "is_mega"),
+        is_max=_gb(d, "is_max"),
     )
 
 
@@ -1028,7 +1041,8 @@ def _parse_party_modifier(d: dict) -> ObsPartyModifier:
         modifier_class_id=lookup_modifier_class(d.get("modifier_class", "")),
         modifier_type_id=lookup_modifier_type(d.get("modifier_id", "")),
         stack_count=_g(d, "stack_count"),
-        max_stack_count=_g(d, "max_stack_count"),
+        # Default 1 mirrors TS num(dict, "max_stack_count", 1); explicit 0 stays 0
+        max_stack_count=_g(d, "max_stack_count", 1),
         type_id=_g(d, "type_id", -1),
         stat_id=_g(d, "stat_id", -1),
         status_effect=_g(d, "status_effect", -1),
@@ -1050,7 +1064,9 @@ def _parse_battle(d: dict) -> ObsBattle:
     trainer_raw = d.get("trainer")
     trainer = _parse_trainer(trainer_raw) if isinstance(trainer_raw, dict) else None
     return ObsBattle(
-        biome_id=_g(d, "biome_id"),
+        # Mirrors TS num(battle, "biome_id", num(battle, "biome_type")):
+        # older states carried only biome_type
+        biome_id=_g(d, "biome_id", _g(d, "biome_type", 0)),
         wave_index=_g(d, "wave_index"),
         turn=_g(d, "turn"),
         battle_type=_g(d, "battle_type"),
@@ -1084,6 +1100,15 @@ def _parse_battle(d: dict) -> ObsBattle:
         seen_enemy_count=_g(d, "seen_enemy_count"),
         enemy_switch_counter=_g(d, "enemy_switch_counter"),
         offset_gym=_gb(d, "offset_gym"),
+        is_classic=_gb(d, "is_classic"),
+        is_endless=_gb(d, "is_endless"),
+        is_daily=_gb(d, "is_daily"),
+        is_challenge=_gb(d, "is_challenge"),
+        has_mystery_encounters=_gb(d, "has_mystery_encounters"),
+        has_short_biomes=_gb(d, "has_short_biomes"),
+        has_random_biomes=_gb(d, "has_random_biomes"),
+        has_random_bosses=_gb(d, "has_random_bosses"),
+        inverse_battle=_gb(d, "inverse_battle"),
     )
 
 
@@ -1117,6 +1142,8 @@ def _parse_reward_option(d: dict) -> ObsRewardOption:
         is_pokemon_modifier=_gb(d, "is_pokemon_modifier"),
         type_id=_g(d, "type_id", -1),
         stat_id=_g(d, "stat_id", -1),
+        status_effect=_g(d, "status_effect", -1),
+        berry_type=_g(d, "berry_type", -1),
     )
 
 
@@ -1131,6 +1158,8 @@ def _parse_shop_option(d: dict) -> ObsShopOption:
         affordable=_gb(d, "affordable"),
         type_id=_g(d, "type_id", -1),
         stat_id=_g(d, "stat_id", -1),
+        status_effect=_g(d, "status_effect", -1),
+        berry_type=_g(d, "berry_type", -1),
     )
 
 
@@ -1157,6 +1186,7 @@ def _parse_phase(d: dict) -> ObsPhase:
         action_mask=mask[:ACTION_SPACE_SIZE],
         valid_actions=_gl(d, "valid_actions"),
         learn_move_id=_g(d, "learn_move_id", -1),
+        biome_options=[str(b) for b in _gl(d, "biome_options")],
         mystery_option_count=_g(d, "mystery_option_count", -1),
         is_game_over=_gb(d, "is_game_over"),
         is_victory=_gb(d, "is_victory"),
@@ -2520,8 +2550,9 @@ def _encode_modifier_features_vec(
         buf[pos + i] = feats[i]
 
     # Dynamic stack/duration (17-19)
-    ms = max(max_stack_count, 1)
-    buf[pos + 17] = _clamp(stack_count / ms, 0, 1)
+    # Mirrors modifier-features.ts: max_stack_count <= 0 encodes as 0, NOT
+    # stack/1 — items can legitimately report max_stack_count 0.
+    buf[pos + 17] = _clamp(stack_count / max_stack_count, 0, 1) if max_stack_count > 0 else 0.0
     buf[pos + 18] = _clamp(stack_count / 10, 0, 1)
     buf[pos + 19] = _clamp(battles_remaining / 10, 0, 1) if battles_remaining > 0 else 0.0
 
@@ -2566,7 +2597,7 @@ def _encode_modifier(buf: np.ndarray, offset: int, shop: Optional[ObsShop], mone
             mod_id = _get_modifier_id_str(opt.modifier_type_id)
             pos = _encode_modifier_features_vec(
                 buf, pos, mod_id,
-                opt.type_id, opt.stat_id, -1, -1,
+                opt.type_id, opt.stat_id, opt.status_effect, opt.berry_type,
                 0, 0, 0,
             )
         else:
@@ -2587,7 +2618,7 @@ def _encode_modifier(buf: np.ndarray, offset: int, shop: Optional[ObsShop], mone
             mod_id = _get_modifier_id_str(opt.modifier_type_id)
             pos = _encode_modifier_features_vec(
                 buf, pos, mod_id,
-                opt.type_id, opt.stat_id, -1, -1,
+                opt.type_id, opt.stat_id, opt.status_effect, opt.berry_type,
                 0, 0, 0,
             )
         else:
@@ -2680,8 +2711,10 @@ def _encode_modifier_inventory(buf: np.ndarray, offset: int, state: CleanGameSta
                     item.stack_count, item.max_stack_count, 0,
                 )
                 # stack_ratio (redundant with feature[17], kept for compatibility)
-                ms = max(item.max_stack_count, 1)
-                buf[pos] = _clamp(item.stack_count / ms, 0, 1); pos += 1
+                # Mirrors spaces.ts: max_stack_count <= 0 encodes as 0
+                if item.max_stack_count > 0:
+                    buf[pos] = _clamp(item.stack_count / item.max_stack_count, 0, 1)
+                pos += 1
             else:
                 pos += HELD_ITEM_SLOT_DIM  # 22 zeros
 
@@ -2723,10 +2756,12 @@ def _encode_modifier_inventory(buf: np.ndarray, offset: int, state: CleanGameSta
     if best_lapsing is not None:
         buf[pos] = 1.0; pos += 1  # valid
         mod_id = _get_modifier_id_str(best_lapsing.modifier_type_id)
+        # max_stack_count=1: lapsing dicts carry no max_stack_count key, and the
+        # TS encoder's num(dict, "max_stack_count", 1) defaults missing keys to 1
         pos = _encode_modifier_features_vec(
             buf, pos, mod_id,
             -1, best_lapsing.stat_id, -1, -1,
-            best_lapsing.stack_count, 0, best_lapsing.battles_remaining,
+            best_lapsing.stack_count, 1, best_lapsing.battles_remaining,
         )
         buf[pos] = _clamp(best_remaining / 10, 0, 1); pos += 1
     else:
@@ -2818,7 +2853,7 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
 
 
 def encode_observation(state: CleanGameState) -> np.ndarray:
-    """Encode a CleanGameState into a 7,667-dim float32 observation vector.
+    """Encode a CleanGameState into a 9,875-dim float32 observation vector.
 
     Compatible with the TypeScript encodeObservation() in spaces.ts.
     Same normalization formulas, same ordering.

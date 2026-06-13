@@ -54,10 +54,6 @@ export class MockGraphics implements MockGameObject {
     return this;
   }
 
-  addedToScene() {
-    // This callback is invoked when this Game Object is added to a Scene.
-  }
-
   setPositionRelative(_source, _x, _y): this {
     /// Sets the position of this Game Object to be a relative position from the source Game Object.
     return this;
@@ -65,7 +61,14 @@ export class MockGraphics implements MockGameObject {
 
   destroy() {
     this.list = [];
+    // Mark destroyed so headless reset sweeps drop this from mock display lists
+    (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
   }
+
+  // Phaser scene-lifecycle callbacks invoked by real display-list code paths — no-ops
+  addedToScene() {}
+
+  removedFromScene() {}
 
   setScale(_scale): this {
     return this;

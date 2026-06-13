@@ -1,4 +1,3 @@
-import type { MockGameObject } from "#test/test-utils/mocks/mock-game-object";
 import { MockVideoGameObject } from "#test/test-utils/mocks/mock-video-game-object";
 import { MockBBCodeText } from "#test/test-utils/mocks/mocks-container/mock-bbcode-text";
 import { MockContainer } from "#test/test-utils/mocks/mocks-container/mock-container";
@@ -19,7 +18,6 @@ export class MockTextureManager {
   private scene;
   public add;
   public displayList;
-  public list: MockGameObject[] = [];
 
   constructor(scene) {
     this.scene = scene;
@@ -45,13 +43,11 @@ export class MockTextureManager {
 
   container(x, y) {
     const container = new MockContainer(this, x, y);
-    this.list.push(container);
     return container;
   }
 
   sprite(x, y, texture) {
     const sprite = new MockSprite(this, x, y, texture);
-    this.list.push(sprite);
     return sprite;
   }
 
@@ -73,7 +69,6 @@ export class MockTextureManager {
 
   rectangle(x, y, width, height, fillColor) {
     const rectangle = new MockRectangle(this, x, y, width, height, fillColor);
-    this.list.push(rectangle);
     return rectangle;
   }
 
@@ -91,37 +86,31 @@ export class MockTextureManager {
       topHeight,
       bottomHeight,
     );
-    this.list.push(nineSlice);
     return nineSlice;
   }
 
   image(x, y, texture) {
     const image = new MockImage(this, x, y, texture);
-    this.list.push(image);
     return image;
   }
 
   text(x, y, content, styleOptions) {
     const text = new MockText(this, x, y, content, styleOptions);
-    this.list.push(text);
     return text;
   }
 
   rexBBCodeText(x, y, content, styleOptions) {
     const text = new MockBBCodeText(this, x, y, content, styleOptions);
-    this.list.push(text);
     return text;
   }
 
   rexInputText(x, y, w, h, content, styleOptions) {
     const text = new MockInputText(this, x, y, w, h, content, styleOptions);
-    this.list.push(text);
     return text;
   }
 
   polygon(x, y, content, fillColor, fillAlpha) {
     const polygon = new MockPolygon(this, x, y, content, fillColor, fillAlpha);
-    this.list.push(polygon);
     return polygon;
   }
 

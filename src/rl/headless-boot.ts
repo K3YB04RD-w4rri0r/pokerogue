@@ -35,6 +35,13 @@ export interface HeadlessConfig {
   bypassLogin?: boolean;
   /** Whether to suppress console noise via MockConsole. Defaults to true (uses test infra). */
   quietConsole?: boolean;
+  /**
+   * Game override values applied once at boot (keys of the Overrides object,
+   * e.g. BATTLE_STYLE_OVERRIDE, STARTING_WAVE_OVERRIDE). Used by the
+   * coverage-corpus generator to force rare game situations. Persist for the
+   * process lifetime — in-process resets keep them.
+   */
+  overrides?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,13 +111,9 @@ async function installJsdomGlobals(): Promise<void> {
         ? (win.requestAnimationFrame as Function).bind(win)
         : (cb: Function) => setTimeout(cb, 16),
     cancelAnimationFrame:
-      typeof win.cancelAnimationFrame === "function"
-        ? (win.cancelAnimationFrame as Function).bind(win)
-        : clearTimeout,
+      typeof win.cancelAnimationFrame === "function" ? (win.cancelAnimationFrame as Function).bind(win) : clearTimeout,
     getComputedStyle:
-      typeof win.getComputedStyle === "function"
-        ? (win.getComputedStyle as Function).bind(win)
-        : () => ({}),
+      typeof win.getComputedStyle === "function" ? (win.getComputedStyle as Function).bind(win) : () => ({}),
     matchMedia: () => ({
       matches: false,
       addListener: () => {},
@@ -316,12 +319,12 @@ async function installJsdomGlobals(): Promise<void> {
  * - Resetting overrides to defaults
  * - Running test stubs (localStorage mock, Canvas mock, etc.) and initializeGame()
  */
-async function runOneTimeInit(): Promise<void> {
+async function runOneTimeInit(overrides?: Record<string, unknown>): Promise<void> {
   if (standaloneInitialized) {
     return;
   }
   const { initStandalone } = await import("#app/rl/standalone-setup");
-  await initStandalone();
+  await initStandalone(overrides);
   standaloneInitialized = true;
 }
 
@@ -370,6 +373,133 @@ async function getOrCreatePhaserGame(seed: string): Promise<InstanceType<typeof 
  * We import GameWrapper and related classes dynamically to avoid loading Phaser
  * before jsdom globals are in place.
  */
+// Top-level children of these scene containers present at boot time are
+// scene-lifetime (arena bases, trainer back-sprite, overlays, HUD texts);
+// anything appearing later is per-episode debris. Captured once after the
+// first scene creation, used by purgeEphemeralDisplayChildren on every reset.
+const PURGED_CONTAINERS = ["field", "fieldUI"] as const;
+let displayBaseline: WeakSet<object> | null = null;
+
+function captureDisplayBaseline(scene: BattleScene): void {
+  displayBaseline = new WeakSet<object>();
+  const sceneAny = scene as any;
+  for (const key of PURGED_CONTAINERS) {
+    for (const child of sceneAny[key]?.list ?? []) {
+      if (child && typeof child === "object") {
+        displayBaseline.add(child);
+      }
+    }
+  }
+}
+
+function purgeEphemeralDisplayChildren(scene: BattleScene): void {
+  if (!displayBaseline) {
+    return;
+  }
+  try {
+    const sceneAny = scene as any;
+    for (const key of PURGED_CONTAINERS) {
+      const container = sceneAny[key];
+      for (const child of [...(container?.list ?? [])]) {
+        if (child && typeof child === "object" && !displayBaseline.has(child)) {
+          container.remove(child, true);
+        }
+      }
+    }
+  } catch {
+    /* cleanup is best-effort */
+  }
+}
+
+/**
+ * Handler-aware episode cleanup. Several UI handlers destroy their per-use
+ * children only inside tween onComplete callbacks (e.g. the shop's
+ * ModifierOption objects in ModifierSelectUiHandler.clear()); headless mock
+ * tweens never fire those, so the LAST use of each handler in an episode
+ * leaks its children until reset. Mid-episode uses are already cleaned by the
+ * phase-router's idempotent show() patch — this covers the final use.
+ * Handler-specific (no blind tree purging) to avoid destroying lazily-created
+ * persistent members that handlers still reference.
+ */
+async function purgeHandlerEphemera(scene: BattleScene): Promise<void> {
+  try {
+    const { UiMode } = await import("#enums/ui-mode");
+    const handlers = (scene as any).ui?.handlers;
+    if (!handlers) {
+      return;
+    }
+    const modifierHandler = handlers[UiMode.MODIFIER_SELECT] as
+      | {
+          modifierContainer?: { removeAll(destroy?: boolean): unknown };
+          options?: unknown[];
+          shopOptionsRows?: unknown[][];
+        }
+      | undefined;
+    if (modifierHandler) {
+      modifierHandler.modifierContainer?.removeAll(true);
+      modifierHandler.options?.splice(0, modifierHandler.options.length);
+      modifierHandler.shopOptionsRows?.splice(0, modifierHandler.shopOptionsRows.length);
+    }
+
+    // Option-select handler family (CONFIRM, OPTION_SELECT, ...): each show
+    // creates a new BBCodeText; the destroy of the previous one lives in a
+    // path the RL mode-transitions can skip, so stale texts accumulate in
+    // optionSelectTextContainer. Keep only the handler's CURRENT text.
+    for (const h of handlers as Record<string, any>[]) {
+      const container = h?.optionSelectTextContainer;
+      if (!container?.list) {
+        continue;
+      }
+      const current = h.optionSelectText;
+      for (const child of [...container.list]) {
+        if (child !== current && child?.name === "text-option-select") {
+          container.remove(child, true);
+        }
+      }
+    }
+  } catch {
+    /* cleanup is best-effort */
+  }
+}
+
+/**
+ * Sweep destroyed-but-still-listed children out of mock display lists.
+ *
+ * Mock containers don't track parentage (and setting parentContainer on real
+ * Phaser children drags their destroy through display-list internals that
+ * need a real scene), so a destroyed child stays in its container's `list`:
+ * one cursor image per menu open, one BBCodeText per option dialog, ... —
+ * the dominant per-episode UI growth. Detection:
+ *   - mock objects mark themselves `__rlDestroyed` in destroy()
+ *   - real Phaser objects (e.g. rex BBCodeText) null their `scene` in destroy
+ */
+function sweepDestroyedDisplayChildren(scene: BattleScene): void {
+  const isDestroyed = (c: any): boolean =>
+    c?.__rlDestroyed === true || (typeof c?.type === "string" && "scene" in c && c.scene == null);
+
+  const sweep = (node: any, depth = 0): void => {
+    if (!node || !Array.isArray(node.list) || depth > 10) {
+      return;
+    }
+    const kept = node.list.filter((c: any) => !isDestroyed(c));
+    if (kept.length !== node.list.length) {
+      node.list = kept;
+    }
+    for (const child of kept) {
+      sweep(child, depth + 1);
+    }
+  };
+
+  try {
+    const sceneAny = scene as any;
+    sweep(sceneAny.ui);
+    sweep(sceneAny.field);
+    sweep(sceneAny.fieldUI);
+  } catch {
+    /* cleanup is best-effort */
+  }
+}
+
 async function createScene(
   game: InstanceType<typeof import("phaser").Game>,
   config: HeadlessConfig,
@@ -406,6 +536,21 @@ async function createScene(
     gameWrapper.injectMandatory();
     // Reset the scene state for a new episode
     scene.reset(false, true);
+    // Purge ephemeral display children left by previous episodes (pokeballs,
+    // anim sprites, damage numbers, battle-info boxes, end cards). In the
+    // browser these are destroyed by tween onComplete callbacks; headless
+    // mock tweens often never fire those, so children accumulate across
+    // in-process resets (~500 nodes/episode observed -> linear slowdown +
+    // retained-heap growth). The baseline is captured at the FIRST reset —
+    // by then every scene-lifetime child provably exists; the one episode of
+    // debris it includes is a harmless constant.
+    if (!displayBaseline) {
+      captureDisplayBaseline(scene);
+    } else {
+      purgeEphemeralDisplayChildren(scene);
+    }
+    await purgeHandlerEphemera(scene);
+    sweepDestroyedDisplayChildren(scene);
     // Clear starter preferences to avoid stale state across episodes
     // (mirrors GameManager.resetScene behavior)
     try {
@@ -435,18 +580,23 @@ async function createScene(
   // In headless mode, some UI text paths may receive undefined text (e.g., when
   // i18n keys aren't fully resolved or when UI handlers are called in unexpected
   // sequences). The original showTextInternal calls text.split() which crashes on undefined.
+  // Idempotent: createScene runs on every in-process episode reset — without the
+  // marker each reset would wrap the previous wrapper (stacked patches leak).
   const { MessageUiHandler } = await import("#ui/message-ui-handler");
-  const origShowText = MessageUiHandler.prototype.showText;
-  MessageUiHandler.prototype.showText = function (
-    text: string,
-    delay?: number | null,
-    callback?: (() => void) | null,
-    callbackDelay?: number | null,
-    prompt?: boolean | null,
-    promptDelay?: number | null,
-  ) {
-    origShowText.call(this, text ?? "", delay, callback, callbackDelay, prompt, promptDelay);
-  };
+  if (!(MessageUiHandler.prototype.showText as { __rlNullSafe?: boolean }).__rlNullSafe) {
+    const origShowText = MessageUiHandler.prototype.showText;
+    MessageUiHandler.prototype.showText = function (
+      text: string,
+      delay?: number | null,
+      callback?: (() => void) | null,
+      callbackDelay?: number | null,
+      prompt?: boolean | null,
+      promptDelay?: number | null,
+    ) {
+      origShowText.call(this, text ?? "", delay, callback, callbackDelay, prompt, promptDelay);
+    };
+    (MessageUiHandler.prototype.showText as { __rlNullSafe?: boolean }).__rlNullSafe = true;
+  }
 
   // --- RL-specific speed settings ---
   // These match GameManager.runToTitle() settings for fast headless execution.
@@ -512,7 +662,7 @@ export async function initHeadless(config?: HeadlessConfig): Promise<BattleScene
   await installJsdomGlobals();
 
   // Phase 2: One-time static data init (idempotent)
-  await runOneTimeInit();
+  await runOneTimeInit(resolvedConfig.overrides);
 
   // Phase 3: Create/reuse Phaser.Game
   const game = await getOrCreatePhaserGame(resolvedConfig.seed!);

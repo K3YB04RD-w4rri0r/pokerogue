@@ -1150,6 +1150,12 @@ export class BattleScene extends SceneBase {
       p.destroy();
     }
 
+    // The sparkle handler tracks party sprites in a Set that is only pruned
+    // lazily (on its counter-tween repeat, which checks `!sprite.scene`). The
+    // sprites we just destroyed above stay referenced until that sweep runs;
+    // clear them eagerly here so a full scene reset doesn't strand them.
+    this.spriteSparkleHandler.removeAll();
+
     // If this is a ME, clear any residual visual sprites before reloading
     if (this.currentBattle?.mysteryEncounter?.introVisuals) {
       this.field.remove(this.currentBattle.mysteryEncounter?.introVisuals, true);

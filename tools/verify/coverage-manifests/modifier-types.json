@@ -1,0 +1,4 @@
+{
+  "_comment": "Modifier types deliberately absent from MODIFIER_FEATURES (src/rl/modifier-features.ts). Reasons starting with BACKLOG: mark encode-worthy gaps tracked in src/rl/docs/OBSERVATION_CHUNKS.md. Currently empty: every active registry entry is encoded (the only previously-listed entries, MAX_REPEL/SUPER_REPEL, turned out to be commented-out dead code in the game registry — the extractor now strips comments).",
+  "excluded": {}
+}

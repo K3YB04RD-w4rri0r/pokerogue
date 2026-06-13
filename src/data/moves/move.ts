@@ -9130,6 +9130,8 @@ const MoveAttrs = Object.freeze({
   ForceLastAttr,
   ResistLastMoveTypeAttr,
   ExposedMoveAttr,
+  WishAttr,
+  SuppressAbilitiesIfActedAttr,
 });
 
 /** Map of of move attribute names to their constructors */

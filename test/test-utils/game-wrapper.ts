@@ -2,6 +2,7 @@
 
 import { BattleScene } from "#app/battle-scene";
 import { timedEventManager } from "#app/global-event-manager";
+import { mockFn, spyOn } from "#app/rl/mocks/spy";
 // biome-ignore lint/performance/noNamespaceImport: Necessary in order to mock the var
 import * as appConstants from "#constants/app-constants";
 import { MoveAnim } from "#data/battle-anims";
@@ -15,7 +16,6 @@ import { MockContainer } from "#test/test-utils/mocks/mocks-container/mock-conta
 import { PokedexMonContainer } from "#ui/pokedex-mon-container";
 import fs from "node:fs";
 import Phaser from "phaser";
-import { mockFn, spyOn } from "#app/rl/mocks/spy";
 
 const InputManager = Phaser.Input.InputManager;
 const KeyboardManager = Phaser.Input.Keyboard.KeyboardManager;
@@ -214,6 +214,12 @@ export class GameWrapper {
       }
     };
     this.scene.make = new MockGameObjectCreator(mockTextureManager);
+    // Stop the previous clock's 1ms tick before replacing it — each MockClock
+    // owns a setInterval that would otherwise leak (one per test/episode in a
+    // shared process: CPU + RSS drift)
+    if (this.scene.time instanceof MockClock) {
+      this.scene.time.destroy();
+    }
     this.scene.time = new MockClock(this.scene);
     this.scene.remove = mockFn(); // TODO: this should be stubbed differently
     timedEventManager.disable();

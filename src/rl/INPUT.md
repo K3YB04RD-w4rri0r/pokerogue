@@ -27,20 +27,27 @@ Generated: 2026-02-09 by research team (8 parallel agents).
 
 ## 1. Observation Space Overview
 
-Current encoding: **2,951 float32** values.
+Current encoding: **9,875 float32** values (v7 — verified TS↔Python
+bit-identical, see `docs/VERIFICATION.md`).
 
 | Block | Dimensions | Content |
 |-------|-----------|---------|
-| Active Player x2 | 464 | 2 slots x 232 dims per Pokemon |
-| Active Enemy x2 | 464 | Same structure |
-| Player Bench x4 | 928 | 4 bench slots x 232 dims |
-| Enemy Bench x4 | 928 | 4 bench slots x 232 dims |
-| Field State | 80 | Weather, terrain, arena tags, hazards |
-| Battle Meta | 23 | Wave, turn, money, pokeballs, alive counts |
-| Modifier Phase | 62 | Reward options, shop options, reroll |
-| Phase Indicator | 2 | Current decision phase type |
+| Pokemon x12 | 9,252 | 12 slots × 771 dims (243 non-move + 4 moves × 132; slot order: player_0, player_1, enemy_0, enemy_1, player bench ×4, enemy bench ×4) |
+| Field State | 94 | Weather/terrain one-hots + turns, per-side arena tag banks (28×2), hazard layers, key-tag turn counters, teras used |
+| Battle Meta | 40 | Wave, turn, money, pokeballs, alive/faint counts, biome, game-mode flags |
+| Modifier Phase | 225 | Header (3) + 3 reward options × 28 + 6 shop options × 23 |
+| Modifier Inventory | 220 | Held items (4 slots × 22 × 2 sides-ish layout), party mods, lapsing, enemy aggregates |
+| Derived | 28 | Type effectiveness (2×4×2), STAB (2×4), speed ranks (4) |
+| Phase Indicator | 16 | One-hot decision phase |
 
-Action space: **58 discrete actions** with validity mask.
+Per-move 132 dims = 50 base + 36 v6 semantic flags + 46 v7 MoveAttr flags.
+Per-Pokemon ability encoding = 2 × 40-dim semantic feature vectors
+(ability-features.ts). The historical 2,951-dim table that used to live here
+described the pre-v5 layout.
+
+Action space: **58 discrete actions** with validity mask (unchanged).
+Python-side dim names for every index: `src/rl/feature_names.py`
+(`dim_to_name(i)` / `name_to_dim(name)`).
 
 ---
 

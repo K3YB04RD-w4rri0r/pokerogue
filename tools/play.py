@@ -1055,58 +1055,52 @@ def print_tags_summary(game_state: dict):
 
 
 def print_obs_layout(game_state: dict):
-    """Print observation vector segment summary."""
-    print(f"\n  {C.BOLD}Observation Layout (3583 float32):{C.RESET}")
+    """Print observation vector segment summary (layout from observation.py)."""
+    from enums import POKEMON_SLOT_KEYS
+    from observation import (
+        BATTLE_META_DIM,
+        DERIVED_FIELDS_DIM,
+        FIELD_STATE_DIM,
+        MODIFIER_INVENTORY_DIM,
+        MODIFIER_PHASE_DIM,
+        OBSERVATION_DIM,
+        PHASE_INDICATOR_DIM,
+        POKEMON_BLOCK_DIM,
+    )
 
-    # 12 Pokemon slots x 283 each
-    poke_size = 283
-    slot_keys = [
-        "player_0", "player_1", "player_2", "player_3", "player_4", "player_5",
-        "enemy_0", "enemy_1", "enemy_2", "enemy_3", "enemy_4", "enemy_5",
-    ]
+    print(f"\n  {C.BOLD}Observation Layout ({OBSERVATION_DIM} float32):{C.RESET}")
+
     offset = 0
-    for key in slot_keys:
+    for key in POKEMON_SLOT_KEYS:
         p = game_state.get(key, {})
         valid = p.get("valid", False)
         name = p.get("species_name", "(empty)") if valid else "(empty)"
         hp_pct = round(p.get("hp_ratio", 0) * 100) if valid else 0
         level = p.get("level", 0) if valid else 0
         v_str = f"valid:{'1' if valid else '0'}"
-        end = offset + poke_size - 1
+        end = offset + POKEMON_BLOCK_DIM - 1
         if valid:
             print(f"    [{offset:>4}-{end:>4}] {key:<10}  {name} Lv{level}  HP:{hp_pct}%  {v_str}")
         else:
             print(f"    [{offset:>4}-{end:>4}] {key:<10}  {C.DIM}{name}{C.RESET}  {v_str}")
-        offset += poke_size
+        offset += POKEMON_BLOCK_DIM
 
-    # Field: 83 floats
     field = game_state.get("field", {})
+    battle = game_state.get("battle", {})
     w_name = weather_name(field.get("weather_type", 0))
     t_name = terrain_name(field.get("terrain_type", 0))
-    field_end = offset + 83 - 1
-    print(f"    [{offset:>4}-{field_end:>4}] {'field':<10}  Weather:{w_name} Terrain:{t_name}")
-    offset += 83
-
-    # Battle: 26 floats
-    battle = game_state.get("battle", {})
-    wave = battle.get("wave_index", "?")
-    turn = battle.get("turn", "?")
-    money = battle.get("money", 0)
-    battle_end = offset + 26 - 1
-    print(f"    [{offset:>4}-{battle_end:>4}] {'battle':<10}  Wave:{wave} Turn:{turn} Money:${money}")
-    offset += 26
-
-    # Modifier: 62 floats
-    mod_end = offset + 62 - 1
-    print(f"    [{offset:>4}-{mod_end:>4}] {'modifier':<10}  (inventory encoding)")
-    offset += 62
-
-    # Phase: 16 floats (one-hot)
-    phase_info = game_state.get("phase", {})
-    phase_name = phase_info.get("phase_type", "?") if isinstance(phase_info, dict) else "?"
-    phase_end = offset + 16 - 1
-    print(f"    [{offset:>4}-{phase_end:>4}] {'phase':<10}  {phase_name}")
-    offset += 16
+    blocks = [
+        ("field", FIELD_STATE_DIM, f"Weather:{w_name} Terrain:{t_name}"),
+        ("battle", BATTLE_META_DIM, f"Wave:{battle.get('wave_index', '?')} Turn:{battle.get('turn', '?')} Money:${battle.get('money', 0)}"),
+        ("modphase", MODIFIER_PHASE_DIM, "(reward/shop options)"),
+        ("inventory", MODIFIER_INVENTORY_DIM, "(held/party/lapsing/enemy modifiers)"),
+        ("derived", DERIVED_FIELDS_DIM, "(type eff, STAB, speed ranks)"),
+        ("phase", PHASE_INDICATOR_DIM, str((game_state.get("phase") or {}).get("current_phase", "?"))),
+    ]
+    for label, size, info in blocks:
+        end = offset + size - 1
+        print(f"    [{offset:>4}-{end:>4}] {label:<10}  {info}")
+        offset += size
 
     print(f"    {C.DIM}Total: {offset} floats{C.RESET}")
 

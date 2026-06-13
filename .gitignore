@@ -58,3 +58,9 @@ coverage
 /src/rl/diagnosis
 /src/rl/STATUS.md
 /src/rl/docs
+# RL verification artifacts
+/.rl-verify
+__pycache__/
+
+# RL leak-debug heap snapshots
+*.heapsnapshot
