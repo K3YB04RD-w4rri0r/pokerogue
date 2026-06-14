@@ -442,6 +442,46 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     hookedPhaseEnd.call(this);
   };
 
+  // Trampoline the phase pump to prevent a headless stack overflow. The game's
+  // pump is recursive: Phase.end() -> shiftPhase() -> startCurrentPhase() ->
+  // phase.start() -> ... -> phase.end() -> shiftPhase() -> ... In the browser,
+  // tween/animation gaps make phases async so the stack unwinds between them.
+  // In headless the mock tweens fire onComplete SYNCHRONOUSLY, so an entire
+  // queued phase chain runs as one unbroken recursion — and a deep wave's long
+  // chain (berries + weather + per-Pokemon turn phases) overflows V8's stack.
+  // Flatten it: a re-entrant shiftPhase (a phase ending mid-pump) just requests
+  // another iteration and unwinds; the outermost call drives the chain in a
+  // loop at a flat stack depth. Phase ORDER is unchanged, so RNG/determinism
+  // are unaffected. Installed once on the reused phaseManager (idempotent);
+  // semantically transparent, so no teardown is required.
+  // RL_NO_TRAMPOLINE=1 disables this (recursive pump restored) — used to prove
+  // the trampoline is behaviour-neutral by diffing phase logs + observations
+  // against the unpatched pump at shallow waves (where the unpatched pump does
+  // not yet overflow).
+  const pm = globalScene.phaseManager as unknown as { shiftPhase: () => void; __rlTrampolined?: boolean } | undefined;
+  if (pm && !pm.__rlTrampolined && !process.env.RL_NO_TRAMPOLINE) {
+    const originalShift = pm.shiftPhase.bind(pm);
+    let pumping = false;
+    let pending = false;
+    pm.shiftPhase = function rlTrampolinedShiftPhase(): void {
+      if (pumping) {
+        pending = true; // re-entrant (phase ended during the pump) — defer, unwind
+        return;
+      }
+      pumping = true;
+      try {
+        originalShift();
+        while (pending) {
+          pending = false;
+          originalShift();
+        }
+      } finally {
+        pumping = false;
+      }
+    };
+    pm.__rlTrampolined = true;
+  }
+
   // ── Decision Resolution ────────────────────────────────────────────
 
   function resolveDecisionPoint(decision: DecisionPhase, phaseName: string, uiMode: UiMode): void {
