@@ -64,3 +64,6 @@ __pycache__/
 
 # RL leak-debug heap snapshots
 *.heapsnapshot
+
+# Claude Code local settings (per-developer)
+.claude/

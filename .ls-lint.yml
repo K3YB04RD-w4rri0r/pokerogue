@@ -35,3 +35,7 @@ ignore:
    - dist
    - .devcontainer
    - "LICENSES"
+   # Non-source dirs (local tooling config, gitignored build/run artifacts, Python caches)
+   - .claude
+   - .rl-verify
+   - "**/__pycache__"
