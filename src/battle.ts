@@ -595,7 +595,17 @@ export function getRandomTrainerFunc(
     const isEvilTeamGrunt = evilTeamGrunts.includes(choice);
 
     if (trainerConfigs[choice].hasDouble && isEvilTeamGrunt) {
-      return new Trainer(choice, randInt(3) === 0 ? TrainerVariant.DOUBLE : trainerGender);
+      /* Seed the 1/3 double-battle roll. `randInt` uses Math.random, which varies
+         across processes for the same game seed (it breaks the seeded-battle
+         contract, and the resulting single/double outcome changes the enemy count
+         that the RL env observes). An isolated seed offset makes the draw
+         deterministic without advancing the RNG counter that feeds the trainer's
+         party generation, because executeWithSeedOffset saves/restores RNG state. */
+      let doubleRoll = 1;
+      globalScene.executeWithSeedOffset(() => {
+        doubleRoll = randSeedInt(3);
+      }, choice << 8);
+      return new Trainer(choice, doubleRoll === 0 ? TrainerVariant.DOUBLE : trainerGender);
     }
 
     return new Trainer(choice, trainerGender);
