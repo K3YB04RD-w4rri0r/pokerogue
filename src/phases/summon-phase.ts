@@ -31,43 +31,68 @@ export class SummonPhase extends PartyMemberPokemonPhase {
   }
 
   /**
-   * Sends out a Pokemon before the battle begins and shows the appropriate messages
+   * If the party member that would be sent out into this slot is fainted, illegal under a challenge,
+   * or no longer in the party, swap it for the first legal, non-fainted, OFF-FIELD party member
+   * further back. If no such replacement exists, either end the game (no legal Pokemon remain
+   * anywhere) or leave this slot empty (a legal Pokemon is already on the field, e.g. the other slot
+   * of a double battle — so a single Pokemon fights on, handled later by ToggleDoublePositionPhase).
+   *
+   * Shared by {@linkcode preSummon} and {@linkcode SummonMissingPhase.preSummon} so that a Pokemon
+   * which fainted at a battle boundary (e.g. to end-of-turn poison the same turn the battle was won)
+   * is never sent back out into the next battle — which would otherwise leave the field with no
+   * valid target and no game over, soft-locking the run.
+   * @returns `true` if the summon must NOT proceed (game over queued, or slot intentionally empty).
    */
-  preSummon(): void {
+  protected resolveIllegalSummonTarget(): boolean {
     const partyMember = this.getPokemon();
-    // If the Pokemon about to be sent out is fainted, illegal under a challenge, or no longer in the party for some reason, switch to the first non-fainted legal Pokemon
-    if (!partyMember.isAllowedInBattle() || (this.player && !this.getParty().some(p => p.id === partyMember.id))) {
-      console.warn(
-        "The Pokemon about to be sent out is fainted or illegal under a challenge. Attempting to resolve...",
-      );
+    if (partyMember.isAllowedInBattle() && (!this.player || this.getParty().some(p => p.id === partyMember.id))) {
+      return false;
+    }
 
-      // First check if they're somehow still in play, if so remove them.
-      if (partyMember.isOnField()) {
-        partyMember.leaveField();
-      }
+    console.warn("The Pokemon about to be sent out is fainted or illegal under a challenge. Attempting to resolve...");
 
-      const party = this.getParty();
+    // First check if they're somehow still in play, if so remove them.
+    if (partyMember.isOnField()) {
+      partyMember.leaveField();
+    }
 
-      // Find the first non-fainted Pokemon index above the current one
-      const legalIndex = party.findIndex((p, i) => i > this.partyMemberIndex && p.isAllowedInBattle());
-      if (legalIndex === -1) {
+    const party = this.getParty();
+
+    // Find the first non-fainted, legal Pokemon further back in the party that is not already on the
+    // field (an on-field Pokemon cannot be sent out into a second slot).
+    const legalIndex = party.findIndex((p, i) => i > this.partyMemberIndex && p.isAllowedInBattle() && !p.isOnField());
+    if (legalIndex === -1) {
+      if (!party.some(p => p.isAllowedInBattle())) {
+        // No legal Pokemon remain anywhere - end the game.
         console.error("Party Details:\n", party);
         console.error("All available Pokemon were fainted or illegal!");
         globalScene.phaseManager.clearPhaseQueue();
         globalScene.phaseManager.unshiftNew("GameOverPhase");
-        this.end();
-        return;
       }
+      // Otherwise a legal Pokemon is already on the field; leave this slot empty rather than sending
+      // out a fainted Pokemon.
+      this.end();
+      return true;
+    }
 
-      // Swaps the fainted Pokemon and the first non-fainted legal Pokemon in the party
-      [party[this.partyMemberIndex], party[legalIndex]] = [party[legalIndex], party[this.partyMemberIndex]];
-      console.warn(
-        "Swapped %s %O with %s %O",
-        getPokemonNameWithAffix(partyMember),
-        partyMember,
-        getPokemonNameWithAffix(party[0]),
-        party[0],
-      );
+    // Swaps the fainted Pokemon and the first non-fainted legal Pokemon in the party
+    [party[this.partyMemberIndex], party[legalIndex]] = [party[legalIndex], party[this.partyMemberIndex]];
+    console.warn(
+      "Swapped %s %O with %s %O",
+      getPokemonNameWithAffix(partyMember),
+      partyMember,
+      getPokemonNameWithAffix(this.getPokemon()),
+      this.getPokemon(),
+    );
+    return false;
+  }
+
+  /**
+   * Sends out a Pokemon before the battle begins and shows the appropriate messages
+   */
+  preSummon(): void {
+    if (this.resolveIllegalSummonTarget()) {
+      return;
     }
 
     if (this.player) {
