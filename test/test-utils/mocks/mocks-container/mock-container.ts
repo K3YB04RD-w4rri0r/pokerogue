@@ -122,6 +122,17 @@ export class MockContainer implements MockGameObject {
     // parentage; setting parentContainer on real Phaser children drags their
     // destroy through real display-list internals that need a real scene)
     (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
+    // Detach from our parent's display list, mirroring real Phaser's
+    // parentContainer.remove(this) on destroy (see add() for why we track a
+    // mock-private __rlParent instead of the real parentContainer).
+    const parent = (this as { __rlParent?: MockContainer }).__rlParent;
+    if (parent) {
+      const pIdx = parent.list.indexOf(this as unknown as MockGameObject);
+      if (pIdx !== -1) {
+        parent.list.splice(pIdx, 1);
+      }
+      (this as { __rlParent?: MockContainer }).__rlParent = undefined;
+    }
     // Recurse into children, mirroring Phaser's Container.preDestroy (which
     // calls removeAll with destroyChild=true). Without this, destroying a
     // container that holds nested mock containers (e.g. a BattleInfo's
@@ -248,7 +259,17 @@ export class MockContainer implements MockGameObject {
   }
 
   add(obj: MockGameObject | MockGameObject[]): this {
-    this.list.push(...coerceArray(obj));
+    const items = coerceArray(obj);
+    this.list.push(...items);
+    // Track the parent on a mock-private field (NOT the real Phaser
+    // `parentContainer`, which would drag destroy() through scene-dependent
+    // display-list internals). This lets a child's destroy() detach itself from
+    // this list, mirroring real Phaser (which calls parentContainer.remove(child)
+    // on destroy). Without it, destroyed sprites — e.g. the ~17 pokeball-open
+    // particles spawned on every summon — pile up in field.list forever.
+    for (const item of items) {
+      (item as { __rlParent?: MockContainer }).__rlParent = this;
+    }
     return this;
   }
 
@@ -266,7 +287,11 @@ export class MockContainer implements MockGameObject {
 
   addAt(obj: MockGameObject | MockGameObject[], index = 0): this {
     // Adds a Game Object to this Container at the given index.
-    this.list.splice(index, 0, ...coerceArray(obj));
+    const items = coerceArray(obj);
+    this.list.splice(index, 0, ...items);
+    for (const item of items) {
+      (item as { __rlParent?: MockContainer }).__rlParent = this;
+    }
     return this;
   }
 
@@ -275,6 +300,9 @@ export class MockContainer implements MockGameObject {
       const index = this.list.indexOf(item);
       if (index !== -1) {
         this.list.splice(index, 1);
+      }
+      if ((item as { __rlParent?: MockContainer }).__rlParent === this) {
+        (item as { __rlParent?: MockContainer }).__rlParent = undefined;
       }
       if (destroyChild) {
         item.destroy?.();

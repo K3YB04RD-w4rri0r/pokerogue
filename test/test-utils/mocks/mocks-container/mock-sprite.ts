@@ -197,6 +197,18 @@ export class MockSprite implements MockGameObject {
     // display lists — the inner phaserSprite.destroy() only handles the real
     // sprite, but this wrapper is what lives in MockContainer.list
     (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
+    // Detach from our parent container's display list, mirroring real Phaser
+    // (parentContainer.remove(this) on destroy). Without this, destroyed sprites
+    // — e.g. the pokeball-open particles spawned on every summon — accumulate in
+    // globalScene.field.list forever in headless (the per-wave field leak).
+    const parent = (this as { __rlParent?: { list?: MockGameObject[] } }).__rlParent;
+    if (parent?.list) {
+      const pIdx = parent.list.indexOf(this as unknown as MockGameObject);
+      if (pIdx !== -1) {
+        parent.list.splice(pIdx, 1);
+      }
+      (this as { __rlParent?: unknown }).__rlParent = undefined;
+    }
     return this.phaserSprite.destroy();
   }
 

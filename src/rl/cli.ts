@@ -672,6 +672,70 @@ async function runEpisode(
           if (options.verbose) {
             console.log(`[cli] Reached wave ${currentWave}`);
           }
+          // RL_DIAG_FIELD=1 -> per-wave histogram of globalScene.field.list to
+          // localise the intra-episode field-sprite leak (stderr only).
+          if (process.env.RL_DIAG_FIELD) {
+            const fieldList: any[] = Array.isArray((globalScene as any)?.field?.list)
+              ? (globalScene as any).field.list
+              : [];
+            const hist: Record<string, number> = {};
+            let destroyed = 0;
+            let liveCount = 0;
+            for (const c of fieldList) {
+              const isDestroyed = (c as any)?.__rlDestroyed === true;
+              isDestroyed ? destroyed++ : liveCount++;
+              const cn = (c as any)?.constructor?.name ?? "?";
+              const tex = (c as any)?.texture?.key ?? "";
+              const nm = (c as any)?.name ? `#${(c as any).name}` : "";
+              const key = `${isDestroyed ? "DESTROYED:" : ""}${cn}${tex ? `[${tex}]` : ""}${nm}`;
+              hist[key] = (hist[key] ?? 0) + 1;
+            }
+            const live = liveCount;
+            const dead = destroyed;
+            // Localise any residual (non-field) growth: count UI/fieldUI subtree
+            // nodes and the global AnimationManager 'remove' listeners (one per
+            // live real Sprite — a direct proxy for un-destroyed sprites anywhere).
+            const countNodes = (l: any[] | undefined, depth = 0): number => {
+              if (!Array.isArray(l) || depth > 8) {
+                return 0;
+              }
+              let n = l.length;
+              for (const c of l) {
+                n += countNodes(c?.list, depth + 1);
+              }
+              return n;
+            };
+            const sc: any = globalScene;
+            const uiNodes = countNodes(sc?.ui?.list);
+            // Top UI children by recursive node count, to localise ui growth.
+            const uiSizes = (sc?.ui?.list ?? [])
+              .map((c: any, i: number) => [
+                `${i}:${c?.constructor?.name ?? "?"}${c?.name ? `#${c.name}` : ""}`,
+                countNodes(c?.list),
+              ])
+              .sort((a: [string, number], b: [string, number]) => b[1] - a[1])
+              .slice(0, 4)
+              .map(([l, n]: [string, number]) => `${l}=${n}`)
+              .join(" ");
+            const fieldUINodes = countNodes(sc?.fieldUI?.list);
+            const animMgr: any = sc?.sys?.anims ?? sc?.anims;
+            const evRemove = animMgr?._events?.remove;
+            const animListeners = Array.isArray(evRemove) ? evRemove.length : evRemove ? 1 : 0;
+            const modifiers = (sc?.modifiers?.length ?? 0) + (sc?.enemyModifiers?.length ?? 0);
+            (globalThis as { gc?: () => void }).gc?.();
+            const memNow = process.memoryUsage();
+            const rssMB = Math.round(memNow.rss / 1048576);
+            const heapMB = Math.round(memNow.heapUsed / 1048576);
+            const top = Object.entries(hist)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 24)
+              .map(([k, v]) => `${k}=${v}`)
+              .join("  ");
+            console.error(
+              `[fielddiag] wave=${currentWave} rss=${rssMB}MB heap=${heapMB}MB field=${fieldList.length}(live=${live},dead=${dead}) `
+                + `ui=${uiNodes}[${uiSizes}] fieldUI=${fieldUINodes} animLs=${animListeners} mods=${modifiers} :: ${top}`,
+            );
+          }
         }
       } catch {
         // globalScene may not be available yet during setup phases
