@@ -752,8 +752,26 @@ async function startBridge(): Promise<void> {
         await waitForPhaseChange(state.phase);
         continue;
       } else if (SETUP_PHASES.has(state.phase) && handledSetupPhases.has(state.phase)) {
-        // Already handled — wait a bit and retry
-        console.log("[RL Bridge] Setup phase already handled, waiting for transition:", state.phase);
+        // Already handled — the phase is still playing out. In the browser this
+        // can require player input to advance: an EvolutionPhase sits in
+        // EVOLUTION_SCENE mode and waits for ACTION at each "…is evolving / evolved
+        // into…" beat (EvolutionSceneUiHandler.processInput only fires when
+        // awaitingActionInput), and trailing MESSAGE dialogs need ACTION too.
+        // Headless never hits this (mock tweens fire the callbacks synchronously),
+        // so just sleeping here spins forever. Press ACTION to drive it. ACTION is
+        // safe when nothing is awaiting input (the handler ignores it) and never
+        // cancels the evolution (only CANCEL does).
+        try {
+          const mode = globalScene.ui?.getMode();
+          if (mode === UiMode.MESSAGE || mode === UiMode.EVOLUTION_SCENE) {
+            const handler = globalScene.ui.getHandler();
+            if (handler?.active) {
+              (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
+            }
+          }
+        } catch {
+          /* best-effort; fall through to the retry sleep */
+        }
         await sleep(200);
         continue;
       }

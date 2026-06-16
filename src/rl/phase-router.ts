@@ -460,8 +460,15 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
   // the trampoline is behaviour-neutral by diffing phase logs + observations
   // against the unpatched pump at shallow waves (where the unpatched pump does
   // not yet overflow).
+  // The trampoline is only needed in the headless Node env, where mock tweens
+  // fire onComplete synchronously so the recursive phase pump can overflow the
+  // stack. In the browser (rendered RL mode) tweens are async — the pump unwinds
+  // between phases, so there is no overflow — and `process` is undefined there,
+  // so we must not touch it (doing so threw "process is not defined" and stalled
+  // the bridge on the gender-select screen).
+  const inNodeEnv = typeof process !== "undefined" && process.env != null;
   const pm = globalScene.phaseManager as unknown as { shiftPhase: () => void; __rlTrampolined?: boolean } | undefined;
-  if (pm && !pm.__rlTrampolined && !process.env.RL_NO_TRAMPOLINE) {
+  if (pm && !pm.__rlTrampolined && inNodeEnv && !process.env.RL_NO_TRAMPOLINE) {
     const originalShift = pm.shiftPhase.bind(pm);
     let pumping = false;
     let pending = false;
