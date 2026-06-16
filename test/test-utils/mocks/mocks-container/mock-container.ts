@@ -122,17 +122,8 @@ export class MockContainer implements MockGameObject {
     // parentage; setting parentContainer on real Phaser children drags their
     // destroy through real display-list internals that need a real scene)
     (this as { __rlDestroyed?: boolean }).__rlDestroyed = true;
-    // Detach from our parent's display list, mirroring real Phaser's
-    // parentContainer.remove(this) on destroy (see add() for why we track a
-    // mock-private __rlParent instead of the real parentContainer).
-    const parent = (this as { __rlParent?: MockContainer }).__rlParent;
-    if (parent) {
-      const pIdx = parent.list.indexOf(this as unknown as MockGameObject);
-      if (pIdx !== -1) {
-        parent.list.splice(pIdx, 1);
-      }
-      (this as { __rlParent?: MockContainer }).__rlParent = undefined;
-    }
+    // (Detaching from our own parent is handled by the destroy wrapper installed
+    // in trackChild() when we were add()ed.)
     // Recurse into children, mirroring Phaser's Container.preDestroy (which
     // calls removeAll with destroyChild=true). Without this, destroying a
     // container that holds nested mock containers (e.g. a BattleInfo's
@@ -258,17 +249,50 @@ export class MockContainer implements MockGameObject {
     return this;
   }
 
+  /**
+   * Tag a child with its parent and ensure its `destroy()` detaches it from this
+   * container's `list`, mirroring real Phaser (which calls
+   * `parentContainer.remove(this)` on destroy). We do NOT set the real Phaser
+   * `parentContainer` — that would drag a real GameObject's destroy through
+   * scene-dependent display-list internals. Instead we tag a mock-private
+   * `__rlParent` and wrap the child's `destroy` once, which works for EVERY child
+   * type — mock objects, real Phaser GameObjects (Trainer, Pokemon), and rex
+   * objects (BBCodeText) — regardless of how their own `destroy()` is implemented
+   * (real, overriding, or a no-op stub). Without this, destroyed-but-not-detached
+   * children pile up in the mock display list across a long headless run: e.g.
+   * the ~17 pokeball-open particles spawned every summon, defeated enemy Trainers,
+   * and option-select BBCodeTexts recreated every time a menu opens.
+   */
+  protected trackChild(item: MockGameObject): void {
+    const tracked = item as MockGameObject & {
+      __rlParent?: MockContainer;
+      __rlDetachWrapped?: boolean;
+      destroy?: (...args: unknown[]) => unknown;
+    };
+    tracked.__rlParent = this;
+    if (typeof tracked.destroy === "function" && !tracked.__rlDetachWrapped) {
+      const origDestroy = tracked.destroy.bind(tracked);
+      tracked.destroy = (...args: unknown[]): unknown => {
+        const result = origDestroy(...args);
+        const parent = tracked.__rlParent;
+        if (parent?.list) {
+          const idx = parent.list.indexOf(tracked);
+          if (idx !== -1) {
+            parent.list.splice(idx, 1);
+          }
+          tracked.__rlParent = undefined;
+        }
+        return result;
+      };
+      tracked.__rlDetachWrapped = true;
+    }
+  }
+
   add(obj: MockGameObject | MockGameObject[]): this {
     const items = coerceArray(obj);
     this.list.push(...items);
-    // Track the parent on a mock-private field (NOT the real Phaser
-    // `parentContainer`, which would drag destroy() through scene-dependent
-    // display-list internals). This lets a child's destroy() detach itself from
-    // this list, mirroring real Phaser (which calls parentContainer.remove(child)
-    // on destroy). Without it, destroyed sprites — e.g. the ~17 pokeball-open
-    // particles spawned on every summon — pile up in field.list forever.
     for (const item of items) {
-      (item as { __rlParent?: MockContainer }).__rlParent = this;
+      this.trackChild(item);
     }
     return this;
   }
@@ -290,7 +314,7 @@ export class MockContainer implements MockGameObject {
     const items = coerceArray(obj);
     this.list.splice(index, 0, ...items);
     for (const item of items) {
-      (item as { __rlParent?: MockContainer }).__rlParent = this;
+      this.trackChild(item);
     }
     return this;
   }
