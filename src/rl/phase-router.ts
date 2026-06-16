@@ -14,6 +14,7 @@
  * Does NOT import from 'vitest'. Uses existing src/rl/modifier-api.ts for modifier handling.
  */
 
+import { MAX_TERAS_PER_ARENA } from "#app/constants";
 import { getGameMode } from "#app/game-mode";
 import { globalScene } from "#app/global-scene";
 import { Phase } from "#app/phase";
@@ -65,6 +66,7 @@ import {
 } from "#rl/spaces";
 import { generateStarters } from "#test/test-utils/game-manager-utils";
 import { UI } from "#ui/ui";
+import { canTerastallize } from "#utils/pokemon-utils";
 
 // ─── Decision Phase Enum ──────────────────────────────────────────────
 
@@ -740,9 +742,17 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
       mask[ACTION_RUN] = true;
     }
 
-    // Tera (23-34): mirrors fight actions but requires tera available
-    const teraAvailable = !playerField.some(p => p?.isTerastallized);
-    if (teraAvailable && !pokemon.isTerastallized) {
+    // Tera (23-34): mirror the game's own command-time gate
+    // (CommandUiHandler.canTera, command-ui-handler.ts:196) EXACTLY. It requires
+    // a Tera Orb (TerastallizeAccessModifier, checked via canTerastallize) plus
+    // an unused arena tera, and accounts for a tera already planned by the lead
+    // in a double battle (plannedTera). Previously this only checked
+    // isTerastallized, so the mask wrongly offered Tera from wave 1 with no orb.
+    const fieldIndex = commandPhase.getFieldIndex();
+    const currentTeras = globalScene.arena.playerTerasUsed;
+    const plannedTera = Number(battle?.preTurnCommands?.[0]?.command === Command.TERA && fieldIndex > 0);
+    const canTera = pokemon.isPlayer() && canTerastallize(pokemon);
+    if (canTera && currentTeras + plannedTera < MAX_TERAS_PER_ARENA) {
       for (let i = 0; i < MAX_MOVES; i++) {
         if (mask[ACTION_FIGHT_ENEMY_START + i]) {
           mask[ACTION_TERA_ENEMY_START + i] = true;
