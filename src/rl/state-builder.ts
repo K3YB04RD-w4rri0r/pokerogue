@@ -1060,8 +1060,16 @@ function buildPokemonState(
     // Base stats from species form
     const baseStats = safe(() => pokemon.getSpeciesForm(true).baseStats.slice(), [0, 0, 0, 0, 0, 0]);
 
-    // Computed stats (from IVs + EVs + nature + level)
-    const computedStats = safe(() => pokemon.getStats(true), [0, 0, 0, 0, 0, 0]);
+    // Computed stats (from IVs + EVs + nature + level).
+    // getStats(true) returns the LIVE `this.stats` array by reference. The dumped
+    // game state must be a frozen snapshot: without copying, an in-place mutation
+    // of this.stats (e.g. an evolution recalculating stats between the moment the
+    // observation is encoded and the moment the dict is serialized to JSON) makes
+    // the serialized stats diverge from the already-encoded observation — a
+    // TS<->Python parity mismatch seen only at evolution boundaries (the dict
+    // ends up internally inconsistent: pre-evolution species + post-evolution
+    // stats). Snapshot it, exactly as baseStats does one line above.
+    const computedStats = safe(() => pokemon.getStats(true).slice(), [0, 0, 0, 0, 0, 0]);
 
     // IVs
     const ivs = safe(() => Array.from(pokemon.ivs), [0, 0, 0, 0, 0, 0]);
