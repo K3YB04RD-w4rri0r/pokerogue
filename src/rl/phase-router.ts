@@ -27,6 +27,7 @@ import { Command } from "#enums/command";
 import { GameModes } from "#enums/game-modes";
 import { MoveTarget } from "#enums/move-target";
 import { MoveUseMode } from "#enums/move-use-mode";
+import { SpeciesId } from "#enums/species-id";
 import { SwitchType } from "#enums/switch-type";
 import { UiMode } from "#enums/ui-mode";
 import { getMoveTargets } from "#moves/move-utils";
@@ -249,8 +250,22 @@ const AUTO_SKIP_PHASES = new Set<string>([
 
 // ─── Implementation ───────────────────────────────────────────────────
 
-export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter {
+/**
+ * Parse a comma-separated list of SpeciesId NAMES (e.g. "MEWTWO,LUGIA,RAYQUAZA")
+ * into SpeciesId values, ignoring blanks and unknown names. Shared by the
+ * headless CLI (--starters) and the browser bridge (&starters=) so a custom
+ * starting party (e.g. a legendary team) is specified the same way in both.
+ */
+export function parseStarterCsv(csv: string): SpeciesId[] {
+  return csv
+    .split(",")
+    .map(n => (SpeciesId as Record<string, number>)[n.trim().toUpperCase()])
+    .filter((v): v is SpeciesId => typeof v === "number");
+}
+
+export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?: SpeciesId[] }): PhaseRouter {
   const verbose = options?.verbose ?? false;
+  const starterSpecies = options?.starterSpecies;
 
   // ── State ──────────────────────────────────────────────────────────
   let pendingDecision: PendingDecision | null = null;
@@ -1765,7 +1780,14 @@ export function createPhaseRouter(options?: { verbose?: boolean }): PhaseRouter 
     // hardcodes scene.seed = "test" — save and restore the user's seed so
     // that initBattle() derives wave seeds from the user's seed, not "test".
     const userSeed = globalScene.seed;
-    const starters = generateStarters(globalScene);
+    // starterSpecies (from --starters / &starters=) overrides the default party
+    // with an explicit team, e.g. a full legendary lineup for a demo run.
+    // generateStarters builds the party from these ids; undefined falls back to
+    // the default daily-run starters.
+    if (verbose && starterSpecies?.length) {
+      console.log(`[PhaseRouter] Using starter override: [${starterSpecies.join(", ")}]`);
+    }
+    const starters = generateStarters(globalScene, starterSpecies);
     globalScene.setSeed(userSeed);
     globalScene.resetSeed();
 

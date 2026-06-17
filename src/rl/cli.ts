@@ -33,6 +33,8 @@ interface CliOptions {
   verbose: boolean;
   interactive: boolean;
   dumpObs: string | null;
+  /** Comma-separated SpeciesId names for a custom starting party (e.g. a legendary team) */
+  starters: string | null;
   lean: boolean;
   /** Partial RewardConfig overrides parsed from --reward-config */
   rewardConfig: Record<string, number> | null;
@@ -50,6 +52,7 @@ function parseArgs(): CliOptions {
     verbose: false,
     interactive: false,
     dumpObs: null,
+    starters: null,
     lean: false,
     rewardConfig: null,
     overrides: null,
@@ -78,6 +81,8 @@ Options:
   --override=KEY=VALUE  Game override (repeatable; KEY is a DefaultOverrides
                         property, VALUE is JSON or a raw string), e.g.
                         --override=STARTING_WAVE_OVERRIDE=20
+  --starters=<names>    Comma-separated SpeciesId names for the starting party,
+                        e.g. MEWTWO,LUGIA,RAYQUAZA (default: daily-run starters)
   --help                Show this help message
 `);
       process.exit(0);
@@ -96,6 +101,8 @@ Options:
       options.interactive = true;
     } else if (arg.startsWith("--dump-obs=")) {
       options.dumpObs = arg.slice("--dump-obs=".length);
+    } else if (arg.startsWith("--starters=")) {
+      options.starters = arg.slice("--starters=".length);
     } else if (arg === "--lean") {
       options.lean = true;
     } else if (arg.startsWith("--reward-config=")) {
@@ -1100,9 +1107,10 @@ async function main(): Promise<void> {
   }
 
   // Phase 2: Now that headless is initialized, dynamically import phase-router
-  const { createPhaseRouter, pickDefaultAction, DecisionPhase } = await import("#rl/phase-router");
+  const { createPhaseRouter, parseStarterCsv, pickDefaultAction, DecisionPhase } = await import("#rl/phase-router");
 
   const dumper = options.dumpObs ? createObsDumper(options.dumpObs) : null;
+  const starterSpecies = options.starters ? parseStarterCsv(options.starters) : undefined;
 
   if (options.interactive) {
     // Interactive mode: JSON protocol over stdin/stdout, multiple episodes
@@ -1117,7 +1125,7 @@ async function main(): Promise<void> {
     let episodeSeed = options.seed;
     let episodeWaves = options.maxWaves;
     let initMs = bootTime;
-    let router = createPhaseRouter({ verbose: options.verbose });
+    let router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
 
     episodeLoop: for (;;) {
       sendJson({
@@ -1178,7 +1186,7 @@ async function main(): Promise<void> {
         sendJson({ type: "error", message: `Reset failed: ${err}` });
         break;
       }
-      router = createPhaseRouter({ verbose: options.verbose });
+      router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
       initMs = Date.now() - resetStart;
 
       if (options.verbose) {
@@ -1283,7 +1291,7 @@ async function main(): Promise<void> {
 
     router.destroy();
   } else {
-    const router = createPhaseRouter({ verbose: options.verbose });
+    const router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
     // Auto mode: run with default action picker
     console.log("[cli] Starting episode...");
     const stats = await runEpisode(router, options, pickDefaultAction, DecisionPhase, dumper);

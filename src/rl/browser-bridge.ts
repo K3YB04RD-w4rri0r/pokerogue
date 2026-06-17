@@ -20,7 +20,7 @@
  */
 
 import { globalScene } from "#app/global-scene";
-import { createPhaseRouter, DecisionPhase } from "#rl/phase-router";
+import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
 import type { PhaseState, PhaseRouter } from "#rl/phase-router";
 import { getAvailableModifiers } from "#rl/modifier-api";
 import { buildGameState as buildFullGameState } from "#rl/state-builder";
@@ -76,13 +76,17 @@ interface UrlParams {
   /** Delay (ms) after executing an action, giving the browser time to animate.
    *  Default: 500. Set to 0 to disable. Use ?delay=1000 for slower animations. */
   renderDelay: number;
+  /** Custom starting party from &starters=MEWTWO,LUGIA,... (default: daily-run starters) */
+  starters?: ReturnType<typeof parseStarterCsv>;
 }
 
 function parseUrlParams(): UrlParams {
   const params = new URLSearchParams(window.location.search);
+  const starters = params.get("starters");
   return {
     seed: params.get("seed") || undefined,
     renderDelay: Number(params.get("delay") ?? 500),
+    starters: starters ? parseStarterCsv(starters) : undefined,
   };
 }
 
@@ -664,7 +668,7 @@ async function startBridge(): Promise<void> {
   // Step 2: Create PhaseRouter ASAP — must be before TitlePhase fires
   // so the setMode hook catches it. TitlePhase waits indefinitely for input,
   // so even if it fires before the hook, detectCurrentDecision() will find it.
-  const router: PhaseRouter = createPhaseRouter({ verbose: true });
+  const router: PhaseRouter = createPhaseRouter({ verbose: true, starterSpecies: urlParams.starters });
 
   // Dismiss any blocking messages that appeared during boot
   await dismissBlockingMessages();

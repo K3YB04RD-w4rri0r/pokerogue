@@ -94,6 +94,7 @@ class PokeRogueEnv(gym.Env):
         respawn_every: int = 50,
         reward_config: dict | None = None,
         overrides: dict | None = None,
+        starters: str | None = None,
     ):
         super().__init__()
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (OBSERVATION_DIM,), np.float32)
@@ -130,6 +131,9 @@ class PokeRogueEnv(gym.Env):
         # mode without MEs; passing MYSTERY_ENCOUNTER_RATE_OVERRIDE here
         # re-enables them deliberately (expect step-timeout truncations).
         self._overrides = dict(overrides or {})
+        # Comma-separated SpeciesId names for a custom starting party (e.g. a
+        # legendary team), forwarded to the CLI as --starters. None -> default.
+        self._starters = starters
 
         self._proc: subprocess.Popen | None = None
         self._reader: _LineReader | None = None
@@ -269,6 +273,8 @@ class PokeRogueEnv(gym.Env):
             cmd.append(f"--reward-config={json.dumps(self._reward_config)}")
         for key, value in self._overrides.items():
             cmd.append(f"--override={key}={json.dumps(value)}")
+        if self._starters:
+            cmd.append(f"--starters={self._starters}")
         # stderr must be discarded or drained: an unread PIPE deadlocks node at 64KB
         if self._stderr_log:
             self._stderr_fh = open(self._stderr_log, "a")
