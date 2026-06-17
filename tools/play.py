@@ -353,16 +353,20 @@ def print_party(game_state: dict):
             print(f"    [{slot_label}] {name} Lv{level}  {hp_bar(hp_pct, 10)}{field_tag}")
 
 
-def print_actions(actions: list) -> dict:
-    """Print available actions and return index-to-action mapping."""
-    print(f"\n  {C.MAGENTA}Available Actions:{C.RESET}")
-    choice_map = {}
-    for i, act in enumerate(actions):
+def print_actions(actions: list) -> set:
+    """Print legal actions by their STABLE action id; return the set of legal ids.
+
+    The number shown is the fixed action id (0 = move slot 0 vs enemy, 38 = reroll,
+    ...), NOT a per-phase list position — so a given id always means the same thing,
+    every phase. See src/rl/README.md for the full action map.
+    """
+    print(f"\n  {C.MAGENTA}Available Actions (type the id):{C.RESET}")
+    valid_ids = set()
+    for act in actions:
         idx = act["index"]
-        label = act["label"]
-        choice_map[i] = idx
-        print(f"    {C.BOLD}{i:>3}{C.RESET}) {label}  {C.DIM}[action={idx}]{C.RESET}")
-    return choice_map
+        valid_ids.add(idx)
+        print(f"    {C.BOLD}{idx:>3}{C.RESET}  {act['label']}")
+    return valid_ids
 
 
 # ─── Detailed Inspection Commands ───────────────────────────────────
@@ -1357,24 +1361,25 @@ def handle_inspect_command(cmd: str, game_state: dict, step: int) -> bool:
     return False
 
 
-def prompt_action(choice_map: dict, game_state: dict = None, step: int = 0) -> int:
-    """Prompt user to select an action. Returns the action index.
+def prompt_action(valid_ids: set, game_state: dict = None, step: int = 0) -> int:
+    """Prompt for a STABLE action id (one of valid_ids). Returns the chosen id.
 
     Also handles inspection commands (i, m, f, b, p, t, s, o, d, h).
     """
+    ids_hint = ",".join(str(i) for i in sorted(valid_ids))
     while True:
         try:
-            raw = input(f"\n  {C.CYAN}Select action [0-{len(choice_map)-1}] or cmd (h=help): {C.RESET}").strip()
+            raw = input(f"\n  {C.CYAN}Action id [{ids_hint}] or cmd (h=help): {C.RESET}").strip()
             if raw.lower() in ("q", "quit", "exit"):
                 print("Quitting...")
                 sys.exit(0)
 
-            # Try as a number first
+            # Try as a stable action id first
             try:
                 choice = int(raw)
-                if choice in choice_map:
-                    return choice_map[choice]
-                print(f"  {C.RED}Invalid choice. Enter 0-{len(choice_map)-1}{C.RESET}")
+                if choice in valid_ids:
+                    return choice
+                print(f"  {C.RED}Not a legal action id. Legal: {ids_hint}{C.RESET}")
                 continue
             except ValueError:
                 pass
@@ -1384,7 +1389,7 @@ def prompt_action(choice_map: dict, game_state: dict = None, step: int = 0) -> i
                 if handle_inspect_command(raw, game_state, step):
                     continue
 
-            print(f"  {C.RED}Unknown command '{raw}'. Enter a number or 'h' for help.{C.RESET}")
+            print(f"  {C.RED}Unknown command '{raw}'. Enter an action id or 'h' for help.{C.RESET}")
 
         except (EOFError, KeyboardInterrupt):
             print("\nQuitting...")
@@ -1455,8 +1460,8 @@ def run_headless(args):
                 print_field(game_state)
                 print_moves_compact(game_state)
                 print_party(game_state)
-                choice_map = print_actions(actions)
-                action = prompt_action(choice_map, game_state, step)
+                valid_ids = print_actions(actions)
+                action = prompt_action(valid_ids, game_state, step)
 
                 # Send action to the node process
                 proc.stdin.write(json.dumps({"action": action}) + "\n")
@@ -1570,8 +1575,8 @@ def run_rendered(args):
                 print_field(game_state)
                 print_moves_compact(game_state)
                 print_party(game_state)
-                choice_map = print_actions(actions)
-                action = prompt_action(choice_map, game_state, step)
+                valid_ids = print_actions(actions)
+                action = prompt_action(valid_ids, game_state, step)
 
                 ws.send(json.dumps({"action": action}))
 

@@ -166,7 +166,8 @@ def run_rendered(args, policy) -> None:
                 mask = extract_action_mask(state)
                 ctx = {"phase": msg.get("phase"), "game_state": game_state}
                 action = policy(obs, mask, ctx)
-                print(f"step {msg.get('step'):>3} | {msg.get('phase'):<16} | {int(mask.sum()):>2} valid -> action {action}")
+                label = next((a.get("label", "") for a in msg.get("actions", []) if a.get("index") == action), "")
+                print(f"step {msg.get('step'):>3} | {str(msg.get('phase')):<14} | action {action:>2}  {label}")
                 ws.send(json.dumps({"action": int(action)}))
                 time.sleep(args.delay)
             elif mtype == "game_over":
