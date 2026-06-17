@@ -774,6 +774,8 @@ class ModifierOption extends Phaser.GameObjects.Container {
   private itemTint: Phaser.GameObjects.Sprite;
   private itemText: Phaser.GameObjects.Text;
   private itemCostText: Phaser.GameObjects.Text;
+  /** Pending reward-reveal timer; cancelled in destroy() so it can't fire on torn-down sprites. */
+  private revealTimer: Phaser.Time.TimerEvent | null = null;
 
   constructor(x: number, y: number, modifierTypeOption: ModifierTypeOption) {
     super(globalScene, x, y);
@@ -781,6 +783,17 @@ class ModifierOption extends Phaser.GameObjects.Container {
     this.modifierTypeOption = modifierTypeOption;
 
     this.setup();
+  }
+
+  override destroy(fromScene?: boolean): void {
+    // Cancel the pending reward-reveal timer before our sprites are torn down.
+    // It is a fire-and-forget delayedCall(+2s) that calls setTexture / tweens on
+    // this.pb etc.; if the shop is dismissed before it fires (fast automated play
+    // via the RL bridge), it would otherwise run on already-destroyed sprites —
+    // "Cannot read properties of undefined (reading 'sys')".
+    this.revealTimer?.remove();
+    this.revealTimer = null;
+    super.destroy(fromScene);
   }
 
   setup() {
@@ -945,7 +958,7 @@ class ModifierOption extends Phaser.GameObjects.Container {
     }
 
     const finalPromises: Promise<void>[] = [];
-    globalScene.time.delayedCall(remainingDuration + 2000, () => {
+    this.revealTimer = globalScene.time.delayedCall(remainingDuration + 2000, () => {
       if (isReward) {
         this.pb.setTexture("pb", `${this.getPbAtlasKey(0)}_open`);
         globalScene.playSound("se/pb_rel");
