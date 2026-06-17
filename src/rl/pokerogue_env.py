@@ -371,6 +371,9 @@ class PokeRogueEnv(gym.Env):
             "phase": msg.get("phase", "game_over" if msg.get("type") == "game_over" else "?"),
             "step": msg.get("step"),
             "wave": wave if wave > 0 else self._last_wave,
+            # Raw gameState (populated only when lean=False) so heuristic policies
+            # like max-damage can read move power/category headless, same as rendered.
+            "game_state": gs,
         }
         if msg.get("type") == "game_over":
             info["victory"] = bool(msg.get("victory"))
