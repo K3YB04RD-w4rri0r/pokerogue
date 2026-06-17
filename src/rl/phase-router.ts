@@ -66,6 +66,7 @@ import {
   NUM_POKEBALL_TYPES,
 } from "#rl/spaces";
 import { generateStarters } from "#test/test-utils/game-manager-utils";
+import { PartyOption } from "#ui/party-ui-handler";
 import { UI } from "#ui/ui";
 import { canTerastallize } from "#utils/pokemon-utils";
 
@@ -1581,34 +1582,54 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   // ── Switch Phase Execution ─────────────────────────────────────────
 
   function executeSwitchAction(action: number): void {
-    const handler = globalScene.ui.getHandler();
-    if (!handler) {
-      console.error("[PhaseRouter] No UI handler for SwitchPhase");
+    if (!globalScene.phaseManager.getCurrentPhase()?.is("SwitchPhase")) {
+      console.warn("[PhaseRouter] executeSwitchAction: not in a SwitchPhase");
       return;
     }
 
-    // Switch actions map: ACTION_SWITCH_START + i -> party slot i+1
-    if (action >= ACTION_SWITCH_START && action < ACTION_SWITCH_START + 5) {
-      const partySlotIndex = action - ACTION_SWITCH_START + 1;
-      (handler as { setCursor(cursor: number): boolean }).setCursor(partySlotIndex);
-      (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-      // May need a second ACTION to confirm "Send out" option
-      (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-      return;
-    }
-
-    // Fallback: pick first non-fainted party member
-    console.warn("[PhaseRouter] Invalid switch action, selecting first available");
+    // Resolve the target party-array index (mask maps ACTION_SWITCH_START + (i-1)
+    // -> party slot i), then validate it as a switchable bench member.
     const party = globalScene.getPlayerParty() ?? [];
     const field = globalScene.getPlayerField()?.filter(p => p?.isActive()) ?? [];
     const activeIds = new Set(field.map(p => p.id));
-    for (let i = 1; i < party.length; i++) {
-      if (!party[i].isFainted() && !activeIds.has(party[i].id)) {
-        (handler as { setCursor(cursor: number): boolean }).setCursor(i);
-        (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-        (handler as { processInput(button: Button): boolean }).processInput(Button.ACTION);
-        return;
-      }
+    let targetSlot =
+      action >= ACTION_SWITCH_START && action < ACTION_SWITCH_START + 5 ? action - ACTION_SWITCH_START + 1 : -1;
+    if (targetSlot < 1 || targetSlot >= party.length || party[targetSlot].isFainted() || activeIds.has(party[targetSlot].id)) {
+      targetSlot = party.findIndex((p, i) => i > 0 && !p.isFainted() && !activeIds.has(p.id));
+    }
+    if (targetSlot < 1) {
+      console.warn("[PhaseRouter] SwitchPhase: no valid switch target");
+      return;
+    }
+
+    // Invoke the select callback the SwitchPhase installed (UiMode.PARTY,
+    // FAINT_SWITCH/POST_BATTLE_SWITCH) directly, exactly as PartyUiHandler does on
+    // the SEND_OUT option (party-ui-handler.ts ~938): it unshifts SwitchSummonPhase
+    // and ends the phase. SEND_OUT (not PASS_BATON) keeps the normal switch type.
+    // The old approach drove the party UI with a blind double-ACTION, which could
+    // land on a slot's Summary submenu instead of "Send out" — leaving the UI in a
+    // state the bridge no longer detects as a decision ("Timeout waiting for
+    // decision" hang). Mirrors how executeCheckSwitchAction bypasses ConfirmUiHandler.
+    const handler = globalScene.ui.getHandler() as unknown as {
+      selectCallback?: ((slot: number, option: PartyOption) => void) | null;
+      clearOptions?: () => void;
+      setCursor(n: number): boolean;
+      processInput(b: Button): boolean;
+    } | null;
+    const selectCallback = handler?.selectCallback;
+    if (handler && typeof selectCallback === "function") {
+      handler.selectCallback = null;
+      handler.clearOptions?.();
+      selectCallback(targetSlot, PartyOption.SEND_OUT);
+      return;
+    }
+
+    // Fallback: no callback installed (unexpected for a SwitchPhase) — drive the UI.
+    if (handler) {
+      console.warn("[PhaseRouter] SwitchPhase: no selectCallback; driving party UI directly");
+      handler.setCursor(targetSlot);
+      handler.processInput(Button.ACTION);
+      handler.processInput(Button.ACTION);
     }
   }
 
