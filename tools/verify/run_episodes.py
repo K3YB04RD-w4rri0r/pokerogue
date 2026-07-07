@@ -167,6 +167,13 @@ def main() -> int:
     ap.add_argument("--dump-dir", type=str, default=None)
     ap.add_argument("--boot-timeout", type=float, default=180)
     ap.add_argument("--step-timeout", type=float, default=60)
+    ap.add_argument(
+        "--cli-arg",
+        action="append",
+        default=None,
+        help="extra cli.js flag, repeatable (e.g. --cli-arg=--override=STARTING_WAVE_OVERRIDE=25); "
+        "used by the obs-audit corpus for scenario diversity",
+    )
     args = ap.parse_args()
 
     seeds = args.seed_list.split(",") if args.seed_list else [f"{args.seed_prefix}-{i}" for i in range(args.seeds)]
@@ -181,7 +188,14 @@ def main() -> int:
     for seed in seeds:
         t0 = time.time()
         r = run_episode(
-            seed, args.waves, args.action_seed, args.probe_invalid, dump_dir, args.boot_timeout, args.step_timeout
+            seed,
+            args.waves,
+            args.action_seed,
+            args.probe_invalid,
+            dump_dir,
+            args.boot_timeout,
+            args.step_timeout,
+            extra_args=args.cli_arg,
         )
         r["duration_s"] = round(time.time() - t0, 1)
         results.append(r)

@@ -26,6 +26,8 @@ ls:
    test: *src
 ignore:
    - .pnpm-store
+   - .rl-audit
+   - .rl-verify
    - node_modules
    - .vscode
    - .github

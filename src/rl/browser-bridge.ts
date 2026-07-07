@@ -30,10 +30,13 @@
  *                          probe can't see, e.g. very slow asset loads)
  */
 
+import { EVOLVE_MOVE } from "#app/constants";
 import { globalScene } from "#app/global-scene";
 import { Button } from "#enums/buttons";
+import { LearnMoveSituation } from "#enums/learn-move-situation";
 import { PlayerGender } from "#enums/player-gender";
 import { UiMode } from "#enums/ui-mode";
+import { EvolutionPhase } from "#phases/evolution-phase";
 import { buildActionLabels } from "#rl/action-labels";
 import { applyOverrideValues } from "#rl/apply-overrides";
 import { buildTerminalGameState, EpisodeRewardTracker, resolveExecutedAction, SETUP_PHASES } from "#rl/episode-runtime";
@@ -410,6 +413,78 @@ async function advanceWithAutoDismiss(router: PhaseRouter, timeoutMs?: number | 
   }
 }
 
+// ── Instant Evolution ─────────────────────────────────────────────────
+
+/**
+ * Replace the evolution CINEMATIC with its LOGIC ("replicate the logic,
+ * cut the animations"). The cinematic path proved unreliable under
+ * automation even time-warped — observed both as a freeze and as a
+ * silently-skipped evolution — and its temp display-pokemon asset load can
+ * hang forever on a broken asset. The actual evolution logic is three
+ * steps, extracted verbatim from EvolutionPhase.handleSuccessEvolution /
+ * postEvolve:
+ *   1. pokemon.evolve(evolution, species)  — species/form/stats/name are
+ *      set SYNCHRONOUSLY; only the promise tail loads sprites, so it is
+ *      raced against a timeout (broken/slow assets cost sprites, not runs).
+ *   2. queue LearnMovePhase for each EVOLVE_MOVE level move.
+ *   3. queue EndEvolutionPhase (restores MESSAGE mode).
+ * FormChangePhase (a subclass) keeps its own start() — different logic —
+ * and remains covered by the cinematic fast-forward instead.
+ */
+function installInstantEvolution(): void {
+  const proto = EvolutionPhase.prototype as unknown as {
+    start(): Promise<void> | void;
+    end(): void;
+  };
+  if ((proto.start as { __rlInstant?: boolean }).__rlInstant) {
+    return;
+  }
+  const originalStart = proto.start;
+  proto.start = async function (this: {
+    phaseName: string;
+    validate?(): boolean;
+    end(): void;
+    pokemon: any;
+    evolution: unknown;
+    lastLevel: number;
+    fusionSpeciesEvolved?: boolean;
+  }) {
+    if (this.phaseName !== "EvolutionPhase") {
+      return originalStart.call(this as never);
+    }
+    try {
+      if (this.validate && !this.validate()) {
+        return this.end();
+      }
+      const pokemon = this.pokemon;
+      const before = pokemon?.name;
+      await Promise.race([
+        pokemon.evolve(this.evolution, pokemon.species),
+        sleep(15000).then(() =>
+          console.warn("[RL Bridge] evolve() asset load did not settle in 15s — continuing (sprites may lag)"),
+        ),
+      ]);
+      const learnSituation = this.fusionSpeciesEvolved
+        ? LearnMoveSituation.EVOLUTION_FUSED
+        : pokemon.fusionSpecies
+          ? LearnMoveSituation.EVOLUTION_FUSED_BASE
+          : LearnMoveSituation.EVOLUTION;
+      const levelMoves = (pokemon.getLevelMoves(this.lastLevel + 1, true, false, false, learnSituation) ?? []).filter(
+        (lm: [number, number]) => lm[0] === EVOLVE_MOVE,
+      );
+      for (const lm of levelMoves) {
+        globalScene.phaseManager.unshiftNew("LearnMovePhase", globalScene.getPlayerParty().indexOf(pokemon), lm[1]);
+      }
+      globalScene.phaseManager.unshiftNew("EndEvolutionPhase");
+      console.log(`[RL Bridge] Instant evolution: ${before} -> ${pokemon?.name}`);
+    } catch (err) {
+      console.error("[RL Bridge] Instant evolution failed; ending phase:", err);
+    }
+    this.end();
+  };
+  (proto.start as { __rlInstant?: boolean }).__rlInstant = true;
+}
+
 // ── Cinematic Fast-Forward ────────────────────────────────────────────
 
 /**
@@ -641,7 +716,9 @@ async function startBridge(): Promise<void> {
   // Reward bookkeeping shared with the headless CLI (episode-runtime.ts) so a
   // rendered episode reports the same rewards headless training would.
   const tracker = new EpisodeRewardTracker(urlParams.rewardConfig ?? undefined);
-  // Compress evolution/form-change/egg cinematics to ~nothing (logic intact)
+  // Evolutions: run the logic, skip the cinematic entirely
+  installInstantEvolution();
+  // Compress remaining cinematics (form change, egg hatch) — logic intact
   const stopCinematicFastForward = startCinematicFastForward();
   // Track which setup phases have been handled to avoid re-processing them.
   // In the browser, async asset loading means phases can stay "current" longer

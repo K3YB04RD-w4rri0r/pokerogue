@@ -904,3 +904,34 @@ Also in this batch: rendered E2E harness (`tools/verify/check_rendered.py`,
 opt-in V16 via RL_VERIFY_RENDERED=1 — self-hosts vite on a strict isolated
 port), obs-audit Phase 1 tooling (`tools/verify/audit_obs_redundancy.py`)
 and the audit plan (`src/rl/docs/OBS_AUDIT_PLAN.md`).
+
+---
+
+## 2026-07-07 — Instant evolution (logic-only), obs-audit Phases 1-2 delivered
+
+- **Evolution cinematic REPLACED by its logic in rendered mode** (bridge
+  patches EvolutionPhase.start): pokemon.evolve() + EVOLVE_MOVE
+  LearnMovePhases + EndEvolutionPhase, extracted verbatim from
+  handleSuccessEvolution/postEvolve. The temp display-pokemon asset load
+  (a hang-forever hazard on broken assets) is skipped entirely; the real
+  mon's sprite load is raced against 15s. Validated E2E: "Instant
+  evolution: Caterpie -> Metapod", lv8, no errors, run continues.
+  SUPERSEDES the x50 time-warp for EvolutionPhase (kept for
+  FormChange/EggHatch): user reported a freeze under the warp, and the
+  A/B/C validation showed a silent no-evolution — root cause of the
+  latter was the test policy losing the battle (status move slot 0), but
+  the logic-only path is strictly more robust than any cinematic pacing.
+- Earlier user reports of "no evolution happened in my test" were the
+  test's fault, not the game's — document for posterity: FirstLegal picks
+  move slot 0; give the test mon a damaging slot-0 move (MOVESET_OVERRIDE)
+  or it may never win a battle.
+- **Obs audit Phase 1 (redundancy) delivered**: docs/AUDIT_FINDINGS_P1.md —
+  only ~29% of 10,403 dims carry independent signal on a 3,769-decision
+  interactive corpus; move blocks = 63% of the obs and majority-dead;
+  85 tera one-hot dims duplicate type1. Tools: gen_audit_corpus.sh
+  (run_episodes --cli-arg passthrough added), audit_obs_redundancy.py.
+- **Phase 2 (sufficiency) delivered**: docs/SUFFICIENCY_MATRIX.md, fully
+  code-grounded (accuracy/weather/multi-hit/AI/PP pipelines audited with
+  citations). NEW encoder gaps found: enemy ai_type and multi_hit_type are
+  serialized but never encoded; plus the known learn-move/6th-member/
+  shop-tail gaps. v9 direction: ~3.5-4.5k dims with MORE content.
