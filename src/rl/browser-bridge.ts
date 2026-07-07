@@ -25,6 +25,9 @@
  *                          (same as the headless CLI's --reward-config)
  *   ?waves=N             — optional, end the session after N*50 decisions
  *                          (mirrors the headless CLI's --waves step cap)
+ *   ?timeout=N           — optional, no-progress decision timeout in seconds
+ *                          (default 30; escape hatch for waits the progress
+ *                          probe can't see, e.g. very slow asset loads)
  */
 
 import { globalScene } from "#app/global-scene";
@@ -80,6 +83,9 @@ interface UrlParams {
   /** Step budget from &waves=N: the session ends (type "done") after N*50
    *  decisions, mirroring the headless CLI's --waves cap. Omit = unbounded. */
   waves: number | null;
+  /** Decision-timeout override in SECONDS from &timeout=N (default: the
+   *  router's 30s). For slow machines / software-rendered browsers. */
+  timeoutMs: number | null;
 }
 
 function parseUrlParams(): UrlParams {
@@ -122,6 +128,9 @@ function parseUrlParams(): UrlParams {
   const rawWaves = Number(params.get("waves"));
   const waves = Number.isFinite(rawWaves) && rawWaves > 0 ? Math.floor(rawWaves) : null;
 
+  const rawTimeout = Number(params.get("timeout"));
+  const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.floor(rawTimeout * 1000) : null;
+
   return {
     seed: params.get("seed") || undefined,
     renderDelay: Number(params.get("delay") ?? 500),
@@ -129,6 +138,7 @@ function parseUrlParams(): UrlParams {
     overrides,
     rewardConfig,
     waves,
+    timeoutMs,
   };
 }
 
@@ -367,7 +377,7 @@ async function dismissBlockingMessages(): Promise<void> {
  * shows as MESSAGE and waits for player input. This auto-presses ACTION every
  * 300ms so the game flows automatically while the user watches in the browser.
  */
-async function advanceWithAutoDismiss(router: PhaseRouter): Promise<PhaseState> {
+async function advanceWithAutoDismiss(router: PhaseRouter, timeoutMs?: number | null): Promise<PhaseState> {
   let running = true;
 
   // Background loop (fire-and-forget): press ACTION whenever stuck in MESSAGE mode
@@ -392,7 +402,7 @@ async function advanceWithAutoDismiss(router: PhaseRouter): Promise<PhaseState> 
   })();
 
   try {
-    return await router.advanceToNextDecision();
+    return await router.advanceToNextDecision(timeoutMs ?? undefined);
   } finally {
     running = false;
     // Let the dismiss loop finish its current iteration
@@ -492,6 +502,37 @@ async function startBridge(): Promise<void> {
   // so even if it fires before the hook, detectCurrentDecision() will find it.
   const router: PhaseRouter = createPhaseRouter({ verbose: true, starterSpecies: urlParams.starters });
 
+  // Debug handle for bug hunting (browser devtools / automated probes):
+  // window.__rlDebug.state() -> current phase, UI mode, handler flags.
+  (window as unknown as { __rlDebug?: unknown }).__rlDebug = {
+    scene: globalScene,
+    router,
+    state: () => {
+      try {
+        const phase = globalScene.phaseManager?.getCurrentPhase();
+        const mode = globalScene.ui?.getMode();
+        const handler = globalScene.ui?.getHandler() as unknown as {
+          active?: boolean;
+          awaitingActionInput?: boolean;
+        };
+        const msgHandler = globalScene.ui?.getMessageHandler() as unknown as {
+          awaitingActionInput?: boolean;
+          pendingPrompt?: boolean;
+        };
+        return {
+          phase: phase?.phaseName ?? null,
+          uiMode: mode != null ? UiMode[mode] : null,
+          handlerActive: handler?.active ?? null,
+          handlerAwaiting: handler?.awaitingActionInput ?? null,
+          messageAwaiting: msgHandler?.awaitingActionInput ?? null,
+          atDecision: router.isAtDecisionPoint(),
+        };
+      } catch (err) {
+        return { error: String(err) };
+      }
+    },
+  };
+
   // Dismiss any blocking messages that appeared during boot
   await dismissBlockingMessages();
 
@@ -549,7 +590,7 @@ async function startBridge(): Promise<void> {
       // MESSAGE dialogs (battle narration, tutorials, etc.) along the way
       let state: PhaseState;
       try {
-        state = await advanceWithAutoDismiss(router);
+        state = await advanceWithAutoDismiss(router, urlParams.timeoutMs);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("Timeout")) {

@@ -122,8 +122,9 @@ export interface PhaseRouter {
   /** Execute an action for the current decision phase */
   executeAction(action: number): Promise<void>;
 
-  /** Advance the game to the next decision point (skip non-decision phases) */
-  advanceToNextDecision(): Promise<PhaseState>;
+  /** Advance the game to the next decision point (skip non-decision phases).
+   *  Optional timeoutMs overrides the 30s default (slow machines / debugging). */
+  advanceToNextDecision(timeoutMs?: number): Promise<PhaseState>;
 
   /** Register a callback invoked each time a decision point is reached */
   onDecision(callback: (state: PhaseState) => void): void;
@@ -1221,7 +1222,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
         executeModifierTargetAction(action);
         break;
       case DecisionPhase.SWITCH:
-        executeSwitchAction(action);
+        await executeSwitchAction(action);
         break;
       case DecisionPhase.CHECK_SWITCH:
         executeCheckSwitchAction(action);
@@ -1838,7 +1839,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
 
   // ── Switch Phase Execution ─────────────────────────────────────────
 
-  function executeSwitchAction(action: number): void {
+  async function executeSwitchAction(action: number): Promise<void> {
     if (!globalScene.phaseManager.getCurrentPhase()?.is("SwitchPhase")) {
       console.warn("[PhaseRouter] executeSwitchAction: not in a SwitchPhase");
       return;
@@ -1872,21 +1873,51 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     // land on a slot's Summary submenu instead of "Send out" — leaving the UI in a
     // state the bridge no longer detects as a decision ("Timeout waiting for
     // decision" hang). Mirrors how executeCheckSwitchAction bypasses ConfirmUiHandler.
-    const handler = globalScene.ui.getHandler() as unknown as {
-      selectCallback?: ((slot: number, option: PartyOption) => void) | null;
-      clearOptions?: () => void;
-      setCursor(n: number): boolean;
-      processInput(b: Button): boolean;
-    } | null;
-    const selectCallback = handler?.selectCallback;
-    if (handler && typeof selectCallback === "function") {
-      handler.selectCallback = null;
-      handler.clearOptions?.();
-      selectCallback(targetSlot, PartyOption.SEND_OUT);
+    //
+    // In the BROWSER the party UI opens asynchronously (setMode(PARTY).then(...)
+    // installs selectCallback after real UI work), so the callback may not exist
+    // yet when the decision resolves — retry briefly before the blind-UI fallback,
+    // otherwise the switch is a no-op and the decision re-resolves (observed as
+    // several redundant "switch" steps per battle start in rendered mode).
+    const getHandler = () =>
+      globalScene.ui.getHandler() as unknown as {
+        selectCallback?: ((slot: number, option: PartyOption) => void) | null;
+        clearOptions?: () => void;
+        setCursor(n: number): boolean;
+        processInput(b: Button): boolean;
+      } | null;
+
+    const tryCallback = (): boolean => {
+      const handler = getHandler();
+      const selectCallback = handler?.selectCallback;
+      if (handler && typeof selectCallback === "function") {
+        handler.selectCallback = null;
+        handler.clearOptions?.();
+        selectCallback(targetSlot, PartyOption.SEND_OUT);
+        return true;
+      }
+      return false;
+    };
+
+    if (tryCallback()) {
       return;
     }
 
-    // Fallback: no callback installed (unexpected for a SwitchPhase) — drive the UI.
+    // AWAITED retry (executeActionInternal awaits this, so the driver loop
+    // cannot re-detect the still-open SwitchPhase and burn extra decisions
+    // while the party UI finishes opening).
+    for (let retries = 20; retries > 0; retries--) {
+      await new Promise<void>(r => setTimeout(r, 50));
+      if (destroyed || tryCallback()) {
+        return;
+      }
+      if (!globalScene.phaseManager.getCurrentPhase()?.is("SwitchPhase")) {
+        return; // phase moved on without us — nothing to do
+      }
+    }
+
+    // Fallback: no callback appeared (unexpected) — drive the UI directly.
+    const handler = getHandler();
     if (handler) {
       console.warn("[PhaseRouter] SwitchPhase: no selectCallback; driving party UI directly");
       handler.setCursor(targetSlot);
@@ -2151,6 +2182,10 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       // Set up pending decision that will be resolved by the setMode hook
       pendingDecision = { resolve, reject };
 
+      // Progress tracking for the sliding timeout (see the poll below)
+      let lastProgressPhase: string | null = globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? null;
+      let lastProgressAt = Date.now();
+
       // Polling fallback: check periodically in case the hook missed a transition
       // This handles edge cases where the decision phase was already reached
       // before waitForNextDecision was called
@@ -2185,6 +2220,49 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
         // Auto-skip non-decision phases that block on UI input (PH2-PH13)
         tryAutoSkipPhase();
 
+        // Progress-aware timeout: the timeout exists to catch a STUCK game
+        // (a real soft-lock), not a slow one. A legitimate sequence (catch +
+        // victory + shop entry, ~15s of animations at 60fps) can exceed a
+        // fixed budget on slow or software-rendered browsers where the game
+        // runs at a few fps — observed as "the screen dims (shop overlay
+        // fading in) and the session dies mid-catch". Treat either of these
+        // as progress and slide the deadline:
+        //   1. the current phase CHANGED, or
+        //   2. finite animation work is in flight — pending timer events or
+        //      running finite-duration tweens. Infinite loops (title/idle
+        //      tweens have sentinel durations ~4e14) and paused tweens are
+        //      deliberately excluded, or the timeout could never fire.
+        // A genuinely stuck game (e.g. an undismissed error prompt) has
+        // neither and still times out after timeoutMs of no progress.
+        const phaseNow = globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? null;
+        let progressing = phaseNow !== lastProgressPhase;
+        if (progressing) {
+          lastProgressPhase = phaseNow;
+        } else {
+          try {
+            const sceneAny = globalScene as unknown as {
+              time?: { _active?: unknown[]; _pendingInsertion?: unknown[] };
+              tweens?: { getTweens?(): { totalDuration?: number; paused?: boolean; isPlaying?(): boolean }[] };
+            };
+            progressing =
+              (sceneAny.time?._active?.length ?? 0) > 0
+              || (sceneAny.time?._pendingInsertion?.length ?? 0) > 0
+              || (sceneAny.tweens?.getTweens?.() ?? []).some(
+                tw =>
+                  Number.isFinite(tw?.totalDuration)
+                  && (tw.totalDuration ?? 0) > 0
+                  && (tw.totalDuration ?? 0) < 600_000
+                  && !tw.paused
+                  && (tw.isPlaying?.() ?? true),
+              );
+          } catch {
+            /* activity probe is best-effort (headless mocks may lack these) */
+          }
+        }
+        if (progressing) {
+          lastProgressAt = Date.now();
+        }
+
         // Check if a decision phase has appeared
         const state = detectCurrentDecision();
         if (state) {
@@ -2195,36 +2273,35 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
             pendingDecision = null;
             pd.resolve(state);
           }
+          return;
+        }
+
+        // Timeout: fires only after timeoutMs WITHOUT phase progress
+        if (Date.now() - lastProgressAt >= timeoutMs) {
+          clearInterval(pollInterval);
+          if (pendingDecision) {
+            const pd = pendingDecision;
+            pendingDecision = null;
+            pd.reject(
+              new Error(
+                `[PhaseRouter] Timeout waiting for next decision after ${timeoutMs}ms without phase progress. `
+                  + `Last phase: ${globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? "none"}, `
+                  + `UI mode: ${UiMode[globalScene.ui?.getMode()] ?? "unknown"}`,
+              ),
+            );
+          }
         }
       }, 50); // 50ms poll interval
 
-      // Timeout safety
-      const timeoutHandle = setTimeout(() => {
-        clearInterval(pollInterval);
-        if (pendingDecision) {
-          const pd = pendingDecision;
-          pendingDecision = null;
-          pd.reject(
-            new Error(
-              `[PhaseRouter] Timeout waiting for next decision after ${timeoutMs}ms. `
-                + `Last phase: ${globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? "none"}, `
-                + `UI mode: ${UiMode[globalScene.ui?.getMode()] ?? "unknown"}`,
-            ),
-          );
-        }
-      }, timeoutMs);
-
-      // Clean up timeout if resolved before it fires
+      // Clean up the poll if resolved/rejected before it fires
       const originalResolve = resolve;
       pendingDecision = {
         resolve: (state: PhaseState) => {
           clearInterval(pollInterval);
-          clearTimeout(timeoutHandle);
           originalResolve(state);
         },
         reject: (error: Error) => {
           clearInterval(pollInterval);
-          clearTimeout(timeoutHandle);
           reject(error);
         },
       };
@@ -2499,8 +2576,8 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       await new Promise<void>(r => setTimeout(r, 0));
     },
 
-    async advanceToNextDecision(): Promise<PhaseState> {
-      return waitForNextDecision();
+    async advanceToNextDecision(timeoutMs?: number): Promise<PhaseState> {
+      return timeoutMs && timeoutMs > 0 ? waitForNextDecision(timeoutMs) : waitForNextDecision();
     },
 
     onDecision(callback: (state: PhaseState) => void): void {

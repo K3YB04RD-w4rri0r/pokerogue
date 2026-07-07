@@ -743,3 +743,55 @@ singles (1 active + 4 bench slots; player_1 is doubles-only): with a full
 party, one member is switchable (action 16) but entirely unobserved. Cannot
 be fixed by stuffing bench[4] into player_1 without corrupting the derived
 active-matchup features — needs the obs-v9 slot redesign.
+
+---
+
+## 2026-07-07 — Rendered-mode catch timeout: root cause and fix (headless-Chromium repro harness)
+
+User symptom: rendered runs died with "Timeout at step N" right after a Poké
+Ball throw, screen frozen "dimmed very opaque". Reproduced end-to-end with a
+headless-Chromium harness (playwright driving the real vite server + WS
+relay + bridge; new-headless mode needed — headless-shell throttles rAF).
+
+### Root cause (proven, not the earlier overlay theory)
+On slow / software-rendered browsers the game loop runs at a few fps; a
+successful catch → victory → shop-entry sequence that takes ~15s at 60fps
+legitimately ran ~150s at 2fps. The router's FIXED 30s decision timeout
+fired mid-sequence — the "very opaque dim" is the shop overlay fading in at
+the moment the session froze. With a 300s timeout the identical seed's
+catch completed normally, which pinpointed the timeout itself as the bug.
+
+### Fixes
+- **Progress-aware sliding timeout** (phase-router.ts): the timeout now
+  measures time WITHOUT GAME PROGRESS (phase changes, pending timer events,
+  running finite-duration tweens — infinite/paused sentinel tweens
+  excluded), not wall time to the next decision. Real soft-locks (e.g. an
+  undismissed error prompt) still time out after 30s of no activity; slow
+  legitimate sequences no longer do. Verified: the previously-timing-out
+  catch completes on the DEFAULT budget; headless quick suite green with a
+  bit-identical smoke episode (74 steps, 50.74).
+- **`&timeout=N` URL param / `advanceToNextDecision(timeoutMs?)`**: explicit
+  no-progress budget override (escape hatch for waits the activity probe
+  cannot observe, e.g. long promise-based asset loads).
+- **Awaited SwitchPhase callback retry**: in the browser the party UI
+  installs its select callback asynchronously; executing the switch
+  immediately hit the blind-UI fallback and the still-open decision was
+  re-detected (4+ redundant "switch" steps per battle start). The executor
+  now awaits up to 1s for the callback (headless resolves on the first try
+  — bit-identical). At extreme slowness one redundant step can remain
+  (self-recovering).
+- **vite.interactive.config.ts: don't file-watch assets/locales/dist** —
+  with the assets submodule present, vite's watcher exhausted the Linux
+  inotify budget and the dev server CRASHED mid-session
+  (ENOSPC ... assets/images/pokemon/...). Static publicDir needs no watch.
+- **`window.__rlDebug`** (bridge): live debug handle — `__rlDebug.state()`
+  returns current phase / UI mode / handler flags; used by the repro
+  harness and handy in devtools while bug hunting.
+
+### Honest note on the earlier overlay fix
+The shop reveal-chain capture (previous entry) addresses a real, probe-
+confirmed stale-callback chain, but the user's reported "dim overlay"
+turned out to be THIS timeout freeze, not that chain. The capture stays
+because the delayedCall(500) chrome pop-in it cancels was directly
+observed; if rendered sessions ever show chrome ghosts again, suspect a
+stale browser tab first (hard-reload — vite serves live source).
