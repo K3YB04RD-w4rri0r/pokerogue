@@ -9,6 +9,7 @@
 
 import type { AttackMoveResult } from "#app/@types/attack-move-result";
 import type { TurnMove } from "#app/@types/turn-move";
+import { MAX_TERAS_PER_ARENA } from "#app/constants";
 import { globalScene } from "#app/global-scene";
 import type { ArenaTag } from "#data/arena-tag";
 import type { BattlerTag } from "#data/battler-tags";
@@ -31,6 +32,7 @@ import type { PokemonBattleData, PokemonTurnData, PokemonWaveData } from "#data/
 import { DelayedAttackTag, WishTag } from "#data/positional-tags/positional-tag";
 import { ArenaTagSide } from "#enums/arena-tag-side";
 import { ArenaTagType } from "#enums/arena-tag-type";
+import { BattleType } from "#enums/battle-type";
 import { BiomeId } from "#enums/biome-id";
 import { Challenges } from "#enums/challenges";
 import { MoveFlags } from "#enums/move-flags";
@@ -57,6 +59,7 @@ import {
 import type { PokemonMove } from "#moves/pokemon-move";
 import { getAvailableModifiers } from "#rl/modifier-api";
 import type { PhaseState } from "#rl/phase-router";
+import { getLegalBallTypes } from "#rl/phase-router";
 
 // ─── Empty State Factories ───────────────────────────────────────────
 
@@ -1047,7 +1050,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
 function buildPokemonState(
   pokemon: Pokemon | null | undefined,
   isPlayer: boolean,
-  slotIndex: number,
+  _slotIndex: number,
 ): Record<string, unknown> {
   if (!pokemon) {
     return emptyPokemonState();
@@ -1407,17 +1410,29 @@ function buildBattleState(): Record<string, unknown> {
     // Player faints in battle
     const playerFaintsBattle = battle?.playerFaintsHistory?.length ?? 0;
 
-    // Can tera
-    const teraAvailable = safe(() => {
-      const party = globalScene.getPlayerParty() ?? [];
-      return !party.some(p => p?.isTerastallized);
+    // Can tera: the real gate is Tera Orb possession + an unused arena tera
+    // (mirrors canTerastallize minus the per-pokemon form checks, which live
+    // in the action mask). The old "no party member is terastallized" check
+    // reported true from wave 1 with no orb.
+    const teraAvailable = safe(
+      () =>
+        globalScene.findModifier(m => m.is("TerastallizeAccessModifier")) != null
+        && (globalScene.arena?.playerTerasUsed ?? 0) < MAX_TERAS_PER_ARENA,
+      false,
+    );
+
+    // Can run: wild battle outside the END biome (per-pokemon trapping lives
+    // in the action mask, not this battle-level feature)
+    const canRun = battle?.battleType === BattleType.WILD && arena?.biomeId !== BiomeId.END;
+
+    // Can catch: some ball throw is actually available right now — the
+    // game-faithful gating (boss shields, END biome, exactly one visible
+    // target; shared with the action mask via getLegalBallTypes) ANDed with
+    // ball inventory, i.e. "at least one BALL action is currently legal".
+    const canCatch = safe(() => {
+      const counts = globalScene.pokeballCounts ?? {};
+      return getLegalBallTypes().some((legal, i) => legal && (counts[i] ?? 0) > 0);
     }, false);
-
-    // Can run
-    const canRun = battle?.battleType === 0; // WILD
-
-    // Can catch
-    const canCatch = battle?.battleType === 0 && !battle?.double;
 
     // Challenges
     const challenges: Record<string, unknown>[] = [];
@@ -1704,6 +1719,9 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
 
   const meta = phaseState.metadata ?? {};
 
+  // Metadata keys must match what the phase-router mask builders actually
+  // set (newMoveName/currentMoveNames, biomeNames, optionCount) — the old
+  // reads used keys nothing writes, so these fields were always null.
   return {
     current_phase: phaseState.phase ?? "unknown",
     command_field_index: (meta.fieldIndex as number) ?? -1,
@@ -1711,12 +1729,12 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
     action_mask: phaseState.actionMask ?? new Array(58).fill(false),
     valid_actions: phaseState.validActions ?? [],
     learn_move_id: (meta.learnMoveId as number) ?? null,
-    learn_move_name: (meta.learnMoveName as string) ?? null,
+    learn_move_name: (meta.newMoveName as string) ?? null,
     learn_move_stats: meta.learnMoveStats ? buildMoveSlot(meta.learnMoveStats as any, null) : null,
     learn_move_current: (meta.currentMoveNames as string[]) ?? null,
-    biome_options: (meta.biomeOptions as string[]) ?? null,
-    mystery_option_count: (meta.mysteryOptionCount as number) ?? null,
-    is_game_over: (meta.isGameOver as boolean) ?? null,
+    biome_options: (meta.biomeNames as string[]) ?? null,
+    mystery_option_count: phaseState.phase === "mystery" ? ((meta.optionCount as number) ?? null) : null,
+    is_game_over: (meta.gameOver as boolean) ?? (meta.isGameOver as boolean) ?? null,
     is_victory: (meta.isVictory as boolean) ?? null,
   };
 }
@@ -1880,15 +1898,15 @@ export function buildGameState(phaseState: PhaseState | null, step: number): Rec
 
   // ── Build active field pokemon IDs for bench exclusion ──
   const playerFieldIds = new Set<number>();
-  for (let i = 0; i < playerField.length; i++) {
-    if (playerField[i]) {
-      playerFieldIds.add(playerField[i].id);
+  for (const p of playerField) {
+    if (p) {
+      playerFieldIds.add(p.id);
     }
   }
   const enemyFieldIds = new Set<number>();
-  for (let i = 0; i < enemyField.length; i++) {
-    if (enemyField[i]) {
-      enemyFieldIds.add(enemyField[i].id);
+  for (const p of enemyField) {
+    if (p) {
+      enemyFieldIds.add(p.id);
     }
   }
 

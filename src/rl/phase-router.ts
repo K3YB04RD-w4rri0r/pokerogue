@@ -18,7 +18,9 @@ import { MAX_TERAS_PER_ARENA } from "#app/constants";
 import { getGameMode } from "#app/game-mode";
 import { globalScene } from "#app/global-scene";
 import { Phase } from "#app/phase";
+import { speciesStarterCosts } from "#balance/starters";
 import { allMoves } from "#data/data-lists";
+import { AbilityId } from "#enums/ability-id";
 import { BattleType } from "#enums/battle-type";
 import { BattlerIndex } from "#enums/battler-index";
 import { BiomeId } from "#enums/biome-id";
@@ -27,6 +29,7 @@ import { Command } from "#enums/command";
 import { GameModes } from "#enums/game-modes";
 import { MoveTarget } from "#enums/move-target";
 import { MoveUseMode } from "#enums/move-use-mode";
+import { PokeballType } from "#enums/pokeball";
 import { SpeciesId } from "#enums/species-id";
 import { SwitchType } from "#enums/switch-type";
 import { UiMode } from "#enums/ui-mode";
@@ -264,6 +267,98 @@ export function parseStarterCsv(csv: string): SpeciesId[] {
     .filter((v): v is SpeciesId => typeof v === "number");
 }
 
+/** True if the moveset slot exists and its move is currently usable. */
+function safeMoveUsable(
+  move: { isUsable(pokemon: never): [boolean, unknown?] } | null | undefined,
+  pokemon: unknown,
+): boolean {
+  if (!move) {
+    return false;
+  }
+  try {
+    return !!move.isUsable(pokemon as never)[0];
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Which ball actions are legal RIGHT NOW, mirroring the game's own gating
+ * (CommandPhase.checkCanUseBall + handleBallCommand) exactly.
+ *
+ * The mask MUST match the game: a BALL command the game rejects shows an
+ * error message that blocks on a prompt DURING CommandPhase, which nothing
+ * in the RL loop dismisses (CommandPhase is not an auto-skip phase) — the
+ * decision never re-resolves and the episode dies on the 30s router timeout.
+ * Previously the mask only checked "wild && !double && ball count > 0",
+ * which allowed throws at shielded bosses (every 10th wave) and in the END
+ * biome, and wrongly FORBADE the legal catch in a double battle with exactly
+ * one enemy left.
+ *
+ * Returns a NUM_POKEBALL_TYPES-long boolean array (ignores ball inventory;
+ * callers AND it with pokeballCounts). Exported for state-builder's
+ * `can_catch` battle feature so the observation agrees with the mask.
+ */
+export function getLegalBallTypes(): boolean[] {
+  const legal = new Array<boolean>(NUM_POKEBALL_TYPES).fill(false);
+  const { arena, currentBattle, gameData, gameMode } = globalScene;
+  if (!currentBattle || !arena || !gameMode) {
+    return legal;
+  }
+
+  // Exactly one visible target: with two the game rejects ("noPokeballMulti"),
+  // with zero there is nothing to catch. Do NOT filter the field — index by
+  // slot and test activity per slot.
+  const activeEnemies = (globalScene.getEnemyField() ?? []).filter(p => p?.isActive(true));
+  if (activeEnemies.length !== 1) {
+    return legal;
+  }
+
+  // ── checkCanUseBall() mirror ──
+  const { battleType, waveIndex } = currentBattle;
+  if (arena.biomeId === BiomeId.END && battleType === BattleType.WILD) {
+    const isClassicFinalBoss = gameMode.isBattleClassicFinalBoss(waveIndex);
+    const isEndlessMinorBoss = gameMode.isEndlessMinorBoss(waveIndex);
+    const isFullFreshStart = gameMode.isFullFreshStartChallenge();
+    const someUncaughtSpeciesOnField = activeEnemies.some(p => !gameData.dexData[p.species.speciesId]?.caughtAttr);
+    const missingMultipleStarters =
+      gameData.getStarterCount(d => !!d.caughtAttr) < Object.keys(speciesStarterCosts).length - 1;
+    const { isClassic, isEndless, isDaily } = gameMode;
+    if (
+      (isClassic && !isClassicFinalBoss && someUncaughtSpeciesOnField)
+      || (isFullFreshStart && !isClassicFinalBoss)
+      || (isEndless && !isEndlessMinorBoss)
+      || (isClassic && isClassicFinalBoss && missingMultipleStarters)
+      || (isFullFreshStart && isClassicFinalBoss)
+      || (isEndless && isEndlessMinorBoss)
+      || isDaily
+    ) {
+      return legal;
+    }
+  } else if (battleType === BattleType.TRAINER) {
+    return legal;
+  } else if (currentBattle.isBattleMysteryEncounter() && !currentBattle.mysteryEncounter?.catchAllowed) {
+    return legal;
+  }
+
+  // ── handleBallCommand() boss-shield mirror ──
+  const target = activeEnemies[0];
+  const isShieldedBoss =
+    !!target.isBoss?.()
+    && (target as { bossSegmentIndex?: number }).bossSegmentIndex! >= 1
+    && !target.hasAbility(AbilityId.WONDER_GUARD, false, true);
+  const isFinalBoss = gameMode.isBattleClassicFinalBoss(waveIndex);
+  const isChallengeActive = gameMode.hasAnyChallenges();
+
+  for (let i = 0; i < NUM_POKEBALL_TYPES; i++) {
+    if (isShieldedBoss && (i < PokeballType.MASTER_BALL || (isFinalBoss && isChallengeActive))) {
+      continue; // only a Master Ball moves a shielded boss (never on a challenge-mode final boss)
+    }
+    legal[i] = true;
+  }
+  return legal;
+}
+
 export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?: SpeciesId[] }): PhaseRouter {
   const verbose = options?.verbose ?? false;
   const starterSpecies = options?.starterSpecies;
@@ -275,10 +370,6 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   let gameOverFlag = false;
   let victoryFlag = false;
   let destroyed = false;
-
-  // Track the last setMode call to detect decision phases for callback-based phases
-  let lastSetModePhase: string | null = null;
-  let lastSetModeUiMode: UiMode | null = null;
 
   // Two-step modifier targeting: stores the selected modifier while agent picks a Pokemon
   let pendingModifierAction: {
@@ -328,10 +419,6 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     }
 
     const phaseName = currentPhase.phaseName;
-
-    // Track every setMode call for context
-    lastSetModePhase = phaseName;
-    lastSetModeUiMode = mode;
 
     // Check if this is a decision point
     const isEndBySetMode = END_BY_SET_MODE_PHASES.has(phaseName);
@@ -736,6 +823,32 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       }
     }
 
+    // Struggle: an enemy is up but no move is usable (out of PP, Disabled,
+    // Torment, ...). The game's FIGHT command auto-substitutes Struggle in
+    // that case (handleFightCommand's useStruggle branch) — mirror it by
+    // offering fight slot 0, which executeCommandAction issues as a plain
+    // FIGHT so the game picks Struggle and computes its own targets.
+    // Without this the mask can go completely empty (e.g. no PP + trapped in
+    // a trainer battle), an unresolvable decision that dies on the router
+    // timeout instead of using Struggle like the real game.
+    if (anyEnemyActive) {
+      let anyFight = false;
+      for (let i = 0; i < MAX_MOVES; i++) {
+        if (
+          mask[ACTION_FIGHT_ENEMY_START + i]
+          || mask[ACTION_FIGHT_ENEMY2_START + i]
+          || mask[ACTION_FIGHT_ALLY_START + i]
+        ) {
+          anyFight = true;
+          break;
+        }
+      }
+      if (!anyFight) {
+        mask[ACTION_FIGHT_ENEMY_START] = true;
+        metadata.struggle = true;
+      }
+    }
+
     // Switch (12-16): party slots 1-5
     if (!isTrapped) {
       const activeIds = new Set(playerField.map(p => p.id));
@@ -749,14 +862,12 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       }
     }
 
-    // Ball (17-21)
-    const canCatch = !isTrainerBattle && !isDouble && (enemy0Active || enemy1Active);
-    if (canCatch) {
-      const counts = globalScene.pokeballCounts ?? {};
-      for (let i = 0; i < NUM_POKEBALL_TYPES; i++) {
-        if ((counts[i] ?? 0) > 0) {
-          mask[ACTION_BALL_START + i] = true;
-        }
+    // Ball (17-21): game-faithful gating (see getLegalBallTypes) AND inventory
+    const legalBalls = getLegalBallTypes();
+    const counts = globalScene.pokeballCounts ?? {};
+    for (let i = 0; i < NUM_POKEBALL_TYPES; i++) {
+      if (legalBalls[i] && (counts[i] ?? 0) > 0) {
+        mask[ACTION_BALL_START + i] = true;
       }
     }
 
@@ -774,7 +885,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     const fieldIndex = commandPhase.getFieldIndex();
     const currentTeras = globalScene.arena.playerTerasUsed;
     const plannedTera = Number(battle?.preTurnCommands?.[0]?.command === Command.TERA && fieldIndex > 0);
-    const canTera = pokemon.isPlayer() && canTerastallize(pokemon);
+    const canTera = pokemon.isPlayer() && canTerastallize(pokemon) && !metadata.struggle;
     if (canTera && currentTeras + plannedTera < MAX_TERAS_PER_ARENA) {
       for (let i = 0; i < MAX_MOVES; i++) {
         if (mask[ACTION_FIGHT_ENEMY_START + i]) {
@@ -941,11 +1052,9 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     let slotIdx = 0;
     for (let i = 0; i < playerParty.length && slotIdx < 5; i++) {
       const p = playerParty[i];
-      if (!p.isFainted() && !activeIds.has(p.id)) {
-        // Use ACTION_SWITCH_START range: party slot i maps to switch action
-        if (i > 0) {
-          mask[ACTION_SWITCH_START + (i - 1)] = true;
-        }
+      // Use ACTION_SWITCH_START range: party slot i maps to switch action
+      if (i > 0 && !p.isFainted() && !activeIds.has(p.id)) {
+        mask[ACTION_SWITCH_START + (i - 1)] = true;
       }
       if (i > 0) {
         slotIdx++;
@@ -981,6 +1090,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       const pokemon = phase.getPokemon();
       const moveset = pokemon.getMoveset();
 
+      metadata.learnMoveId = phase.moveId;
       metadata.newMoveName = newMove?.name ?? "???";
       metadata.currentMoveNames = moveset.map((m: any) => m?.getMove()?.name ?? "???");
     }
@@ -1172,6 +1282,15 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     // Fight targeting ENEMY (0-3)
     if (action >= ACTION_FIGHT_ENEMY_START && action < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
       const moveIndex = action - ACTION_FIGHT_ENEMY_START;
+      // Struggle path: the slot's move is unusable (or missing), so the mask
+      // offered it as the game's auto-Struggle. Issue a plain FIGHT with no
+      // explicit move/targets — handleFightCommand substitutes Struggle and
+      // getMoveTargets computes its targets (works in singles and doubles).
+      const slotUsable = safeMoveUsable(moveset[moveIndex], pokemon);
+      if (!slotUsable) {
+        commandPhase.handleCommand(Command.FIGHT, moveIndex, MoveUseMode.NORMAL);
+        return;
+      }
       const moveData = moveset[moveIndex]?.getMove();
       const needsExplicitTarget =
         moveData
@@ -1594,7 +1713,12 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     const activeIds = new Set(field.map(p => p.id));
     let targetSlot =
       action >= ACTION_SWITCH_START && action < ACTION_SWITCH_START + 5 ? action - ACTION_SWITCH_START + 1 : -1;
-    if (targetSlot < 1 || targetSlot >= party.length || party[targetSlot].isFainted() || activeIds.has(party[targetSlot].id)) {
+    if (
+      targetSlot < 1
+      || targetSlot >= party.length
+      || party[targetSlot].isFainted()
+      || activeIds.has(party[targetSlot].id)
+    ) {
       targetSlot = party.findIndex((p, i) => i > 0 && !p.isFainted() && !activeIds.has(p.id));
     }
     if (targetSlot < 1) {
@@ -1805,7 +1929,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     // with an explicit team, e.g. a full legendary lineup for a demo run.
     // generateStarters builds the party from these ids; undefined falls back to
     // the default daily-run starters.
-    if (verbose && starterSpecies?.length) {
+    if (verbose && starterSpecies?.length > 0) {
       console.log(`[PhaseRouter] Using starter override: [${starterSpecies.join(", ")}]`);
     }
     const starters = generateStarters(globalScene, starterSpecies);

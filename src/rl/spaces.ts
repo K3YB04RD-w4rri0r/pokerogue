@@ -14,17 +14,11 @@
  *   Phase block:              16
  */
 
-import { BattlerTagType } from "#enums/battler-tag-type";
-import { ArenaTagType } from "#enums/arena-tag-type";
 import { ArenaTagSide } from "#enums/arena-tag-side";
+import { ArenaTagType } from "#enums/arena-tag-type";
+import { BattlerTagType } from "#enums/battler-tag-type";
 import { encodeAbilityFeatures } from "#rl/ability-features";
-import {
-  MODIFIER_FEATURE_DIM,
-  MODIFIER_FEATURES,
-  DEFAULT_MODIFIER_FEATURES,
-  encodeModifierFeatures,
-  sortByRLPriority,
-} from "#rl/modifier-features";
+import { encodeModifierFeatures, MODIFIER_FEATURE_DIM, sortByRLPriority } from "#rl/modifier-features";
 
 // ─── Dimension Constants ──────────────────────────────────────────────
 
@@ -76,7 +70,7 @@ export const TOTAL_POKEMON_SLOTS = 12;
 /** Number of reward modifier options */
 export const MAX_REWARD_OPTIONS = 3;
 
-/** Number of shop item slots encoded (top 6 most affordable) */
+/** Number of shop item slots encoded (first 6, natural/action-id order) */
 export const MAX_SHOP_OPTIONS_ENCODED = 6;
 
 /** Max shop options in game state */
@@ -169,55 +163,53 @@ export const CURATED_VOLATILE_TAGS: BattlerTagType[] = [
   BattlerTagType.POWDER,
   // v2: 7 additional strategically important tags
   BattlerTagType.CENTER_OF_ATTENTION, // Follow Me/Rage Powder - redirects moves in doubles
-  BattlerTagType.HELPING_HAND,        // +50% ally damage in doubles
-  BattlerTagType.SLOW_START,          // Regigigas halved ATK/SPD for 5 turns
-  BattlerTagType.UNBURDEN,            // Doubled speed after item loss
+  BattlerTagType.HELPING_HAND, // +50% ally damage in doubles
+  BattlerTagType.SLOW_START, // Regigigas halved ATK/SPD for 5 turns
+  BattlerTagType.UNBURDEN, // Doubled speed after item loss
   BattlerTagType.RECEIVE_DOUBLE_DAMAGE, // Tar Shot - 2x fire damage
-  BattlerTagType.FLOATING,            // Magnet Rise/Telekinesis - ground immunity
-  BattlerTagType.ALWAYS_CRIT,         // Laser Focus - guaranteed crit next turn
+  BattlerTagType.FLOATING, // Magnet Rise/Telekinesis - ground immunity
+  BattlerTagType.ALWAYS_CRIT, // Laser Focus - guaranteed crit next turn
   // v3: 9 additional tags from audit
-  BattlerTagType.GRUDGE,              // If holder faints, attacker's move loses all PP
-  BattlerTagType.ICE_FACE,            // Eiscue form — absorbs one physical hit
-  BattlerTagType.DISGUISE,            // Mimikyu form — absorbs one hit
-  BattlerTagType.NO_RETREAT,          // Can't switch but got +1 all stats
-  BattlerTagType.THROAT_CHOPPED,      // Can't use sound-based moves for 2 turns
-  BattlerTagType.SYRUP_BOMB,          // -1 Speed per turn for 3 turns
-  BattlerTagType.COMMANDED,           // Commander ability — merged into ally
-  BattlerTagType.BURNED_UP,           // Lost Fire type after Burn Up
-  BattlerTagType.DOUBLE_SHOCKED,      // Lost Electric type after Double Shock
+  BattlerTagType.GRUDGE, // If holder faints, attacker's move loses all PP
+  BattlerTagType.ICE_FACE, // Eiscue form — absorbs one physical hit
+  BattlerTagType.DISGUISE, // Mimikyu form — absorbs one hit
+  BattlerTagType.NO_RETREAT, // Can't switch but got +1 all stats
+  BattlerTagType.THROAT_CHOPPED, // Can't use sound-based moves for 2 turns
+  BattlerTagType.SYRUP_BOMB, // -1 Speed per turn for 3 turns
+  BattlerTagType.COMMANDED, // Commander ability — merged into ally
+  BattlerTagType.BURNED_UP, // Lost Fire type after Burn Up
+  BattlerTagType.DOUBLE_SHOCKED, // Lost Electric type after Double Shock
   // v8: 28 additional tags (partial-trap family, charge/crit/boost states,
   // exposure/ignore states, paradox/overlord boosts, misc disables)
-  BattlerTagType.BIND,                // Partial-trap: damage + no switch
-  BattlerTagType.WRAP,                // Partial-trap
-  BattlerTagType.CLAMP,               // Partial-trap
-  BattlerTagType.FIRE_SPIN,           // Partial-trap
-  BattlerTagType.WHIRLPOOL,           // Partial-trap
-  BattlerTagType.MAGMA_STORM,         // Partial-trap
-  BattlerTagType.SAND_TOMB,           // Partial-trap
-  BattlerTagType.SNAP_TRAP,           // Partial-trap
-  BattlerTagType.THUNDER_CAGE,        // Partial-trap
-  BattlerTagType.INFESTATION,         // Partial-trap
-  BattlerTagType.CHARGED,             // Electric move charged (2x next)
-  BattlerTagType.CRIT_BOOST,          // Focus Energy / Dragon Cheer — +crit stage
-  BattlerTagType.DRAGON_CHEER,        // Ally crit boost (doubles)
-  BattlerTagType.FIRE_BOOST,          // Charcoal-like fire boost state
-  BattlerTagType.GORILLA_TACTICS,     // Locked into one move, +ATK
-  BattlerTagType.HIDDEN,              // Commander/other hidden-from-field state
-  BattlerTagType.IGNORE_ACCURACY,     // Lock-On/Mind Reader — next move always hits
-  BattlerTagType.IGNORE_DARK,         // Miracle Eye — hit Dark with Psychic
-  BattlerTagType.IGNORE_FLYING,       // Smack Down/Roost — grounded
-  BattlerTagType.IGNORE_GHOST,        // Foresight/Odor Sleuth — hit Ghost
-  BattlerTagType.NIGHTMARE,           // 1/4 HP loss per turn while asleep
-  BattlerTagType.PROTOSYNTHESIS,      // Paradox boost (sun/booster)
-  BattlerTagType.QUARK_DRIVE,         // Paradox boost (electric terrain/booster)
-  BattlerTagType.SUPREME_OVERLORD,    // ATK/SPATK boost per fainted ally
-  BattlerTagType.TAR_SHOT,            // Speed drop + fire weakness
-  BattlerTagType.TELEKINESIS,         // Floating + always-hit
-  BattlerTagType.TRUANT,              // Loafs every other turn
-  BattlerTagType.ALWAYS_GET_HIT,      // Cannot avoid the next hit
+  BattlerTagType.BIND, // Partial-trap: damage + no switch
+  BattlerTagType.WRAP, // Partial-trap
+  BattlerTagType.CLAMP, // Partial-trap
+  BattlerTagType.FIRE_SPIN, // Partial-trap
+  BattlerTagType.WHIRLPOOL, // Partial-trap
+  BattlerTagType.MAGMA_STORM, // Partial-trap
+  BattlerTagType.SAND_TOMB, // Partial-trap
+  BattlerTagType.SNAP_TRAP, // Partial-trap
+  BattlerTagType.THUNDER_CAGE, // Partial-trap
+  BattlerTagType.INFESTATION, // Partial-trap
+  BattlerTagType.CHARGED, // Electric move charged (2x next)
+  BattlerTagType.CRIT_BOOST, // Focus Energy / Dragon Cheer — +crit stage
+  BattlerTagType.DRAGON_CHEER, // Ally crit boost (doubles)
+  BattlerTagType.FIRE_BOOST, // Charcoal-like fire boost state
+  BattlerTagType.GORILLA_TACTICS, // Locked into one move, +ATK
+  BattlerTagType.HIDDEN, // Commander/other hidden-from-field state
+  BattlerTagType.IGNORE_ACCURACY, // Lock-On/Mind Reader — next move always hits
+  BattlerTagType.IGNORE_DARK, // Miracle Eye — hit Dark with Psychic
+  BattlerTagType.IGNORE_FLYING, // Smack Down/Roost — grounded
+  BattlerTagType.IGNORE_GHOST, // Foresight/Odor Sleuth — hit Ghost
+  BattlerTagType.NIGHTMARE, // 1/4 HP loss per turn while asleep
+  BattlerTagType.PROTOSYNTHESIS, // Paradox boost (sun/booster)
+  BattlerTagType.QUARK_DRIVE, // Paradox boost (electric terrain/booster)
+  BattlerTagType.SUPREME_OVERLORD, // ATK/SPATK boost per fainted ally
+  BattlerTagType.TAR_SHOT, // Speed drop + fire weakness
+  BattlerTagType.TELEKINESIS, // Floating + always-hit
+  BattlerTagType.TRUANT, // Loafs every other turn
+  BattlerTagType.ALWAYS_GET_HIT, // Cannot avoid the next hit
 ];
-
-const CURATED_TAG_SET = new Set(CURATED_VOLATILE_TAGS);
 
 /** Number of curated volatile tag flags */
 export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 76
@@ -340,13 +332,13 @@ export const PHASE_INDEX_MAP: Record<string, number> = {
 
 /** Total observation vector size */
 export const OBSERVATION_DIM =
-  TOTAL_POKEMON_SLOTS * POKEMON_BLOCK_DIM +
-  FIELD_STATE_DIM +
-  BATTLE_META_DIM +
-  MODIFIER_PHASE_DIM +
-  MODIFIER_INVENTORY_DIM +
-  DERIVED_FIELDS_DIM +
-  PHASE_INDICATOR_DIM; // 12*815 + 94 + 40 + 225 + 220 + 28 + 16 = 10403
+  TOTAL_POKEMON_SLOTS * POKEMON_BLOCK_DIM
+  + FIELD_STATE_DIM
+  + BATTLE_META_DIM
+  + MODIFIER_PHASE_DIM
+  + MODIFIER_INVENTORY_DIM
+  + DERIVED_FIELDS_DIM
+  + PHASE_INDICATOR_DIM; // 12*815 + 94 + 40 + 225 + 220 + 28 + 16 = 10403
 
 // ─── Action Space ─────────────────────────────────────────────────────
 
@@ -429,14 +421,18 @@ function clamp(value: number, min: number, max: number): number {
 /** Safely read a number from a dict, returning fallback if missing/NaN */
 function num(dict: Record<string, unknown>, key: string, fallback = 0): number {
   const v = dict[key];
-  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  if (typeof v === "number" && !Number.isNaN(v)) {
+    return v;
+  }
   return fallback;
 }
 
 /** Safely read a boolean from a dict */
 function bool(dict: Record<string, unknown>, key: string, fallback = false): boolean {
   const v = dict[key];
-  if (typeof v === "boolean") return v;
+  if (typeof v === "boolean") {
+    return v;
+  }
   return fallback;
 }
 
@@ -449,7 +445,7 @@ function arr(dict: Record<string, unknown>, key: string): unknown[] {
 /** Safely read a sub-dict from a dict */
 function sub(dict: Record<string, unknown>, key: string): Record<string, unknown> {
   const v = dict[key];
-  return (v && typeof v === "object" && !Array.isArray(v)) ? v as Record<string, unknown> : {};
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
 // ─── Move Encoding (from dict) ───────────────────────────────────────
@@ -793,7 +789,9 @@ function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<s
   for (const tag of volatileTags) {
     if (tag && typeof tag === "object") {
       const tagType = (tag as Record<string, unknown>).tag_type;
-      if (typeof tagType === "string") activeTagTypes.add(tagType);
+      if (typeof tagType === "string") {
+        activeTagTypes.add(tagType);
+      }
     }
   }
   let curatedMatches = 0;
@@ -901,9 +899,8 @@ function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<s
   // moves (4 slots × 50 dims each)
   const moves = arr(poke, "moves");
   for (let i = 0; i < MAX_MOVES; i++) {
-    const moveDict = (moves[i] && typeof moves[i] === "object" && !Array.isArray(moves[i]))
-      ? moves[i] as Record<string, unknown>
-      : {};
+    const moveDict =
+      moves[i] && typeof moves[i] === "object" && !Array.isArray(moves[i]) ? (moves[i] as Record<string, unknown>) : {};
     encodeMoveFromDict(buf, pos, moveDict);
     pos += MOVE_BLOCK_DIM;
   }
@@ -934,20 +931,26 @@ function encodeFieldFromDict(buf: Float32Array, offset: number, field: Record<st
   const arenaTags = arr(field, "arena_tags");
   const playerTagPresence = new Map<string, boolean>();
   const enemyTagPresence = new Map<string, boolean>();
-  let playerSpikeLayers = num(field, "player_spikes_layers");
-  let playerToxicSpikeLayers = num(field, "player_toxic_spikes_layers");
-  let enemySpikeLayers = num(field, "enemy_spikes_layers");
-  let enemyToxicSpikeLayers = num(field, "enemy_toxic_spikes_layers");
+  const playerSpikeLayers = num(field, "player_spikes_layers");
+  const playerToxicSpikeLayers = num(field, "player_toxic_spikes_layers");
+  const enemySpikeLayers = num(field, "enemy_spikes_layers");
+  const enemyToxicSpikeLayers = num(field, "enemy_toxic_spikes_layers");
 
   for (const tagObj of arenaTags) {
-    if (!tagObj || typeof tagObj !== "object") continue;
+    if (!tagObj || typeof tagObj !== "object") {
+      continue;
+    }
     const tag = tagObj as Record<string, unknown>;
     const tagType = tag.tag_type as string;
     const side = num(tag, "side");
     const isPlayerSide = side === ArenaTagSide.PLAYER || side === ArenaTagSide.BOTH;
     const isEnemySide = side === ArenaTagSide.ENEMY || side === ArenaTagSide.BOTH;
-    if (isPlayerSide) playerTagPresence.set(tagType, true);
-    if (isEnemySide) enemyTagPresence.set(tagType, true);
+    if (isPlayerSide) {
+      playerTagPresence.set(tagType, true);
+    }
+    if (isEnemySide) {
+      enemyTagPresence.set(tagType, true);
+    }
   }
 
   // player_arena_tags(28) binary
@@ -1012,7 +1015,9 @@ function encodeFieldFromDict(buf: Float32Array, offset: number, field: Record<st
   // Build a map: "tagType:side" → turn_count for efficient lookup
   const tagTurnMap = new Map<string, number>();
   for (const tagObj of arenaTags) {
-    if (!tagObj || typeof tagObj !== "object") continue;
+    if (!tagObj || typeof tagObj !== "object") {
+      continue;
+    }
     const tag = tagObj as Record<string, unknown>;
     const tagType = tag.tag_type as string;
     const side = num(tag, "side");
@@ -1153,16 +1158,21 @@ const REWARD_OPTION_DIM = 28;
 /** Dims per shop option: valid(1) + cost_ratio(1) + affordable(1) + features(20) = 23 */
 const SHOP_OPTION_DIM = 23;
 
-function encodeModifierFromDict(buf: Float32Array, offset: number, shop: Record<string, unknown> | null, money: number): number {
+function encodeModifierFromDict(
+  buf: Float32Array,
+  offset: number,
+  shop: Record<string, unknown> | null,
+  money: number,
+): number {
   let pos = offset;
 
   const isActive = shop !== null;
 
   // ── Header (3 dims) ──
-  buf[pos++] = isActive ? 1.0 : 0.0;  // modifier_active
-  buf[pos++] = isActive && bool(shop!, "can_reroll") ? 1.0 : 0.0;  // can_reroll
+  buf[pos++] = isActive ? 1.0 : 0.0; // modifier_active
+  buf[pos++] = isActive && bool(shop!, "can_reroll") ? 1.0 : 0.0; // can_reroll
   const rerollCost = isActive ? num(shop!, "reroll_cost") : 0;
-  buf[pos++] = isActive && money > 0 ? clamp(rerollCost / money, 0, 1) : 0;  // reroll_cost_ratio
+  buf[pos++] = isActive && money > 0 ? clamp(rerollCost / money, 0, 1) : 0; // reroll_cost_ratio
 
   if (!isActive) {
     // Skip remaining dims (zeros)
@@ -1173,9 +1183,8 @@ function encodeModifierFromDict(buf: Float32Array, offset: number, shop: Record<
   // ── Reward options (3 × 28 = 84 dims) ──
   const rewardOptions = arr(shop!, "reward_options");
   for (let i = 0; i < MAX_REWARD_OPTIONS; i++) {
-    const opt = (rewardOptions[i] && typeof rewardOptions[i] === "object")
-      ? rewardOptions[i] as Record<string, unknown>
-      : null;
+    const opt =
+      rewardOptions[i] && typeof rewardOptions[i] === "object" ? (rewardOptions[i] as Record<string, unknown>) : null;
     if (opt) {
       buf[pos++] = 1.0; // valid
       // tier one-hot (6 dims)
@@ -1192,7 +1201,13 @@ function encodeModifierFromDict(buf: Float32Array, offset: number, shop: Record<
   }
 
   // ── Shop options (6 × 23 = 138 dims) ──
-  // Encode top 6 most affordable shop options
+  // Encode the first 6 shop options in their NATURAL order — the same order
+  // the BUY_SHOP actions (40-51) index. They used to be sorted by cost here,
+  // which broke the framework's slot contract ("the observation describes
+  // that action's slot"): encoded slot k described the k-th cheapest item
+  // while action 40+k bought shop_options[k], so the agent could not map
+  // shop features to buy actions. Options beyond the first 6 remain buyable
+  // but unencoded (valid=0) — a capacity limit, not a misalignment.
   const shopOptions = arr(shop!, "shop_options");
   const validShopOpts: Record<string, unknown>[] = [];
   for (const opt of shopOptions) {
@@ -1200,8 +1215,6 @@ function encodeModifierFromDict(buf: Float32Array, offset: number, shop: Record<
       validShopOpts.push(opt as Record<string, unknown>);
     }
   }
-  // Sort by cost ascending (most affordable first)
-  validShopOpts.sort((a, b) => num(a, "cost") - num(b, "cost"));
 
   for (let i = 0; i < MAX_SHOP_OPTIONS_ENCODED; i++) {
     const opt = i < validShopOpts.length ? validShopOpts[i] : null;
@@ -1228,14 +1241,14 @@ const ACTIVE_SLOT_KEYS = ["player_0", "player_1", "enemy_0", "enemy_1"];
 
 /** Well-known party modifier_id strings for boolean presence flags */
 const PARTY_FLAG_IDS: readonly string[] = [
-  "HEALING_CHARM",   // HealingBoosterModifier
-  "EXP_SHARE",       // ExpShareModifier
-  "BERRY_POUCH",     // PreserveBerryModifier
-  "AMULET_COIN",     // MoneyMultiplierModifier (also matches COIN_CASE)
-  "LOCK_CAPSULE",    // LockModifierTiersModifier
+  "HEALING_CHARM", // HealingBoosterModifier
+  "EXP_SHARE", // ExpShareModifier
+  "BERRY_POUCH", // PreserveBerryModifier
+  "AMULET_COIN", // MoneyMultiplierModifier (also matches COIN_CASE)
+  "LOCK_CAPSULE", // LockModifierTiersModifier
   "GOLDEN_POKEBALL", // ExtraModifierModifier
-  "MEGA_BRACELET",   // MegaEvolutionAccessModifier
-  "TERA_ORB",        // TerastallizeAccessModifier
+  "MEGA_BRACELET", // MegaEvolutionAccessModifier
+  "TERA_ORB", // TerastallizeAccessModifier
 ];
 
 /** Known enemy modifier_id strings for aggregate encoding */
@@ -1312,10 +1325,14 @@ function encodeModifierInventory(buf: Float32Array, offset: number, gameState: R
   for (const mod of partyMods) {
     if (mod && typeof mod === "object") {
       const modId = (mod as Record<string, unknown>).modifier_id;
-      if (typeof modId === "string") partyModIdSet.add(modId);
+      if (typeof modId === "string") {
+        partyModIdSet.add(modId);
+      }
       // Also check modifier_class for COIN_CASE -> MoneyInterestModifier
       const modClass = (mod as Record<string, unknown>).modifier_class;
-      if (modClass === "MoneyInterestModifier") partyModIdSet.add("AMULET_COIN"); // maps to money_boost flag
+      if (modClass === "MoneyInterestModifier") {
+        partyModIdSet.add("AMULET_COIN"); // maps to money_boost flag
+      }
     }
   }
   for (const flagId of PARTY_FLAG_IDS) {
@@ -1366,7 +1383,11 @@ function encodeModifierInventory(buf: Float32Array, offset: number, gameState: R
       const modId = (m.modifier_id as string) ?? "";
       const stack = num(m, "stack_count");
       // Sum status attack modifiers under a unified key
-      if (modId === "ENEMY_ATTACK_POISON_CHANCE" || modId === "ENEMY_ATTACK_PARALYZE_CHANCE" || modId === "ENEMY_ATTACK_BURN_CHANCE") {
+      if (
+        modId === "ENEMY_ATTACK_POISON_CHANCE"
+        || modId === "ENEMY_ATTACK_PARALYZE_CHANCE"
+        || modId === "ENEMY_ATTACK_BURN_CHANCE"
+      ) {
         enemyStackMap.set(modId, (enemyStackMap.get(modId) ?? 0) + stack);
       } else {
         enemyStackMap.set(modId, (enemyStackMap.get(modId) ?? 0) + stack);
@@ -1396,36 +1417,38 @@ function encodeModifierInventory(buf: Float32Array, offset: number, gameState: R
  */
 // prettier-ignore
 const TYPE_EFFECTIVENESS: readonly (readonly number[])[] = [
-  /*NORMAL  */ [1,  1,  1,  1,  1, .5,  1,  0, .5,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1],
-  /*FIGHTING*/ [2,  1, .5, .5,  1,  2, .5,  0,  2,  1,  1,  1,  1, .5,  2,  1,  2, .5,  1],
-  /*FLYING  */ [1,  2,  1,  1,  1, .5,  2,  1, .5,  1,  1,  2, .5,  1,  1,  1,  1,  1,  1],
-  /*POISON  */ [1,  1,  1, .5, .5, .5,  1, .5,  0,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1],
-  /*GROUND  */ [1,  1,  0,  2,  1,  2, .5,  1,  2,  2,  1, .5,  2,  1,  1,  1,  1,  1,  1],
-  /*ROCK    */ [1, .5,  2,  1, .5,  1,  2,  1, .5,  2,  1,  1,  1,  1,  2,  1,  1,  1,  1],
-  /*BUG     */ [1, .5, .5, .5,  1,  1,  1, .5, .5, .5,  1,  2,  1,  2,  1,  1,  2, .5,  1],
-  /*GHOST   */ [0,  1,  1,  1,  1,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1,  1, .5,  1,  1],
-  /*STEEL   */ [1,  1,  1,  1,  1,  2,  1,  1, .5, .5, .5,  1, .5,  1,  2,  1,  1,  2,  1],
-  /*FIRE    */ [1,  1,  1,  1,  1, .5,  2,  1,  2, .5, .5,  2,  1,  1,  2, .5,  1,  1,  1],
-  /*WATER   */ [1,  1,  1,  1,  2,  2,  1,  1,  1,  2, .5, .5,  1,  1,  1, .5,  1,  1,  1],
-  /*GRASS   */ [1,  1, .5, .5,  2,  2, .5,  1, .5, .5,  2, .5,  1,  1,  1, .5,  1,  1,  1],
-  /*ELECTRIC*/ [1,  1,  2,  1,  0,  1,  1,  1,  1,  1,  2, .5, .5,  1,  1, .5,  1,  1,  1],
-  /*PSYCHIC */ [1,  2,  1,  2,  1,  1,  1,  1, .5,  1,  1,  1,  1, .5,  1,  1,  0,  1,  1],
-  /*ICE     */ [1,  1,  2,  1,  2,  1,  1,  1, .5, .5, .5,  2,  1,  1, .5,  2,  1,  1,  1],
-  /*DRAGON  */ [1,  1,  1,  1,  1,  1,  1,  1, .5,  1,  1,  1,  1,  1,  1,  2,  1,  0,  1],
-  /*DARK    */ [1, .5,  1,  1,  1,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1,  1, .5, .5,  1],
-  /*FAIRY   */ [1,  2,  1, .5,  1,  1,  1,  1, .5, .5,  1,  1,  1,  1,  1,  2,  2,  1,  1],
-  /*STELLAR */ [1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1],
+  /*NORMAL  */ [1, 1, 1, 1, 1, 0.5, 1, 0, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+  /*FIGHTING*/ [2, 1, 0.5, 0.5, 1, 2, 0.5, 0, 2, 1, 1, 1, 1, 0.5, 2, 1, 2, 0.5, 1],
+  /*FLYING  */ [1, 2, 1, 1, 1, 0.5, 2, 1, 0.5, 1, 1, 2, 0.5, 1, 1, 1, 1, 1, 1],
+  /*POISON  */ [1, 1, 1, 0.5, 0.5, 0.5, 1, 0.5, 0, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1],
+  /*GROUND  */ [1, 1, 0, 2, 1, 2, 0.5, 1, 2, 2, 1, 0.5, 2, 1, 1, 1, 1, 1, 1],
+  /*ROCK    */ [1, 0.5, 2, 1, 0.5, 1, 2, 1, 0.5, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1],
+  /*BUG     */ [1, 0.5, 0.5, 0.5, 1, 1, 1, 0.5, 0.5, 0.5, 1, 2, 1, 2, 1, 1, 2, 0.5, 1],
+  /*GHOST   */ [0, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 0.5, 1, 1],
+  /*STEEL   */ [1, 1, 1, 1, 1, 2, 1, 1, 0.5, 0.5, 0.5, 1, 0.5, 1, 2, 1, 1, 2, 1],
+  /*FIRE    */ [1, 1, 1, 1, 1, 0.5, 2, 1, 2, 0.5, 0.5, 2, 1, 1, 2, 0.5, 1, 1, 1],
+  /*WATER   */ [1, 1, 1, 1, 2, 2, 1, 1, 1, 2, 0.5, 0.5, 1, 1, 1, 0.5, 1, 1, 1],
+  /*GRASS   */ [1, 1, 0.5, 0.5, 2, 2, 0.5, 1, 0.5, 0.5, 2, 0.5, 1, 1, 1, 0.5, 1, 1, 1],
+  /*ELECTRIC*/ [1, 1, 2, 1, 0, 1, 1, 1, 1, 1, 2, 0.5, 0.5, 1, 1, 0.5, 1, 1, 1],
+  /*PSYCHIC */ [1, 2, 1, 2, 1, 1, 1, 1, 0.5, 1, 1, 1, 1, 0.5, 1, 1, 0, 1, 1],
+  /*ICE     */ [1, 1, 2, 1, 2, 1, 1, 1, 0.5, 0.5, 0.5, 2, 1, 1, 0.5, 2, 1, 1, 1],
+  /*DRAGON  */ [1, 1, 1, 1, 1, 1, 1, 1, 0.5, 1, 1, 1, 1, 1, 1, 2, 1, 0, 1],
+  /*DARK    */ [1, 0.5, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 2, 1, 1, 0.5, 0.5, 1],
+  /*FAIRY   */ [1, 2, 1, 0.5, 1, 1, 1, 1, 0.5, 0.5, 1, 1, 1, 1, 1, 2, 2, 1, 1],
+  /*STELLAR */ [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
 ];
 
 /** Stat stage multipliers for stages -6..+6 (index = stage+6). Formula: positive=(2+s)/2, negative=2/(2+|s|) */
-const STAGE_MULTIPLIERS = [2/8, 2/7, 2/6, 2/5, 2/4, 2/3, 1, 3/2, 4/2, 5/2, 6/2, 7/2, 8/2]; // indices match stage+6
+const STAGE_MULTIPLIERS = [2 / 8, 2 / 7, 2 / 6, 2 / 5, 2 / 4, 2 / 3, 1, 3 / 2, 4 / 2, 5 / 2, 6 / 2, 7 / 2, 8 / 2]; // indices match stage+6
 
 /**
  * Compute type effectiveness of attacking type vs all defending types.
  * Returns the product of multipliers for each defending type.
  */
 function computeTypeEffectiveness(atkType: number, defTypes: number[]): number {
-  if (atkType < 0 || atkType >= NUM_POKEMON_TYPES) return 1.0;
+  if (atkType < 0 || atkType >= NUM_POKEMON_TYPES) {
+    return 1.0;
+  }
   let mult = 1.0;
   for (const defType of defTypes) {
     if (defType >= 0 && defType < NUM_POKEMON_TYPES) {
@@ -1468,9 +1491,10 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
     const player = sub(gameState, pKey);
     const moves = arr(player, "moves");
     for (let m = 0; m < MAX_MOVES; m++) {
-      const moveDict = (moves[m] && typeof moves[m] === "object" && !Array.isArray(moves[m]))
-        ? moves[m] as Record<string, unknown>
-        : {};
+      const moveDict =
+        moves[m] && typeof moves[m] === "object" && !Array.isArray(moves[m])
+          ? (moves[m] as Record<string, unknown>)
+          : {};
       const moveType = num(moveDict, "type", -1);
       const moveId = num(moveDict, "move_id");
       for (let e = 0; e < 2; e++) {
@@ -1489,9 +1513,10 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
     const playerTypes = arr(player, "types").map(t => Number(t));
     const moves = arr(player, "moves");
     for (let m = 0; m < MAX_MOVES; m++) {
-      const moveDict = (moves[m] && typeof moves[m] === "object" && !Array.isArray(moves[m]))
-        ? moves[m] as Record<string, unknown>
-        : {};
+      const moveDict =
+        moves[m] && typeof moves[m] === "object" && !Array.isArray(moves[m])
+          ? (moves[m] as Record<string, unknown>)
+          : {};
       const moveType = num(moveDict, "type", -1);
       const moveId = num(moveDict, "move_id");
       if (moveId > 0 && moveType >= 0 && playerTypes.includes(moveType)) {
@@ -1512,7 +1537,7 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
       // Prefer computed stats (stats[5] = SPD), fall back to base_stats[5]
       const stats = arr(poke, "stats");
       const baseStats = arr(poke, "base_stats");
-      speed = (Number(stats[5]) || 0) > 0 ? Number(stats[5]) : (Number(baseStats[5]) || 0);
+      speed = (Number(stats[5]) || 0) > 0 ? Number(stats[5]) : Number(baseStats[5]) || 0;
       // Apply speed stat stage (stat_stages[4] = SPD stage)
       const statStages = arr(poke, "stat_stages");
       const spdStage = Number(statStages[4]) || 0;
@@ -1543,10 +1568,18 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
 
 /** Ordered list of Pokemon slot keys in the GameState dict */
 const POKEMON_SLOT_KEYS = [
-  "player_0", "player_1", // active player (2)
-  "enemy_0", "enemy_1",   // active enemy (2)
-  "player_2", "player_3", "player_4", "player_5", // player bench (4)
-  "enemy_2", "enemy_3", "enemy_4", "enemy_5",     // enemy bench (4)
+  "player_0",
+  "player_1", // active player (2)
+  "enemy_0",
+  "enemy_1", // active enemy (2)
+  "player_2",
+  "player_3",
+  "player_4",
+  "player_5", // player bench (4)
+  "enemy_2",
+  "enemy_3",
+  "enemy_4",
+  "enemy_5", // enemy bench (4)
 ];
 
 /**

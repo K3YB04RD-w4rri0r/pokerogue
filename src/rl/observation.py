@@ -61,7 +61,7 @@ NUM_ARENA_TAG_TYPES = 28
 MAX_MOVES = 4
 MAX_REWARD_OPTIONS = 3
 MAX_SHOP_OPTIONS = 12
-MAX_SHOP_OPTIONS_ENCODED = 6  # Top-6 most affordable shop options
+MAX_SHOP_OPTIONS_ENCODED = 6  # First 6 shop options, natural (action-id) order
 MAX_HELD_ITEMS_ENCODED = 2   # Top-N held items encoded per active slot
 
 ABILITY_FEATURE_DIM = 40     # v3: semantic features per ability (replaces ability_id/310)
@@ -2617,9 +2617,11 @@ def _encode_modifier(buf: np.ndarray, offset: int, shop: Optional[ObsShop], mone
         else:
             pos += REWARD_OPTION_DIM
 
-    # Shop options (top 6 most affordable, 6 x 23 = 138 dims)
+    # Shop options (first 6 in NATURAL order, 6 x 23 = 138 dims).
+    # Natural order is the order the BUY_SHOP actions (40-51) index — encoded
+    # slot k must describe action 40+k. (These used to be sorted by cost,
+    # which decoupled shop features from buy actions; mirrors spaces.ts.)
     valid_shop = list(shop.shop_options)
-    valid_shop.sort(key=lambda o: o.cost)  # most affordable first
 
     for i in range(MAX_SHOP_OPTIONS_ENCODED):
         if i < len(valid_shop):

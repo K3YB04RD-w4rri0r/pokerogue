@@ -64,6 +64,11 @@ if [ "$MODE" != "quick" ]; then
   python3 tools/verify/check_dim_exercise.py "$ART/smoke/*.jsonl" "$ART/parity/*.jsonl" "$ART/corpus/*.jsonl" --gate
 fi
 
+if [ "$MODE" != "quick" ]; then
+  step "V15 mask gating (shielded-boss balls, Struggle availability)"
+  python3 tools/verify/check_mask_gating.py
+fi
+
 step "V7 determinism (auto)"
 python3 tools/verify/check_determinism.py --seed verify-det --waves 6 --mode auto
 

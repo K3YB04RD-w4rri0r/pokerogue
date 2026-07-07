@@ -112,7 +112,16 @@ export function getAvailableModifiers(): {
     globalScene.currentBattle.waveIndex,
     globalScene.getWaveMoneyAmount(1),
   );
-  const shop = shopTypeOptions.map((opt, i) => buildModifierInfo(opt, i, "shop", opt.cost));
+  // Report the TRUE purchase price: the game applies HealShopCostModifier
+  // (Black Sludge) on top of the option's base cost at buy time
+  // (selectShopModifierOption). Reporting the raw cost made the action mask
+  // and the observation's cost/affordable features disagree with what the
+  // purchase actually charges.
+  const shop = shopTypeOptions.map((opt, i) => {
+    const adjustedCost = new NumberHolder(opt.cost);
+    globalScene.applyModifier(HealShopCostModifier, true, adjustedCost);
+    return buildModifierInfo(opt, i, "shop", adjustedCost.value);
+  });
 
   const rerollCost = phase.getRerollCost(globalScene.lockModifierTiers);
   const money = globalScene.money;
@@ -194,8 +203,17 @@ export function selectShopModifier(index: number, pokemonIndex?: number, moveInd
     if (!callback) {
       return { success: false, error: "Modifier select callback not available" };
     }
-    const rowCursor = index < SHOP_OPTIONS_ROW_LIMIT ? 2 : 3;
-    const cursor = index < SHOP_OPTIONS_ROW_LIMIT ? index : index - SHOP_OPTIONS_ROW_LIMIT;
+    // The phase's shop callback resolves (rowCursor, cursor) as:
+    //   shopOptions[rowCursor > 2 || length <= ROW_LIMIT ? cursor : cursor + ROW_LIMIT]
+    // i.e. rowCursor 3 = FIRST row (indices 0..LIMIT-1), rowCursor 2 = LAST row
+    // (indices LIMIT..) when two rows exist, and rowCursor 2 = the only row
+    // otherwise. The old mapping had the rows swapped, so with a two-row shop
+    // (> SHOP_OPTIONS_ROW_LIMIT items, mid-game onward) "buy item i" silently
+    // purchased the item i±LIMIT instead.
+    const twoRows = shopOptions.length > SHOP_OPTIONS_ROW_LIMIT;
+    const onFirstRow = index < SHOP_OPTIONS_ROW_LIMIT;
+    const rowCursor = twoRows && onFirstRow ? 3 : 2;
+    const cursor = onFirstRow ? index : index - SHOP_OPTIONS_ROW_LIMIT;
     callback(rowCursor, cursor);
     return { success: true };
   }
