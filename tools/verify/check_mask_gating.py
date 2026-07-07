@@ -9,8 +9,10 @@ A) Shielded boss (wave 10): ball actions 17-21 must be masked OFF while only
 B) All moves out of PP: the mask must offer fight slot 0 (the game's
    auto-Struggle) instead of going fight-empty, and executing it must
    advance the game.
+C) Shop flow: REROLL must keep the shop open (fresh modifier decision,
+   reroll_count +1, money charged, cost doubled) and only SKIP exits.
 
-Both scenarios FAIL on the pre-2026-07-07 mask code (regression guard).
+A and B FAIL on the pre-2026-07-07 mask code (regression guard).
 
 Usage: python3 tools/verify/check_mask_gating.py
 Requires: pnpm rl:build (dist/rl/cli.js), numpy, gymnasium.
@@ -108,9 +110,44 @@ def check_struggle() -> None:
     env.close()
 
 
+def check_reroll_keeps_shop_open() -> None:
+    print("C) shop flow: reroll keeps the shop open, skip exits")
+    env = PokeRogueEnv(waves=6, seed="verify-maskgate-reroll", lean=False,
+                       overrides={"STARTING_MONEY_OVERRIDE": 5000})
+    obs, info = env.reset()
+    for _ in range(60):
+        if info.get("phase") == "modifier":
+            break
+        mask = env.action_masks()
+        a = 0 if mask[0] else int(mask.argmax())
+        obs, _r, term, trunc, info = env.step(a)
+        if term or trunc:
+            break
+    check("reached a shop decision", info.get("phase") == "modifier", str(info.get("phase")))
+    if info.get("phase") != "modifier":
+        env.close()
+        return
+    gs = info["game_state"]
+    before_money = gs["battle"]["money"]
+    before_count = gs["battle"]["reroll_count"]
+    reroll_cost = (gs.get("shop") or {}).get("reroll_cost")
+    obs, _r, term, trunc, info = env.step(38)  # reroll
+    gs = info["game_state"]
+    check("still at a modifier decision after reroll", info.get("phase") == "modifier", str(info.get("phase")))
+    check("reroll_count incremented", gs["battle"]["reroll_count"] == before_count + 1)
+    check("money charged the reroll cost", gs["battle"]["money"] == before_money - reroll_cost,
+          f"{before_money}->{gs['battle']['money']} (cost {reroll_cost})")
+    check("reroll cost doubled", (gs.get("shop") or {}).get("reroll_cost") == reroll_cost * 2)
+    check("rewards regenerated", bool((gs.get("shop") or {}).get("reward_options")))
+    obs, _r, term, trunc, info = env.step(39)  # skip
+    check("shop exits on SKIP", info.get("phase") != "modifier", str(info.get("phase")))
+    env.close()
+
+
 def main() -> int:
     check_boss_ball_gating()
     check_struggle()
+    check_reroll_keeps_shop_open()
     print(f"\nMASK GATING: {'FAIL (' + ', '.join(FAILS) + ')' if FAILS else 'OK'}")
     return 1 if FAILS else 0
 
