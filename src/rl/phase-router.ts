@@ -1434,6 +1434,109 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   // ── Modifier Action Execution ──────────────────────────────────────
 
   /**
+   * Pending async work from the shop's reveal chain, captured while show()
+   * (and its promise continuations) run so it can be cancelled the moment
+   * the agent acts. show() schedules a counter tween (1250ms) plus
+   * delayedCalls — one of them created ASYNCHRONOUSLY after the counter
+   * completes — that fade in the button containers (Reroll / Check Team /
+   * Transfer / lock-rarity / the continue ARROW) and re-show shop chrome.
+   * When the agent acts faster than the chain (always, headless; usually,
+   * rendered), those callbacks fire mid-battle: the "random overlay arrow /
+   * luck / money / check team popping up" bug in rendered mode.
+   */
+  interface ShopEphemera {
+    timers: { remove(dispatch?: boolean): void }[];
+    tweens: { stop(): unknown; remove?(): unknown }[];
+    restore: (() => void)[];
+  }
+
+  /**
+   * Restore the wrapped scheduler functions and cancel every timer/tween the
+   * shop reveal chain created. Call BEFORE executing a modifier action (so
+   * game timers scheduled by the action's own phase-end chain are untouched)
+   * and when a new show() starts.
+   */
+  function cancelShopEphemera(handler: { __rlShopEphemera?: ShopEphemera } | null | undefined): void {
+    const ephem = handler?.__rlShopEphemera;
+    if (!ephem) {
+      return;
+    }
+    handler.__rlShopEphemera = undefined;
+    for (const restore of ephem.restore) {
+      try {
+        restore();
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const timer of ephem.timers) {
+      try {
+        timer.remove(false);
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const tween of ephem.tweens) {
+      try {
+        tween.stop();
+        tween.remove?.();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /**
+   * Wrap time.delayedCall and tweens.addCounter so everything the shop's
+   * reveal chain schedules — including the delayedCall created asynchronously
+   * after the counter tween resolves — lands in handler.__rlShopEphemera.
+   * The wrappers stay installed until cancelShopEphemera() runs (next agent
+   * action on this phase, or the next show()): while the shop waits for the
+   * agent, the game is idle, so captured events are the shop chain's own.
+   */
+  function captureShopEphemera(handler: { __rlShopEphemera?: ShopEphemera }): void {
+    const ephem: ShopEphemera = { timers: [], tweens: [], restore: [] };
+    try {
+      const time = (globalScene as any).time;
+      const originalDelayedCall = time.delayedCall;
+      if (!originalDelayedCall.__rlCapture) {
+        const wrapped = function (this: unknown, ...cbArgs: unknown[]) {
+          const ev = originalDelayedCall.apply(this, cbArgs);
+          ephem.timers.push(ev);
+          return ev;
+        };
+        (wrapped as { __rlCapture?: boolean }).__rlCapture = true;
+        time.delayedCall = wrapped;
+        ephem.restore.push(() => {
+          if (time.delayedCall === wrapped) {
+            time.delayedCall = originalDelayedCall;
+          }
+        });
+      }
+
+      const tweens = (globalScene as any).tweens;
+      const originalAddCounter = tweens.addCounter;
+      if (!originalAddCounter.__rlCapture) {
+        const wrapped = function (this: unknown, ...cbArgs: unknown[]) {
+          const tween = originalAddCounter.apply(this, cbArgs);
+          ephem.tweens.push(tween);
+          return tween;
+        };
+        (wrapped as { __rlCapture?: boolean }).__rlCapture = true;
+        tweens.addCounter = wrapped;
+        ephem.restore.push(() => {
+          if (tweens.addCounter === wrapped) {
+            tweens.addCounter = originalAddCounter;
+          }
+        });
+      }
+    } catch {
+      /* capture is best-effort */
+    }
+    handler.__rlShopEphemera = ephem;
+  }
+
+  /**
    * Install a monkey-patch on ModifierSelectUiHandler.show() that kills
    * lingering tweens and timer events BEFORE the original show() runs.
    *
@@ -1533,6 +1636,14 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
           console.log("[PhaseRouter] ModifierSelectUiHandler.show() pre-cleanup done");
         }
 
+        // Cancel any reveal chain left over from a previous show (e.g. a
+        // shop purchase re-showing the UI), then capture the one this show
+        // is about to schedule so acting on the phase can cancel it — the
+        // fix for shop chrome (arrow/luck/check-team) popping up mid-battle
+        // in rendered mode.
+        cancelShopEphemera(this as { __rlShopEphemera?: ShopEphemera });
+        captureShopEphemera(this as { __rlShopEphemera?: ShopEphemera });
+
         return originalShow(args);
       };
       (handler.show as { __rlPatched?: boolean }).__rlPatched = true;
@@ -1560,6 +1671,20 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       // by subsequent phases (e.g., ReturnPhase pokemon animations, HP bar
       // update tweens). The monkey-patched show() in patchModifierHandler()
       // handles cleanup at the START of the next modifier phase instead.
+
+      // Kill the in-flight reveal tweens on scene-level shop chrome BEFORE
+      // hiding it: showShopOverlay()/updateAndShowText() start alpha tweens
+      // (750ms) that would otherwise keep raising alpha after this cleanup —
+      // the shop overlay / luck text popping back up mid-battle in rendered
+      // mode. Targeted killTweensOf only; killAll would break battle anims.
+      try {
+        const chrome = [scene.shopOverlay, scene.luckText, scene.luckLabelText].filter(Boolean);
+        if (chrome.length > 0) {
+          scene.tweens.killTweensOf(chrome);
+        }
+      } catch {
+        /* ignore */
+      }
 
       // Hide shop overlay instantly
       if (scene.shopOverlay) {
@@ -1597,6 +1722,11 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
         handler.lockRarityButtonContainer,
         handler.continueButtonContainer,
       ];
+      try {
+        scene.tweens.killTweensOf(containers.filter(Boolean));
+      } catch {
+        /* ignore */
+      }
       for (const c of containers) {
         if (c) {
           c.setVisible(false);
@@ -1613,6 +1743,10 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   }
 
   function executeModifierAction(action: number): void {
+    // Cancel the shop reveal chain FIRST — before the action's own phase-end
+    // work schedules real game timers (which must not be captured/cancelled).
+    cancelShopEphemera((globalScene as any).ui?.handlers?.[UiMode.MODIFIER_SELECT]);
+
     // Select reward (35-37)
     if (action >= ACTION_SELECT_REWARD_START && action < ACTION_SELECT_REWARD_START + MAX_REWARD_OPTIONS) {
       const rewardIndex = action - ACTION_SELECT_REWARD_START;
@@ -1668,6 +1802,10 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   // ── Modifier Target Execution ──────────────────────────────────────
 
   function executeModifierTargetAction(action: number): void {
+    // Same reveal-chain cancellation as executeModifierAction — the target
+    // step also acts on the live SelectModifierPhase UI.
+    cancelShopEphemera((globalScene as any).ui?.handlers?.[UiMode.MODIFIER_SELECT]);
+
     if (!pendingModifierAction) {
       console.error("[PhaseRouter] No pending modifier action for MODIFIER_TARGET");
       return;
