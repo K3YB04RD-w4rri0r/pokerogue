@@ -5,6 +5,8 @@
 
 numpy>=1.24
 gymnasium>=0.29
+# Run configs (src/rl/run_config.py); JSON configs work without it
+pyyaml>=6
 
 # Optional — rendered mode (tools/play.py --rendered):
 # websocket-client>=1.6

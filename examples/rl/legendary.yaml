@@ -1,0 +1,30 @@
+# Bug-hunting run: a full legendary party, everyone at level 200.
+#
+#   python3 tools/run_policy.py --config examples/rl/legendary.yaml --policy maxdamage --rendered
+#   python3 tools/play.py --config examples/rl/legendary.yaml --rendered
+#   python3 tools/run_policy.py --config examples/rl/legendary.yaml --policy random   # headless fuzz
+#
+# Full schema: src/rl/run_config.py (module docstring).
+
+seed: legendary-hunt
+waves: 200
+
+starters: MEWTWO,LUGIA,RAYQUAZA,DIALGA,GIRATINA,ARCEUS
+starting_level: 200
+
+# Uncomment to push on other override paths while hunting:
+# starting_wave: 50
+# starting_money: 100000
+# battle_style: double
+# starting_modifiers:
+#   - {name: EXP_SHARE}
+#   - {name: GOLDEN_POKEBALL, count: 3}
+# starting_held_items:
+#   - {name: LEFTOVERS, count: 4}
+# pokeballs:
+#   master_ball: 10
+# overrides:
+#   NEVER_CRIT_OVERRIDE: true
+
+env:
+  lean: false          # keep full game_state in info (needed by maxdamage)

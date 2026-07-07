@@ -689,3 +689,57 @@ game overrides). One implementation now lives in three shared modules:
   modules are exercised by the headless gates, the bridge-only glue
   (WebSocket handling, URL parsing) should be smoke-tested with
   `npx vite --config vite.interactive.config.ts` + `run_policy.py --rendered`.
+
+---
+
+## 2026-07-07 — Run configs (YAML), importable policy API, shop reveal-chain cancellation
+
+### Run configs — `src/rl/run_config.py`
+One YAML/JSON file describes a run (seed, waves, starters, starting
+wave/level/money/biome, starting modifiers/held items, pokeballs,
+battle_style, raw DefaultOverrides passthrough, reward weights, env
+plumbing, free `train:` section). Consumed everywhere, CLI flags override:
+`PokeRogueEnv.from_config()`, `run_policy.py --config`, `play.py --config`
+(play.py also gained `--starters`), `train_maskable_ppo.py --config`
+(reads `train.timesteps` / `train.save`). Sugar keys expand to the game's
+own override hooks; raw `overrides:` wins on conflict with a warning;
+unknown top-level/env keys are rejected, unknown reward keys warn.
+`examples/rl/legendary.yaml`: ready-made full-legendary level-200 run.
+pyyaml added to requirements-rl.txt (JSON configs work without it).
+E2E-verified: seed/wave/money/level/starters/modifiers/pokeballs all land
+in the live game state.
+
+### Policy API — `src/rl/policy.py`
+`Policy` protocol (`act(obs, mask, info) -> int`) with importable built-ins
+(`RandomPolicy`, `FirstLegalPolicy`, `ScriptedSkipPolicy`, `MaxDamagePolicy`,
+`Sb3Policy`) and `PhaseRoutedPolicy` for per-decision-phase dispatch (mix
+learned battle nets with scripted shop/switch handling). run_policy.py now
+uses these instead of its inline lambdas (maxdamage keeps the doubles
+command_field_index fix). `examples/rl/phase_routed_policy.py`: runnable
+bring-your-own-algorithm template incl. a Python-side custom reward
+(gym.RewardWrapper over info["game_state"]). README gained "Run configs",
+"Bring your own algorithm" and "Where the reward lives" sections.
+
+### Shop reveal-chain cancellation (rendered-mode overlay bug)
+ModifierSelectUiHandler.show() schedules an async reveal chain — a 1250ms
+counter tween, a delayedCall for shop options, and (created asynchronously
+after the counter resolves) a delayedCall(500) that fades in the button
+containers (Reroll / Check Team / Transfer / lock-rarity / the continue
+ARROW) — plus scene-level tweens for the shop overlay and luck text. An RL
+agent acts faster than the chain, so the stale callbacks fired mid-battle:
+the "random overlay arrow / luck / money / check team popping up" bug in
+rendered mode. Fix (phase-router.ts): the show() patch now wraps
+time.delayedCall + tweens.addCounter to CAPTURE the chain's work
+(handler.__rlShopEphemera) and executeModifierAction /
+executeModifierTargetAction cancel it FIRST — before the action's own
+phase-end work schedules real game timers. cleanupModifierUI additionally
+killTweensOf()s the shop chrome (overlay, luck texts, button containers)
+so in-flight fades can't re-raise them. Headless-verified behavior-neutral
+(quick suite green; verify-q1 smoke bit-identical: 74 steps, 50.74).
+
+### Noted (upgraded priority for a future protocol bump)
+The bench-capacity limitation hides the PLAYER's own 6th party member in
+singles (1 active + 4 bench slots; player_1 is doubles-only): with a full
+party, one member is switchable (action 16) but entirely unobserved. Cannot
+be fixed by stuffing bench[4] into player_1 without corrupting the derived
+active-matchup features — needs the obs-v9 slot redesign.

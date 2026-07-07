@@ -149,6 +149,22 @@ class PokeRogueEnv(gym.Env):
             )
         atexit.register(self.close)
 
+    @classmethod
+    def from_config(cls, config, **kwargs) -> "PokeRogueEnv":
+        """Build an env from a run config (path to a YAML/JSON file, or a
+        RunConfig object). Explicit ``kwargs`` win over the file's values.
+
+        ::
+
+            env = PokeRogueEnv.from_config("examples/rl/legendary.yaml")
+            env = PokeRogueEnv.from_config("run.yaml", waves=5)   # override
+        """
+        from .run_config import RunConfig, load_run_config
+
+        cfg = config if isinstance(config, RunConfig) else load_run_config(config)
+        merged = {**cfg.to_env_kwargs(), **kwargs}
+        return cls(**merged)
+
     # ── gymnasium API ──────────────────────────────────────────────────
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):

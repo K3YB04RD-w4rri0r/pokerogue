@@ -25,6 +25,11 @@ import sys
 import os
 import argparse
 
+# Run-config support (src/rl/run_config.py): --config loads a YAML/JSON file
+# describing the run (seed, starters, overrides, ...); CLI flags override it.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+from rl.run_config import RunConfig, load_run_config  # noqa: E402
+
 
 # ─── Colors ──────────────────────────────────────────────────────────
 
@@ -1408,11 +1413,13 @@ def run_headless(args):
         print(f"Build first: npx vite build --config vite.headless.config.ts")
         sys.exit(1)
 
-    cmd = ["node", cli_path, "--interactive", f"--seed={args.seed}", f"--waves={args.waves}"]
+    cmd = ["node", cli_path, "--interactive", *args.run_config.to_cli_args()]
 
     print(f"{C.BOLD}=== PokeRogue Headless Player ==={C.RESET}")
     print(f"  Seed:  {args.seed}")
     print(f"  Waves: {args.waves}")
+    if args.run_config.source:
+        print(f"  Config: {args.run_config.source}")
     print(f"  Quit:  type 'q' at any prompt")
     print(f"  Help:  type 'h' at any prompt for inspection commands")
     print(f"\n  Booting headless game...")
@@ -1517,8 +1524,7 @@ def run_rendered(args):
 
     import webbrowser
 
-    seed_param = f"&seed={args.seed}" if args.seed else ""
-    url = f"http://localhost:{args.port}/?rl=true{seed_param}"
+    url = f"http://localhost:{args.port}/?rl=true{args.run_config.to_url_query()}"
     ws_url = f"ws://localhost:{args.port}/ws/rl"
 
     print(f"{C.BOLD}=== PokeRogue Rendered Player ==={C.RESET}")
@@ -1618,22 +1624,41 @@ def run_rendered(args):
 
 def main():
     parser = argparse.ArgumentParser(description="Play PokeRogue via terminal")
+    parser.add_argument("--config", default=None,
+                        help="run-config YAML/JSON (see src/rl/run_config.py); CLI flags override it")
     parser.add_argument("--seed", default=None, help="RNG seed (prompts if not provided)")
-    parser.add_argument("--waves", type=int, default=50, help="Max waves (default: 50)")
+    parser.add_argument("--waves", type=int, default=None, help="Max waves (default: 50)")
+    parser.add_argument("--starters", default=None,
+                        help="comma-separated SpeciesId names, e.g. MEWTWO,LUGIA,RAYQUAZA")
     parser.add_argument("--rendered", action="store_true",
                         help="Connect to browser game via WebSocket (requires Vite dev server)")
     parser.add_argument("--port", type=int, default=8000,
                         help="Vite dev server port for --rendered mode (default: 8000)")
     args = parser.parse_args()
 
-    # Prompt for seed if not provided via CLI
-    if args.seed is None:
+    # Config file first, CLI flags override its values.
+    cfg = load_run_config(args.config) if args.config else RunConfig()
+    if args.seed is not None:
+        cfg.seed = args.seed
+    if args.waves is not None:
+        cfg.waves = args.waves
+    if args.starters is not None:
+        cfg.starters = args.starters
+
+    # Prompt for seed if not provided anywhere
+    if cfg.seed is None:
         try:
             seed = input(f"{C.CYAN}Enter seed (or press Enter for random): {C.RESET}").strip()
-            args.seed = seed if seed else f"play-{os.urandom(4).hex()}"
+            cfg.seed = seed if seed else f"play-{os.urandom(4).hex()}"
         except (EOFError, KeyboardInterrupt):
-            args.seed = f"play-{os.urandom(4).hex()}"
+            cfg.seed = f"play-{os.urandom(4).hex()}"
             print()
+    if cfg.waves is None:
+        cfg.waves = 50
+
+    args.run_config = cfg
+    args.seed = cfg.seed
+    args.waves = cfg.waves
 
     if args.rendered:
         run_rendered(args)

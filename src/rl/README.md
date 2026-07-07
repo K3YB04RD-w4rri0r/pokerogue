@@ -109,6 +109,53 @@ episode reports the rewards headless training would.
 
 ---
 
+## Run configs (YAML)
+
+One file describes a run — seed, episode budget, party, starting
+wave/level/money/items, game overrides, reward shaping — and every entry
+point consumes it (CLI flags override file values):
+
+```bash
+python3 tools/run_policy.py --config examples/rl/legendary.yaml --rendered --policy maxdamage
+python3 tools/play.py --config examples/rl/legendary.yaml
+python3 examples/rl/train_maskable_ppo.py --config examples/rl/legendary.yaml
+```
+```python
+env = PokeRogueEnv.from_config("examples/rl/legendary.yaml", waves=5)
+```
+
+Full schema in `src/rl/run_config.py` (module docstring); the sugar keys
+(`starting_wave`, `starting_level`, `starting_money`, `starting_modifiers`,
+`starting_held_items`, `pokeballs`, `battle_style`, ...) map onto the game's
+own `DefaultOverrides` hooks, and a raw `overrides:` section reaches anything
+else in `src/overrides.ts`. `examples/rl/legendary.yaml` is a ready-made
+full-legendary bug-hunting run.
+
+## Bring your own algorithm
+
+A policy is anything with `act(obs, mask, info) -> int` — see `rl.policy`
+(`RandomPolicy`, `MaxDamagePolicy`, `Sb3Policy`, ...). **Phase routing** mixes
+learned and scripted behavior per decision phase:
+
+```python
+from rl.policy import PhaseRoutedPolicy, Sb3Policy, ScriptedSkipPolicy
+policy = PhaseRoutedPolicy(
+    routes={"command": Sb3Policy("battle.zip"), "target": Sb3Policy("battle.zip")},
+    default=ScriptedSkipPolicy(),          # scripted shop / switches / learn-move
+)
+action = policy.act(obs, env.action_masks(), info)   # info["phase"] routes
+```
+
+`examples/rl/phase_routed_policy.py` is a runnable template, including a
+custom Python-side reward as a `gym.RewardWrapper` over `info["game_state"]`.
+
+**Where the reward lives:** `src/rl/rewards.ts` (`RewardCalculator`, 16
+weighted components). Weights are configurable from Python — the `reward:`
+section of a run config / `--reward-config` / `PokeRogueEnv(reward_config=...)`
+— and both transports report it per step via the shared episode-runtime
+tracker. Structurally different rewards: compute them Python-side from
+`info["game_state"]` (run with `lean=False`), as in the example above.
+
 ## Custom starting team
 
 Set the starting party to any species, in all three modes, using **SpeciesId names**:
