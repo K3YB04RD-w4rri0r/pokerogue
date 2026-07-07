@@ -1743,11 +1743,18 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     }
   }
 
-  function executeModifierAction(action: number): void {
-    // Cancel the shop reveal chain FIRST — before the action's own phase-end
-    // work schedules real game timers (which must not be captured/cancelled).
+  /** Cancel the captured shop reveal chain — call ONLY on paths that leave
+   *  the modifier phase or re-show its UI (a fresh show() re-captures).
+   *  Cancelling on actions that keep the current UI alive (entering the
+   *  two-step target flow, non-re-showing purchases) freezes the reveal
+   *  mid-animation for the human watching in rendered mode. Must run BEFORE
+   *  the action's own phase-end work schedules real game timers (which must
+   *  not be captured/cancelled). */
+  function cancelShopReveal(): void {
     cancelShopEphemera((globalScene as any).ui?.handlers?.[UiMode.MODIFIER_SELECT]);
+  }
 
+  function executeModifierAction(action: number): void {
     // Select reward (35-37)
     if (action >= ACTION_SELECT_REWARD_START && action < ACTION_SELECT_REWARD_START + MAX_REWARD_OPTIONS) {
       const rewardIndex = action - ACTION_SELECT_REWARD_START;
@@ -1755,10 +1762,13 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       if (modifiers && rewardIndex < modifiers.rewards.length) {
         const reward = modifiers.rewards[rewardIndex];
         if (reward.targetKind === "none") {
+          cancelShopReveal();
           selectRewardModifier(rewardIndex);
           cleanupModifierUI();
         } else {
-          // Enter two-step targeting flow — agent picks which Pokemon next
+          // Enter two-step targeting flow — agent picks which Pokemon next.
+          // The shop UI stays live for the target decision; don't cancel its
+          // reveal chain here.
           pendingModifierAction = { source: "reward", index: rewardIndex, cost: 0 };
         }
       }
@@ -1767,12 +1777,14 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
 
     // Reroll (38)
     if (action === ACTION_REROLL) {
+      cancelShopReveal();
       rerollModifiers();
       return;
     }
 
     // Skip (39)
     if (action === ACTION_SKIP) {
+      cancelShopReveal();
       skipModifiers();
       cleanupModifierUI();
       return;
@@ -1803,16 +1815,13 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   // ── Modifier Target Execution ──────────────────────────────────────
 
   function executeModifierTargetAction(action: number): void {
-    // Same reveal-chain cancellation as executeModifierAction — the target
-    // step also acts on the live SelectModifierPhase UI.
-    cancelShopEphemera((globalScene as any).ui?.handlers?.[UiMode.MODIFIER_SELECT]);
-
     if (!pendingModifierAction) {
       console.error("[PhaseRouter] No pending modifier action for MODIFIER_TARGET");
       return;
     }
 
-    // Skip/cancel: clear pending and return to modifier select
+    // Skip/cancel: clear pending and return to modifier select — the shop UI
+    // is unchanged, so its reveal chain stays untouched.
     if (action === ACTION_SKIP) {
       pendingModifierAction = null;
       return;
@@ -1825,10 +1834,15 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       pendingModifierAction = null;
 
       if (source === "reward") {
+        // Committing the reward ends the phase and tears down the shop UI.
+        cancelShopReveal();
         selectRewardModifier(index, pokemonIndex);
         cleanupModifierUI();
       } else {
-        // Shop purchase — don't cleanup, phase stays active for more shopping
+        // Shop purchase — applyModifierDirectly() re-shows the shop via
+        // resetModifierSelect (a fresh show() re-captures), so cancel the
+        // current reveal chain first. Don't cleanup; phase stays active.
+        cancelShopReveal();
         selectShopModifier(index, pokemonIndex);
       }
       return;

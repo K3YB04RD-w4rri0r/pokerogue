@@ -85,6 +85,7 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
     ws.settimeout(None)  # the browser may take a while to boot/animate
     print("Connected. Waiting for the game to boot...\n")
 
+    started = False
     try:
         while True:
             raw = ws.recv()
@@ -94,7 +95,15 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
             mtype = msg.get("type")
 
             if mtype == "ready":
+                if started:
+                    # A second `ready` mid-session means the PAGE RELOADED (vite
+                    # hot-reload after a source edit, manual reload, second tab)
+                    # and a fresh game is starting — step/reward continuity with
+                    # the previous episode is broken.
+                    print("\n!!! browser session restarted (page reload?) — starting a FRESH episode; "
+                          "previous step/reward continuity is void\n")
                 print("Game ready -> sending start.\n")
+                started = True
                 ws.send(json.dumps({"type": "start"}))
             elif mtype == "state":
                 game_state = msg.get("gameState", {})

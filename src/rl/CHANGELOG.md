@@ -795,3 +795,39 @@ turned out to be THIS timeout freeze, not that chain. The capture stays
 because the delayedCall(500) chrome pop-in it cancels was directly
 observed; if rendered sessions ever show chrome ghosts again, suspect a
 stale browser tab first (hard-reload — vite serves live source).
+
+---
+
+## 2026-07-07 — Shop tween-chain crash on destroyed sprites; reveal-cancel rescope; relay staleness
+
+User-reported crash with stack trace (rendered mode, after shopping):
+`TypeError: Cannot read properties of undefined (reading 'sys') at
+Sprite.setTexture / Tween.onComplete (modifier-select-ui-handler.ts:941)`,
+followed by the shop no longer rendering.
+
+- **Root cause**: ModifierOption.show() starts tween CHAINS with multi-second
+  delays for upgraded rewards whose onStart/onComplete call setTexture /
+  setPosition on this.pb / this.pbTint. Phaser tweens do NOT stop when their
+  targets are destroyed, so a fast shop dismissal (RL pacing) let a chain
+  fire during a later phase on torn-down sprites — crashing inside
+  TweenManager.update and corrupting subsequent shop rendering. Fix at the
+  source: ModifierOption.destroy() now killTweensOf() its whole sprite tree
+  (extends the earlier revealTimer cancellation, same crash family).
+- **Reveal-cancel rescope** (phase-router): cancelShopEphemera previously ran
+  on EVERY modifier/modifier-target action — including ones that keep the
+  shop UI alive (entering the two-step target flow, non-re-showing
+  purchases), freezing the reveal mid-animation for the human watching. Now
+  cancelled only on phase-leaving / re-showing paths (skip, reroll, reward
+  commit, target commits).
+- **WS relay staleness** (vite-ws-plugin): a page reload (e.g. vite
+  hot-reload while a session runs) created a SECOND browser socket while the
+  old one kept relaying — two games interleaving onto one Python client
+  ("Game ready -> sending start" twice, step counter continuing across a
+  restarted game). New connections now close/replace the previous socket of
+  the same role, and stale sockets stop relaying. run_policy.py / play.py
+  print a loud "browser session restarted — fresh episode" warning on a
+  mid-session `ready`.
+- **Verified**: headless-Chromium E2E (24 steps, 5 waves, buys + target
+  flows + reroll) with ZERO page errors, shop renders at the decision
+  (screenshot-checked); headless quick suite green, smoke episode
+  bit-identical (74 steps, 50.74).

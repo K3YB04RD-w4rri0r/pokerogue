@@ -1554,6 +1554,7 @@ def run_rendered(args):
     print(f"  {C.YELLOW}Waiting for game to boot and reach first battle...{C.RESET}")
     print()
 
+    started = False
     try:
         while True:
             raw = ws.recv()
@@ -1568,7 +1569,11 @@ def run_rendered(args):
             msg_type = msg.get("type")
 
             if msg_type == "ready":
+                if started:
+                    print(f"\n  {C.RED}Browser session restarted (page reload?) — "
+                          f"starting a FRESH episode.{C.RESET}\n")
                 print(f"  {C.GREEN}Game ready! Sending start signal...{C.RESET}\n")
+                started = True
                 ws.send(json.dumps({"type": "start"}))
 
             elif msg_type == "state":

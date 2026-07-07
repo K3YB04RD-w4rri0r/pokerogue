@@ -793,6 +793,25 @@ class ModifierOption extends Phaser.GameObjects.Container {
     // "Cannot read properties of undefined (reading 'sys')".
     this.revealTimer?.remove();
     this.revealTimer = null;
+    // Kill every tween/chain animating this option's sprite tree. Phaser
+    // tweens do NOT stop when their targets are destroyed, and the upgrade
+    // reveal chains (show(), tweens.chain with multi-second delays for
+    // upgraded rewards) call setTexture/setPosition on this.pb / this.pbTint
+    // from onStart/onComplete — firing after a fast shop dismissal crashes
+    // with the same "reading 'sys'" TypeError during a later phase.
+    try {
+      const targets: object[] = [];
+      const walk = (obj: { list?: unknown[] }): void => {
+        targets.push(obj);
+        for (const child of obj?.list ?? []) {
+          walk(child as { list?: unknown[] });
+        }
+      };
+      walk(this);
+      globalScene.tweens.killTweensOf(targets);
+    } catch {
+      // scene may already be tearing down
+    }
     super.destroy(fromScene);
   }
 
