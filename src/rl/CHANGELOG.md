@@ -568,3 +568,124 @@ MaskablePPO smoke pass, ~96 steps/s interactive throughput.
 - KNOWN: rl:verify's longrun corpus intermittently hits a PRE-EXISTING game bug
   (berry/ability infinite recursion → stack overflow at deep waves), unrelated
   to v8 and tracked separately. All v8-observation gates pass.
+
+---
+
+## 2026-07-07 — Full-framework bug audit: mask/game-logic soft-locks + observation↔action misalignments
+
+Top-to-bottom review of the RL framework (phase-router, cli, headless-boot,
+browser-bridge, modifier-api, state-builder, spaces.ts ↔ observation.py, env,
+tools). Nine fixes, all verified (`rl-verify.sh quick` green, 99/99 vitest,
+bitwise TS↔Python parity incl. 4×14-wave random soak, determinism ×3, plus a
+targeted repro script proven to FAIL pre-fix / PASS post-fix).
+
+### Game-logic soft-locks (timeout class)
+- **`phase-router.ts` — ball mask now mirrors the game's gating exactly**
+  (new exported `getLegalBallTypes()`, replicating `checkCanUseBall` +
+  `handleBallCommand`): shielded bosses (every 10th wave) only accept a
+  Master Ball (never on a challenge-mode final boss), END-biome rules, and
+  "exactly one visible target". Pre-fix the mask offered regular balls at
+  wave-10 bosses; throwing one made CommandPhase show a prompt-blocking
+  error message that nothing dismisses → 30s router timeout killed the
+  episode. Also UNblocks the legal catch in doubles with one enemy left
+  (old mask forbade all catching in doubles).
+- **`phase-router.ts` — Struggle**: when an enemy is up but no move is
+  usable (PP/Disable/Torment), the mask now offers fight slot 0 and the
+  executor issues a plain FIGHT (the game auto-substitutes Struggle and
+  computes targets). Pre-fix the mask could go fight-empty — and fully
+  empty when also trapped in a trainer battle → unresolvable decision →
+  timeout. Tera mirroring is suppressed on the synthetic Struggle bit.
+
+### Wrong-action execution
+- **`modifier-api.ts` — two-row shop purchases bought the wrong item**: the
+  (rowCursor, cursor) mapping was inverted vs the phase callback's
+  convention (rowCursor 2 = LAST row, 3 = first). With > 7 shop options,
+  "buy item i" purchased item i±7. Affects non-targeted items (Sacred Ash).
+
+### Observation ↔ action misalignment (blindspots)
+- **`spaces.ts` + `observation.py` — shop options encoded in NATURAL order**
+  (was: sorted by cost). Encoded slot k now describes BUY action 40+k,
+  restoring the framework's "the observation describes that slot" contract.
+  Goldens regenerated (`full.golden.b64`); bitwise parity re-verified.
+- **`modifier-api.ts` — shop costs are now the TRUE purchase price**
+  (HealShopCostModifier / Black Sludge applied), so mask affordability,
+  observation cost features, and the actual charge agree.
+- **`state-builder.ts` — battle features aligned with reality**:
+  `can_catch` = some ball action currently legal AND owned (shares
+  `getLegalBallTypes`), `can_run` = wild && biome ≠ END, `tera_available` =
+  Tera Orb owned && arena tera unused (was: "nobody terastallized yet",
+  true from wave 1 with no orb).
+- **`state-builder.ts` — phase-info fields resurrected**: metadata key
+  mismatches left `learn_move_name`/`learn_move_id`/`biome_options`/
+  `mystery_option_count` permanently null (mask builders set
+  `newMoveName`/`biomeNames`/`optionCount`; the router now also records
+  `learnMoveId`).
+
+### Display / tooling correctness
+- **`browser-bridge.ts` — `getEnemyName` indexes by slot** (was: filtered
+  actives, mislabeling targets once enemy slot 0 fainted — the exact bug
+  cli.ts already documented). `getAllyName` (bridge + cli) now names the
+  OTHER slot relative to the acting pokemon, matching the executor.
+- **`tools/run_policy.py` — maxdamage reads the ACTING slot's moveset**
+  via `phase.command_field_index` (was: always `player_0`, wrong for the
+  second pokemon in doubles).
+
+### Known gaps documented, deliberately NOT changed (need a protocol bump / design call)
+- No fog of war: enemy movesets, IVs, exact stats, nature, ability are fully
+  exposed in the observation from wave start (`ability_revealed` is captured
+  but unused). Masking to player-visible information would be a protocol-
+  level change (retraining impact).
+- LEARN_MOVE decisions don't encode the offered move's features (agent picks
+  a replace slot blind); shop options 7-12 are buyable but unencoded
+  (valid=0); shop items 13-14 (wave 171+, e.g. Sacred Ash) exceed the 12
+  BUY actions; in singles, a 6-mon enemy trainer's 5th bench member doesn't
+  fit the enemy bench slots (enemy_1 stays reserved for doubles).
+
+---
+
+## 2026-07-07 — Unify headless/rendered orchestration; bring the bridge to config parity
+
+The two transports (cli.ts stdio loop, browser-bridge.ts WebSocket loop)
+duplicated their orchestration — action labels, setup-phase set, reward
+bookkeeping, invalid-action fallback, terminal-state handling — and the
+duplication had already produced real divergence (the bridge's stale
+`getEnemyName`, no rewards, a meaningless post-reset game_over state, no
+game overrides). One implementation now lives in three shared modules:
+
+### Files created
+- **`src/rl/action-labels.ts`** — `buildActionLabels()` (the richer cli.ts
+  version, merged with the bridge's extra phase labels). Used by both loops.
+- **`src/rl/episode-runtime.ts`** — `SETUP_PHASES`, `resolveExecutedAction()`
+  (mask-validated fallback), `buildTerminalGameState()` (patches the last
+  decision state to terminal truth), `EpisodeRewardTracker` (RewardCalculator
+  snapshots + fled/tier bookkeeping, verbatim from cli.ts).
+- **`src/rl/apply-overrides.ts`** — browser-safe override applier (no node:fs);
+  standalone-setup.ts now delegates to it.
+
+### Behavior changes (bridge only — headless is bit-identical)
+- Rendered episodes now report **rewards** (per-step + terminal) using the
+  same tracker headless training uses.
+- The bridge's `game_over` message now carries the last decision state
+  patched to terminal truth instead of the post-reset (nondeterministic,
+  meaningless) scene, plus `reward` and `wave`.
+- Bridge `state` messages additionally carry `reward`, `wave`, `obsB64`,
+  `mask` (TS-encoded, additive — Python tools may keep encoding locally;
+  the encoders are parity-verified).
+- New URL params matching the headless CLI's config surface:
+  `&override=KEY=VALUE` (repeatable, applied pre-battle), `&rewardConfig=`
+  (URL-encoded JSON), `&waves=N` (N*50-decision step budget → `done`).
+- `run_policy.py --rendered` prints reward/wave when present.
+
+### Verification
+- Headless path proven behavior-identical: `rl-verify.sh quick` green
+  (bitwise parity, determinism ×3), and the verify-q1 smoke episode is
+  bit-for-bit the same trajectory and total reward (74 steps, 50.74) before
+  and after the refactor.
+- New **`tools/verify/check_mask_gating.py`** (V15, full mode): end-to-end
+  regression guard for the shielded-boss ball gate and the Struggle
+  fallback — both FAIL on the pre-audit mask code.
+- Rendered loop compiles under the same typecheck (no new errors); the
+  browser path could not be end-to-end tested headlessly here — the shared
+  modules are exercised by the headless gates, the bridge-only glue
+  (WebSocket handling, URL parsing) should be smoke-tested with
+  `npx vite --config vite.interactive.config.ts` + `run_policy.py --rendered`.

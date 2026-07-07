@@ -244,304 +244,8 @@ async function readAction(reader: LineReader): Promise<number> {
 
 // ─── Game State Helpers ─────────────────────────────────────────────
 
-interface ActionInfo {
-  index: number;
-  label: string;
-}
-
-/**
- * Build human-readable action labels for the current state.
- * Dynamically imports game modules to access live state.
- */
-async function buildActionLabels(state: PhaseState): Promise<ActionInfo[]> {
-  const { globalScene } = await import("#app/global-scene");
-  const {
-    ACTION_FIGHT_ENEMY_START,
-    ACTION_FIGHT_ENEMY2_START,
-    ACTION_FIGHT_ALLY_START,
-    ACTION_SWITCH_START,
-    ACTION_BALL_START,
-    ACTION_RUN,
-    ACTION_TERA_ENEMY_START,
-    ACTION_TERA_ENEMY2_START,
-    ACTION_TERA_ALLY_START,
-    ACTION_SELECT_REWARD_START,
-    ACTION_REROLL,
-    ACTION_SKIP,
-    ACTION_BUY_SHOP_START,
-    ACTION_PARTY_TARGET_START,
-    MAX_MOVES,
-  } = await import("#rl/spaces");
-
-  const { MoveTarget } = await import("#enums/move-target");
-  const actions: ActionInfo[] = [];
-
-  function getMoveName(moveIndex: number): string {
-    try {
-      const phase = globalScene.phaseManager.getCurrentPhase();
-      if (phase?.is("CommandPhase")) {
-        const pokemon = (
-          phase as unknown as {
-            getPokemon(): {
-              getMoveset(
-                hide: boolean,
-              ): Array<{ getMove(): { name: string; power: number }; getMovePp(): number; ppUsed: number }>;
-            };
-          }
-        ).getPokemon();
-        const moveset = pokemon.getMoveset(false);
-        if (moveIndex < moveset.length) {
-          const move = moveset[moveIndex].getMove();
-          const ppLeft = moveset[moveIndex].getMovePp() - moveset[moveIndex].ppUsed;
-          const ppMax = moveset[moveIndex].getMovePp();
-          return `${move.name} (${ppLeft}/${ppMax} PP, pow:${move.power || "-"})`;
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return `Move ${moveIndex}`;
-  }
-
-  function getPartyName(slot: number): string {
-    try {
-      const party = globalScene.getPlayerParty();
-      if (slot < party.length) {
-        const p = party[slot];
-        const hpPct = Math.round((p.hp / p.getMaxHp()) * 100);
-        return `${p.species?.name ?? "?"} Lv${p.level} (${hpPct}% HP)`;
-      }
-    } catch {
-      /* ignore */
-    }
-    return `Slot ${slot}`;
-  }
-
-  const ballNames = ["Poké Ball", "Great Ball", "Ultra Ball", "Rogue Ball", "Master Ball"];
-
-  function getEnemyName(slot: 0 | 1): string {
-    try {
-      // Access by slot index directly — do NOT filter, as filtering loses slot position
-      const enemyField = globalScene.getEnemyField() ?? [];
-      const enemy = enemyField[slot];
-      if (enemy?.isActive()) {
-        return enemy.species?.name ?? (slot === 0 ? "Enemy" : "Enemy 2");
-      }
-    } catch {
-      /* ignore */
-    }
-    return slot === 0 ? "Enemy" : "Enemy 2";
-  }
-
-  function getAllyName(): string {
-    try {
-      // Access by slot index directly — do NOT filter
-      const playerField = globalScene.getPlayerField() ?? [];
-      if (playerField.length > 1 && playerField[1]?.isActive()) {
-        return playerField[1].species?.name ?? "Ally";
-      }
-    } catch {
-      /* ignore */
-    }
-    return "Ally";
-  }
-
-  /** Get the move's target suffix for labels (e.g., "→ Rattata", "(all enemies)", "(self)") */
-  function getMoveTargetLabel(moveIndex: number, enemySlot: 0 | 1): string {
-    try {
-      const phase = globalScene.phaseManager.getCurrentPhase();
-      if (phase?.is("CommandPhase")) {
-        const pokemon = (phase as unknown as { getPokemon(): any }).getPokemon();
-        const moveset = pokemon.getMoveset(false);
-        if (moveIndex < moveset.length) {
-          const mt = moveset[moveIndex].getMove().moveTarget;
-          switch (mt) {
-            case MoveTarget.USER:
-            case MoveTarget.USER_AND_ALLIES:
-            case MoveTarget.PARTY:
-              return "(self)";
-            case MoveTarget.ALL_NEAR_OTHERS:
-              return "(all nearby)";
-            case MoveTarget.ALL_NEAR_ENEMIES:
-            case MoveTarget.ALL_ENEMIES:
-            case MoveTarget.ALL_OTHERS:
-              return "(all enemies)";
-            case MoveTarget.ALL:
-            case MoveTarget.BOTH_SIDES:
-              return "(field)";
-            case MoveTarget.USER_SIDE:
-              return "(team)";
-            case MoveTarget.ENEMY_SIDE:
-              return "(enemy side)";
-            case MoveTarget.RANDOM_NEAR_ENEMY:
-              return "(random enemy)";
-            case MoveTarget.ATTACKER:
-              return "(counter)";
-            case MoveTarget.CURSE:
-              return "(curse)";
-            default:
-              return `→ ${getEnemyName(enemySlot)}`;
-          }
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return `→ ${getEnemyName(enemySlot)}`;
-  }
-
-  // Phase-specific label function (handles non-command phases where action 0
-  // doesn't mean "fight move 0")
-  function getPhaseSpecificLabel(idx: number, phase: string, metadata: Record<string, unknown> = {}): string | null {
-    switch (phase) {
-      case "select_gender":
-        return "Continue";
-      case "title":
-        return "Start Game";
-      case "check_switch":
-        if (idx === 0) {
-          return "Accept switch";
-        }
-        if (idx === ACTION_SKIP) {
-          return "Decline switch";
-        }
-        return null;
-      case "switch":
-        if (idx >= ACTION_SWITCH_START && idx < ACTION_SWITCH_START + 5) {
-          return `Switch to: ${getPartyName(idx - ACTION_SWITCH_START + 1)}`;
-        }
-        return null;
-      case "learn_move": {
-        const newMove = metadata.newMoveName as string | undefined;
-        const currentMoves = metadata.currentMoveNames as string[] | undefined;
-        if (idx === ACTION_SKIP) {
-          return `Don't learn ${newMove ?? "move"}`;
-        }
-        if (idx >= 0 && idx < MAX_MOVES) {
-          const current = currentMoves?.[idx] ?? `slot ${idx}`;
-          return `Replace ${current} with ${newMove ?? "new move"}`;
-        }
-        return null;
-      }
-      case "game_over":
-        return idx === 0 ? "Continue" : "Quit";
-      case "modifier_target":
-        if (idx === ACTION_SKIP) {
-          return "Cancel (back to items)";
-        }
-        if (idx >= ACTION_PARTY_TARGET_START && idx < ACTION_PARTY_TARGET_START + 6) {
-          return `Apply to: ${getPartyName(idx - ACTION_PARTY_TARGET_START)}`;
-        }
-        return null;
-      case "select_biome": {
-        const biomeNames = metadata.biomeNames as string[] | undefined;
-        if (biomeNames && idx < biomeNames.length) {
-          return `Go to: ${biomeNames[idx]}`;
-        }
-        return `Go to: Biome ${idx}`;
-      }
-      default:
-        return null; // Fall through to generic labels
-    }
-  }
-
-  for (const idx of state.validActions) {
-    // Try phase-specific label first
-    const phaseLabel = getPhaseSpecificLabel(idx, state.phase, state.metadata);
-    if (phaseLabel !== null) {
-      actions.push({ index: idx, label: phaseLabel });
-      continue;
-    }
-
-    let label = `Action ${idx}`;
-
-    // Fight → Enemy (0-3) — default slot (may be single-target, multi-target, or self-target)
-    if (idx >= ACTION_FIGHT_ENEMY_START && idx < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
-      const mi = idx - ACTION_FIGHT_ENEMY_START;
-      label = `Fight: ${getMoveName(mi)} ${getMoveTargetLabel(mi, 0)}`;
-    }
-    // Fight → Enemy 2 (4-7) — always single-target moves
-    else if (idx >= ACTION_FIGHT_ENEMY2_START && idx < ACTION_FIGHT_ENEMY2_START + MAX_MOVES) {
-      label = `Fight: ${getMoveName(idx - ACTION_FIGHT_ENEMY2_START)} → ${getEnemyName(1)}`;
-    }
-    // Fight → Ally (8-11)
-    else if (idx >= ACTION_FIGHT_ALLY_START && idx < ACTION_FIGHT_ALLY_START + MAX_MOVES) {
-      label = `Fight: ${getMoveName(idx - ACTION_FIGHT_ALLY_START)} → ${getAllyName()}`;
-    }
-    // Switch (12-16)
-    else if (idx >= ACTION_SWITCH_START && idx < ACTION_SWITCH_START + 5) {
-      label = `Switch to: ${getPartyName(idx - ACTION_SWITCH_START + 1)}`;
-    }
-    // Ball (17-21)
-    else if (idx >= ACTION_BALL_START && idx < ACTION_BALL_START + 5) {
-      label = `Throw: ${ballNames[idx - ACTION_BALL_START] ?? "Ball"}`;
-    }
-    // Run (22)
-    else if (idx === ACTION_RUN) {
-      label = "Run away";
-    }
-    // Tera → Enemy (23-26) — default slot (may be single-target, multi-target, or self-target)
-    else if (idx >= ACTION_TERA_ENEMY_START && idx < ACTION_TERA_ENEMY_START + MAX_MOVES) {
-      const mi = idx - ACTION_TERA_ENEMY_START;
-      label = `Tera + ${getMoveName(mi)} ${getMoveTargetLabel(mi, 0)}`;
-    }
-    // Tera → Enemy 2 (27-30)
-    else if (idx >= ACTION_TERA_ENEMY2_START && idx < ACTION_TERA_ENEMY2_START + MAX_MOVES) {
-      label = `Tera + ${getMoveName(idx - ACTION_TERA_ENEMY2_START)} → ${getEnemyName(1)}`;
-    }
-    // Tera → Ally (31-34)
-    else if (idx >= ACTION_TERA_ALLY_START && idx < ACTION_TERA_ALLY_START + MAX_MOVES) {
-      label = `Tera + ${getMoveName(idx - ACTION_TERA_ALLY_START)} → ${getAllyName()}`;
-    }
-    // Select reward (35-37)
-    else if (idx >= ACTION_SELECT_REWARD_START && idx < ACTION_SELECT_REWARD_START + 3) {
-      const ri = idx - ACTION_SELECT_REWARD_START;
-      try {
-        const { getAvailableModifiers } = await import("#rl/modifier-api");
-        const mods = getAvailableModifiers();
-        if (mods && ri < mods.rewards.length) {
-          const tierNames = ["COMMON", "GREAT", "ULTRA", "ROGUE", "MASTER", "LUXURY"];
-          label = `Select reward ${ri}: ${mods.rewards[ri].name} [${tierNames[mods.rewards[ri].tier]}]`;
-        } else {
-          label = `Select reward ${ri}`;
-        }
-      } catch {
-        label = `Select reward ${ri}`;
-      }
-    }
-    // Reroll (38)
-    else if (idx === ACTION_REROLL) {
-      label = "Reroll modifiers";
-    }
-    // Skip (39)
-    else if (idx === ACTION_SKIP) {
-      label = "Skip / Decline";
-    }
-    // Buy shop (40-51)
-    else if (idx >= ACTION_BUY_SHOP_START && idx < ACTION_BUY_SHOP_START + 12) {
-      const si = idx - ACTION_BUY_SHOP_START;
-      try {
-        const { getAvailableModifiers } = await import("#rl/modifier-api");
-        const mods = getAvailableModifiers();
-        if (mods && si < mods.shop.length) {
-          label = `Buy: ${mods.shop[si].name} ($${mods.shop[si].cost})`;
-        } else {
-          label = `Buy shop item ${si}`;
-        }
-      } catch {
-        label = `Buy shop item ${si}`;
-      }
-    }
-    // Party target (52-57)
-    else if (idx >= ACTION_PARTY_TARGET_START && idx < ACTION_PARTY_TARGET_START + 6) {
-      label = `Apply to: ${getPartyName(idx - ACTION_PARTY_TARGET_START)}`;
-    }
-
-    actions.push({ index: idx, label });
-  }
-
-  return actions;
-}
+// Action labels are built by the shared #rl/action-labels module (also used
+// by the rendered browser bridge) — imported dynamically after headless init.
 
 // buildGameState is now imported from state-builder.ts after headless init
 // (see dynamic import in runInteractiveEpisode and runEpisode)
@@ -775,10 +479,9 @@ async function runInteractiveEpisode(
   dumper: ObsDumper | null,
 ): Promise<void> {
   const { buildGameState } = await import("#rl/state-builder");
-  const { encodeObservation, ACTION_RUN, ACTION_SPACE_SIZE } = await import("#rl/spaces");
-  const { RewardCalculator } = await import("#rl/rewards");
-  const gsModule = await import("#app/global-scene");
-  const { getAvailableModifiers } = await import("#rl/modifier-api");
+  const { encodeObservation } = await import("#rl/spaces");
+  const { buildActionLabels } = await import("#rl/action-labels");
+  const { EpisodeRewardTracker, buildTerminalGameState, resolveExecutedAction } = await import("#rl/episode-runtime");
 
   const MAX_STEPS = options.maxWaves * 50;
   let step = 0;
@@ -797,56 +500,10 @@ async function runInteractiveEpisode(
   };
   const now = () => performance.now();
 
-  // Reward bookkeeping: mirrors RLRunner (runner.ts) so the protocol reward
-  // is the same single source of truth as headless training would see.
-  const rewardCalc = new RewardCalculator(options.rewardConfig ?? undefined);
-  let lastFled = false;
-  let lastTier = -1;
-  // Pre-action snapshot of the final step, kept for the terminal reward: at
-  // game over the live scene is already post-reset (cleared party, starting
-  // money), so snapshotting it would inject spurious deltas (e.g. a positive
-  // money delta whenever the run ended with less than starting money).
-  let lastSnapshot: ReturnType<typeof rewardCalc.snapshot> | null = null;
-
-  // Last decision-point state: reused as the terminal snapshot. By the time
-  // game over is detected (GameOverPhase -> TitlePhase) the scene has already
-  // reset — party cleared and the NEXT battle generated from an unseeded RNG
-  // (random time_of_day/offset_gym/seed), which would make the terminal
-  // observation non-deterministic and meaningless.
-  let lastGameState: Record<string, unknown> | null = null;
-
-  const takeSnapshot = () => {
-    const scene = gsModule.globalScene;
-    const playerParty = scene?.getPlayerParty?.() ?? [];
-    const enemyParty = scene?.getEnemyParty?.() ?? [];
-    return rewardCalc.snapshot(
-      playerParty,
-      enemyParty,
-      scene?.currentBattle?.enemyFaints ?? 0,
-      playerParty.filter((p: { isFainted: () => boolean }) => p.isFainted()).length,
-      scene?.currentBattle?.waveIndex ?? 0,
-      scene?.money ?? 0,
-    );
-  };
-
-  /** Tier of the modifier a reward/shop action would select, or -1. */
-  const getModifierTier = (action: number): number => {
-    try {
-      const modifiers = getAvailableModifiers();
-      if (!modifiers) {
-        return -1;
-      }
-      if (action >= 35 && action < 38 && action - 35 < modifiers.rewards.length) {
-        return modifiers.rewards[action - 35].tier;
-      }
-      if (action >= 40 && action < 52 && action - 40 < modifiers.shop.length) {
-        return modifiers.shop[action - 40].tier;
-      }
-    } catch {
-      /* not in a modifier phase */
-    }
-    return -1;
-  };
+  // Reward bookkeeping + terminal-state patching live in the shared
+  // episode-runtime module (also used by the rendered browser bridge) so both
+  // transports report identical rewards for the same trajectory.
+  const tracker = new EpisodeRewardTracker(options.rewardConfig ?? undefined);
 
   try {
     while (step < MAX_STEPS) {
@@ -874,29 +531,16 @@ async function runInteractiveEpisode(
       // snapshot stands in: all deltas zero, only terminal/fled/tier apply.
       const tReward = now();
       const terminal = state.phase === DecisionPhase.GAME_OVER || router.isGameOver();
-      const postSnap = terminal && lastSnapshot ? lastSnapshot : takeSnapshot();
-      const reward =
-        step > 0 ? rewardCalc.computeReward(postSnap, terminal, router.isVictory(), lastFled, lastTier) : 0;
+      const reward = tracker.rewardOnArrival(step, terminal, router.isVictory());
       prof.reward += now() - tReward;
 
       // Check for game over (arrives as a 'title' phase after GameOverPhase → TitlePhase)
       if (terminal) {
         // Reuse the last decision state (the live scene is already post-reset),
-        // but patch the phase sub-dict to terminal truth so the state is
-        // self-consistent: game_over phase one-hot, all-false action mask.
-        const base = lastGameState ?? buildGameState(state, step);
-        const terminalMask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
-        const gameState: Record<string, unknown> = {
-          ...base,
-          phase: {
-            ...((base.phase as Record<string, unknown>) ?? {}),
-            current_phase: "game_over",
-            action_mask: terminalMask,
-            valid_actions: [],
-            is_game_over: true,
-            is_victory: router.isVictory(),
-          },
-        };
+        // patched to terminal truth by the shared episode-runtime helper.
+        const base = tracker.getLastGameState() ?? buildGameState(state, step);
+        const gameState = buildTerminalGameState(base, router.isVictory());
+        const terminalMask = (gameState.phase as Record<string, unknown>).action_mask as boolean[];
         const obs = encodeObservation(gameState);
         const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
         sendJson({
@@ -933,14 +577,12 @@ async function runInteractiveEpisode(
       // Build action labels and game state; encode once (message + dump reuse it).
       // Labels are human-display strings — skipped on the lean training path.
       const tLabels = now();
-      const actions = options.lean
-        ? state.validActions.map(i => ({ index: i, label: "" }))
-        : await buildActionLabels(state);
+      const actions = options.lean ? state.validActions.map(i => ({ index: i, label: "" })) : buildActionLabels(state);
       prof.labels += now() - tLabels;
       const tBuild = now();
       const gameState = buildGameState(state, step);
       prof.buildState += now() - tBuild;
-      lastGameState = gameState;
+      tracker.noteDecisionState(gameState);
       const tEncode = now();
       const obs = encodeObservation(gameState);
       prof.encode += now() - tEncode;
@@ -975,8 +617,7 @@ async function runInteractiveEpisode(
       }
 
       // Validate: invalid actions fall back to the first valid action
-      const actionWasValid = !!state.actionMask[action];
-      const executed = actionWasValid ? action : (state.validActions[0] ?? 0);
+      const { executed, wasValid: actionWasValid } = resolveExecutedAction(state, action);
       if (!actionWasValid) {
         sendJson({
           type: "warning",
@@ -986,10 +627,7 @@ async function runInteractiveEpisode(
 
       // Pre-action bookkeeping for the next step's reward (must run before
       // executeAction: the modifier phase is gone once the action resolves)
-      lastSnapshot = takeSnapshot();
-      rewardCalc.savePreActionSnapshot(lastSnapshot);
-      lastFled = executed === ACTION_RUN;
-      lastTier = state.phase === DecisionPhase.SELECT_MODIFIER ? getModifierTier(executed) : -1;
+      tracker.notePreAction(state, executed);
 
       // Parity dump: the exact state JSON sent to Python plus the TS encoding
       if (dumper) {

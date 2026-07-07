@@ -100,6 +100,13 @@ Common flags: `--rendered`, `--starters NAMES`, `--seed S`, `--delay SECONDS`
 is intentionally a *fuzzer*: it drives legal-but-degenerate paths and is great for
 finding bugs, but it's not fun to watch — use `maxdamage` (or a model) for that.
 
+The rendered URL accepts the same config surface as the headless CLI:
+`&override=KEY=VALUE` (repeatable game override), `&rewardConfig=<json>`
+(partial RewardConfig), `&waves=N` (step budget), alongside `&seed=`,
+`&starters=`, `&delay=`. Rendered state/game_over messages carry the same
+`reward`/`wave`/`obsB64`/`mask` fields the headless protocol has, so a rendered
+episode reports the rewards headless training would.
+
 ---
 
 ## Custom starting team

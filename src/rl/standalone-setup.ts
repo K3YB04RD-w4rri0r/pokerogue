@@ -128,25 +128,10 @@ export async function initStandalone(overrides?: Record<string, unknown>): Promi
 
 /**
  * Install getters for specific override keys on the live overrides module.
- * Unknown keys (typos) are reported to stderr and skipped — a silently
- * unapplied override would invalidate a corpus scenario without trace.
+ * Shared with the browser bridge (same `--override` / `&override` config
+ * surface); see src/rl/apply-overrides.ts. Unknown keys warn and are skipped.
  */
 async function applyOverrides(overrides: Record<string, unknown>): Promise<void> {
-  const overridesModule = await import("#app/overrides");
-  const { defaultOverrides } = overridesModule;
-  const target = (overridesModule as any).default ?? overridesModule;
-
-  for (const [key, value] of Object.entries(overrides)) {
-    if (!(key in defaultOverrides)) {
-      process.stderr.write(
-        `[standalone-setup] Unknown override key "${key}" — not a property of DefaultOverrides, skipping\n`,
-      );
-      continue;
-    }
-    Object.defineProperty(target, key, {
-      get: () => value,
-      configurable: true,
-      enumerable: true,
-    });
-  }
+  const { applyOverrideValues } = await import("#app/rl/apply-overrides");
+  await applyOverrideValues(overrides);
 }

@@ -77,7 +77,12 @@ def maxdamage_action(mask: np.ndarray, ctx: dict | None) -> int:
     ctx = ctx or {}
     phase = ctx.get("phase")
     if phase == "command":
-        moves = ((ctx.get("game_state") or {}).get("player_0") or {}).get("moves") or []
+        game_state = ctx.get("game_state") or {}
+        # In doubles the acting pokemon may be slot 1 — its moves live under
+        # player_1 and the mask's fight actions refer to ITS moveset.
+        field_index = (game_state.get("phase") or {}).get("command_field_index") or 0
+        slot_key = "player_1" if field_index == 1 else "player_0"
+        moves = (game_state.get(slot_key) or {}).get("moves") or []
         best_action, best_power = None, 0
         for a in range(min(2 * MAX_MOVES, len(mask))):
             if not mask[a]:
@@ -167,11 +172,17 @@ def run_rendered(args, policy) -> None:
                 ctx = {"phase": msg.get("phase"), "game_state": game_state}
                 action = policy(obs, mask, ctx)
                 label = next((a.get("label", "") for a in msg.get("actions", []) if a.get("index") == action), "")
-                print(f"step {msg.get('step'):>3} | {str(msg.get('phase')):<14} | action {action:>2}  {label}")
+                reward = msg.get("reward")
+                rstr = f" | reward {reward:+.2f}" if isinstance(reward, (int, float)) else ""
+                wave = msg.get("wave")
+                wstr = f" | wave {wave:>3}" if isinstance(wave, int) and wave > 0 else ""
+                print(f"step {msg.get('step'):>3}{wstr} | {str(msg.get('phase')):<14} | action {action:>2}{rstr}  {label}")
                 ws.send(json.dumps({"action": int(action)}))
                 time.sleep(args.delay)
             elif mtype == "game_over":
-                print(f"\n=== GAME OVER: {'VICTORY' if msg.get('victory') else 'defeat'} (step {msg.get('step')}) ===")
+                reward = msg.get("reward")
+                rstr = f", terminal reward {reward:+.2f}" if isinstance(reward, (int, float)) else ""
+                print(f"\n=== GAME OVER: {'VICTORY' if msg.get('victory') else 'defeat'} (step {msg.get('step')}{rstr}) ===")
             elif mtype == "done":
                 print(f"\nEpisode complete ({msg.get('steps')} decisions).")
                 break

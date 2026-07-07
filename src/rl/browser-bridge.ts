@@ -15,43 +15,37 @@
  * 6. On game_over, notify Python and stop.
  *
  * URL parameters:
- *   ?rl=true         — required, enables the bridge
- *   ?seed=abc123     — optional, sets battle RNG seed for reproducibility
+ *   ?rl=true             — required, enables the bridge
+ *   ?seed=abc123         — optional, battle RNG seed for reproducibility
+ *   ?delay=500           — optional, ms between actions (watchability)
+ *   ?starters=A,B,C      — optional, custom starting party (SpeciesId names)
+ *   ?override=KEY=VALUE  — optional, repeatable game override (same surface
+ *                          as the headless CLI's --override flag)
+ *   ?rewardConfig={...}  — optional, URL-encoded partial RewardConfig JSON
+ *                          (same as the headless CLI's --reward-config)
+ *   ?waves=N             — optional, end the session after N*50 decisions
+ *                          (mirrors the headless CLI's --waves step cap)
  */
 
 import { globalScene } from "#app/global-scene";
-import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
-import type { PhaseState, PhaseRouter } from "#rl/phase-router";
-import { getAvailableModifiers } from "#rl/modifier-api";
-import { buildGameState as buildFullGameState } from "#rl/state-builder";
-import { UiMode } from "#enums/ui-mode";
 import { Button } from "#enums/buttons";
 import { PlayerGender } from "#enums/player-gender";
+import { UiMode } from "#enums/ui-mode";
+import { buildActionLabels } from "#rl/action-labels";
+import { applyOverrideValues } from "#rl/apply-overrides";
+import { buildTerminalGameState, EpisodeRewardTracker, resolveExecutedAction, SETUP_PHASES } from "#rl/episode-runtime";
+import type { PhaseRouter, PhaseState } from "#rl/phase-router";
+import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
+import { encodeObservation } from "#rl/spaces";
+import { buildGameState as buildFullGameState } from "#rl/state-builder";
 import Phaser from "phaser";
-import {
-  ACTION_FIGHT_ENEMY_START,
-  ACTION_FIGHT_ENEMY2_START,
-  ACTION_FIGHT_ALLY_START,
-  ACTION_SWITCH_START,
-  ACTION_BALL_START,
-  ACTION_RUN,
-  ACTION_TERA_ENEMY_START,
-  ACTION_TERA_ENEMY2_START,
-  ACTION_TERA_ALLY_START,
-  ACTION_SELECT_REWARD_START,
-  ACTION_REROLL,
-  ACTION_SKIP,
-  ACTION_BUY_SHOP_START,
-  ACTION_PARTY_TARGET_START,
-  MAX_MOVES,
-} from "#rl/spaces";
 
 // ── Visual Indicator ──────────────────────────────────────────────────
 
 const INDICATOR_STYLES =
-  "position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.8);color:#0f0;" +
-  "padding:8px 16px;border-radius:4px;z-index:99999;font-family:monospace;font-size:14px;" +
-  "pointer-events:none;";
+  "position:fixed;top:10px;right:10px;background:rgba(0,0,0,0.8);color:#0f0;"
+  + "padding:8px 16px;border-radius:4px;z-index:99999;font-family:monospace;font-size:14px;"
+  + "pointer-events:none;";
 
 function createIndicator(): HTMLDivElement {
   const el = document.createElement("div");
@@ -78,15 +72,63 @@ interface UrlParams {
   renderDelay: number;
   /** Custom starting party from &starters=MEWTWO,LUGIA,... (default: daily-run starters) */
   starters?: ReturnType<typeof parseStarterCsv>;
+  /** Game overrides from repeated &override=KEY=VALUE params (same surface as
+   *  the headless CLI's --override; VALUE is JSON if parseable, else a raw string). */
+  overrides: Record<string, unknown> | null;
+  /** Partial RewardConfig from &rewardConfig=<url-encoded JSON> (same as --reward-config). */
+  rewardConfig: Record<string, number> | null;
+  /** Step budget from &waves=N: the session ends (type "done") after N*50
+   *  decisions, mirroring the headless CLI's --waves cap. Omit = unbounded. */
+  waves: number | null;
 }
 
 function parseUrlParams(): UrlParams {
   const params = new URLSearchParams(window.location.search);
   const starters = params.get("starters");
+
+  // &override=KEY=VALUE, repeatable (mirrors the CLI's --override flag)
+  let overrides: Record<string, unknown> | null = null;
+  for (const body of params.getAll("override")) {
+    const eq = body.indexOf("=");
+    if (eq <= 0) {
+      console.warn(`[RL Bridge] Invalid &override (expected KEY=VALUE): ${body}`);
+      continue;
+    }
+    const key = body.slice(0, eq);
+    const rawValue = body.slice(eq + 1);
+    let value: unknown;
+    try {
+      value = JSON.parse(rawValue);
+    } catch {
+      value = rawValue; // plain string (e.g. double)
+    }
+    overrides = { ...(overrides ?? {}), [key]: value };
+  }
+
+  let rewardConfig: Record<string, number> | null = null;
+  const rawRewardConfig = params.get("rewardConfig");
+  if (rawRewardConfig) {
+    try {
+      const parsed = JSON.parse(rawRewardConfig);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new Error("must be a JSON object");
+      }
+      rewardConfig = parsed as Record<string, number>;
+    } catch (err) {
+      console.warn(`[RL Bridge] Invalid &rewardConfig (ignored): ${err}`);
+    }
+  }
+
+  const rawWaves = Number(params.get("waves"));
+  const waves = Number.isFinite(rawWaves) && rawWaves > 0 ? Math.floor(rawWaves) : null;
+
   return {
     seed: params.get("seed") || undefined,
     renderDelay: Number(params.get("delay") ?? 500),
     starters: starters ? parseStarterCsv(starters) : undefined,
+    overrides,
+    rewardConfig,
+    waves,
   };
 }
 
@@ -158,7 +200,7 @@ function connectWS(): Promise<WebSocket> {
       console.log("[RL Bridge] WebSocket connected");
       resolve(ws);
     };
-    ws.onerror = (ev) => {
+    ws.onerror = ev => {
       console.error("[RL Bridge] WebSocket error:", ev);
       reject(new Error("WebSocket connection failed"));
     };
@@ -170,7 +212,7 @@ function connectWS(): Promise<WebSocket> {
  * Resolves with the action index, or -1 if the socket closes.
  */
 function waitForAction(ws: WebSocket): Promise<number> {
-  return new Promise<number>((resolve) => {
+  return new Promise<number>(resolve => {
     if (ws.readyState !== WebSocket.OPEN) {
       resolve(-1);
       return;
@@ -215,7 +257,7 @@ function sendWS(ws: WebSocket, obj: Record<string, unknown>): void {
  * Returns false if the socket closes before receiving the expected message.
  */
 function waitForMessageType(ws: WebSocket, expectedType: string, timeoutMs = 60000): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>(resolve => {
     if (ws.readyState !== WebSocket.OPEN) {
       resolve(false);
       return;
@@ -259,266 +301,29 @@ function waitForMessageType(ws: WebSocket, expectedType: string, timeoutMs = 600
 
 // ── Action Labels ─────────────────────────────────────────────────────
 
-interface ActionInfo {
-  index: number;
-  label: string;
-}
-
-const BALL_NAMES = ["Poke Ball", "Great Ball", "Ultra Ball", "Rogue Ball", "Master Ball"];
-const TIER_NAMES = ["COMMON", "GREAT", "ULTRA", "ROGUE", "MASTER", "LUXURY"];
-
-/**
- * Get the name of an enemy Pokemon by its field slot for better action labels in doubles.
- * Returns "Enemy" / "Enemy 2" as fallback if the enemy field can't be read.
- */
-function getEnemyName(slot: 0 | 1): string {
-  try {
-    const enemyField = globalScene.getEnemyField()?.filter(p => p?.isActive()) ?? [];
-    if (slot < enemyField.length) {
-      return enemyField[slot].species?.name ?? (slot === 0 ? "Enemy" : "Enemy 2");
-    }
-  } catch {
-    // ignore
-  }
-  return slot === 0 ? "Enemy" : "Enemy 2";
-}
-
-/**
- * Get the name of the player's ally Pokemon (second active slot) for ally targeting labels.
- */
-function getAllyName(): string {
-  try {
-    const playerField = globalScene.getPlayerField()?.filter(p => p?.isActive()) ?? [];
-    if (playerField.length > 1) {
-      return playerField[1].species?.name ?? "Ally";
-    }
-  } catch {
-    // ignore
-  }
-  return "Ally";
-}
-
-function getMoveName(moveIndex: number): string {
-  try {
-    const phase = globalScene.phaseManager.getCurrentPhase();
-    if (phase?.is("CommandPhase")) {
-      const pokemon = (phase as any).getPokemon();
-      const moveset = pokemon.getMoveset(false);
-      if (moveIndex < moveset.length) {
-        const move = moveset[moveIndex].getMove();
-        const ppLeft = moveset[moveIndex].getMovePp() - moveset[moveIndex].ppUsed;
-        const ppMax = moveset[moveIndex].getMovePp();
-        return `${move.name} (${ppLeft}/${ppMax} PP, pow:${move.power || "-"})`;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return `Move ${moveIndex}`;
-}
-
-function getPartyName(slot: number): string {
-  try {
-    const party = globalScene.getPlayerParty();
-    if (slot < party.length) {
-      const p = party[slot];
-      const hpPct = Math.round((p.hp / p.getMaxHp()) * 100);
-      return `${p.species?.name ?? "?"} Lv${p.level} (${hpPct}% HP)`;
-    }
-  } catch {
-    // ignore
-  }
-  return `Slot ${slot}`;
-}
-
-/**
- * Build human-readable labels for every valid action in the current PhaseState.
- */
-function buildActionLabels(state: PhaseState): ActionInfo[] {
-  const actions: ActionInfo[] = [];
-
-  for (const idx of state.validActions) {
-    // Try phase-specific label first
-    const phaseLabel = getPhaseSpecificLabel(idx, state.phase);
-    if (phaseLabel !== null) {
-      actions.push({ index: idx, label: phaseLabel });
-      continue;
-    }
-
-    let label = `Action ${idx}`;
-
-    // Fight -> Enemy (0-3)
-    if (idx >= ACTION_FIGHT_ENEMY_START && idx < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
-      label = `Fight: ${getMoveName(idx - ACTION_FIGHT_ENEMY_START)} -> ${getEnemyName(0)}`;
-    }
-    // Fight -> Enemy 2 (4-7)
-    else if (idx >= ACTION_FIGHT_ENEMY2_START && idx < ACTION_FIGHT_ENEMY2_START + MAX_MOVES) {
-      label = `Fight: ${getMoveName(idx - ACTION_FIGHT_ENEMY2_START)} -> ${getEnemyName(1)}`;
-    }
-    // Fight -> Ally (8-11)
-    else if (idx >= ACTION_FIGHT_ALLY_START && idx < ACTION_FIGHT_ALLY_START + MAX_MOVES) {
-      label = `Fight: ${getMoveName(idx - ACTION_FIGHT_ALLY_START)} -> ${getAllyName()}`;
-    }
-    // Switch (12-16)
-    else if (idx >= ACTION_SWITCH_START && idx < ACTION_SWITCH_START + 5) {
-      label = `Switch to: ${getPartyName(idx - ACTION_SWITCH_START + 1)}`;
-    }
-    // Ball (17-21)
-    else if (idx >= ACTION_BALL_START && idx < ACTION_BALL_START + 5) {
-      label = `Throw: ${BALL_NAMES[idx - ACTION_BALL_START] ?? "Ball"}`;
-    }
-    // Run (22)
-    else if (idx === ACTION_RUN) {
-      label = "Run away";
-    }
-    // Tera -> Enemy (23-26)
-    else if (idx >= ACTION_TERA_ENEMY_START && idx < ACTION_TERA_ENEMY_START + MAX_MOVES) {
-      label = `Tera + ${getMoveName(idx - ACTION_TERA_ENEMY_START)} -> ${getEnemyName(0)}`;
-    }
-    // Tera -> Enemy 2 (27-30)
-    else if (idx >= ACTION_TERA_ENEMY2_START && idx < ACTION_TERA_ENEMY2_START + MAX_MOVES) {
-      label = `Tera + ${getMoveName(idx - ACTION_TERA_ENEMY2_START)} -> ${getEnemyName(1)}`;
-    }
-    // Tera -> Ally (31-34)
-    else if (idx >= ACTION_TERA_ALLY_START && idx < ACTION_TERA_ALLY_START + MAX_MOVES) {
-      label = `Tera + ${getMoveName(idx - ACTION_TERA_ALLY_START)} -> ${getAllyName()}`;
-    }
-    // Select reward (35-37)
-    else if (idx >= ACTION_SELECT_REWARD_START && idx < ACTION_SELECT_REWARD_START + 3) {
-      const ri = idx - ACTION_SELECT_REWARD_START;
-      label = getRewardLabel(ri);
-    }
-    // Reroll (38)
-    else if (idx === ACTION_REROLL) {
-      label = getRerollLabel();
-    }
-    // Skip (39)
-    else if (idx === ACTION_SKIP) {
-      label = "Skip / Decline";
-    }
-    // Buy shop (40-51)
-    else if (idx >= ACTION_BUY_SHOP_START && idx < ACTION_BUY_SHOP_START + 12) {
-      const si = idx - ACTION_BUY_SHOP_START;
-      label = getShopLabel(si);
-    }
-    // Party target (52-57)
-    else if (idx >= ACTION_PARTY_TARGET_START && idx < ACTION_PARTY_TARGET_START + 6) {
-      label = `Apply to: ${getPartyName(idx - ACTION_PARTY_TARGET_START)}`;
-    }
-
-    actions.push({ index: idx, label });
-  }
-
-  return actions;
-}
-
-/**
- * For non-command phases where action indices carry phase-specific meaning,
- * return a label or null to fall through to the generic labeler.
- */
-function getPhaseSpecificLabel(idx: number, phase: string): string | null {
-  switch (phase) {
-    case DecisionPhase.CHECK_SWITCH:
-      if (idx === 0) return "Accept switch";
-      if (idx === ACTION_SKIP) return "Decline switch";
-      return null;
-
-    case DecisionPhase.SWITCH:
-      if (idx >= ACTION_SWITCH_START && idx < ACTION_SWITCH_START + 5) {
-        return `Switch to: ${getPartyName(idx - ACTION_SWITCH_START + 1)}`;
-      }
-      return null;
-
-    case DecisionPhase.LEARN_MOVE:
-      if (idx === ACTION_SKIP) return "Don't learn move";
-      if (idx >= 0 && idx < MAX_MOVES) return `Replace move slot ${idx}`;
-      return null;
-
-    case DecisionPhase.GAME_OVER:
-      return idx === 0 ? "Continue (retry)" : "Quit";
-
-    case DecisionPhase.REVIVAL_BLESSING:
-      if (idx >= ACTION_PARTY_TARGET_START && idx < ACTION_PARTY_TARGET_START + 6) {
-        return `Revive: ${getPartyName(idx - ACTION_PARTY_TARGET_START)}`;
-      }
-      return null;
-
-    case DecisionPhase.SELECT_BIOME:
-      return `Pick biome option ${idx}`;
-
-    case DecisionPhase.MODIFIER_TARGET:
-      if (idx === ACTION_SKIP) return "Cancel (back to items)";
-      if (idx >= ACTION_PARTY_TARGET_START && idx < ACTION_PARTY_TARGET_START + 6) {
-        return `Apply to: ${getPartyName(idx - ACTION_PARTY_TARGET_START)}`;
-      }
-      return null;
-
-    case DecisionPhase.MYSTERY_ENCOUNTER:
-      return `Encounter option ${idx}`;
-
-    case DecisionPhase.EVOLUTION:
-    case DecisionPhase.FORM_CHANGE:
-      return "Continue";
-
-    default:
-      return null;
-  }
-}
-
-function getRewardLabel(rewardIndex: number): string {
-  try {
-    const mods = getAvailableModifiers();
-    if (mods && rewardIndex < mods.rewards.length) {
-      const r = mods.rewards[rewardIndex];
-      return `Select reward ${rewardIndex}: ${r.name} [${TIER_NAMES[r.tier] ?? "?"}]`;
-    }
-  } catch {
-    // ignore
-  }
-  return `Select reward ${rewardIndex}`;
-}
-
-function getRerollLabel(): string {
-  try {
-    const mods = getAvailableModifiers();
-    if (mods) {
-      return `Reroll modifiers (cost: $${mods.rerollCost})`;
-    }
-  } catch {
-    // ignore
-  }
-  return "Reroll modifiers";
-}
-
-function getShopLabel(shopIndex: number): string {
-  try {
-    const mods = getAvailableModifiers();
-    if (mods && shopIndex < mods.shop.length) {
-      const s = mods.shop[shopIndex];
-      return `Buy: ${s.name} ($${s.cost})`;
-    }
-  } catch {
-    // ignore
-  }
-  return `Buy shop item ${shopIndex}`;
-}
+// Action labels come from the shared #rl/action-labels module (same labels
+// as the headless CLI).
 
 // ── Utility ───────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/** Encode a Float32Array bit-exactly to base64 (browser btoa; decoded as "<f4"). */
+function obsToBase64(obs: Float32Array): string {
+  const bytes = new Uint8Array(obs.buffer, obs.byteOffset, obs.byteLength);
+  let bin = "";
+  const CHUNK = 0x8000; // String.fromCharCode arg-count limit safety
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
 }
 
 // ── Setup Phases ──────────────────────────────────────────────────────
 
-/** Phases that the bridge auto-handles (user won't see them since we wait for battle). */
-const SETUP_PHASES = new Set<string>([
-  DecisionPhase.TITLE,
-  DecisionPhase.SELECT_GENDER,
-  DecisionPhase.SELECT_STARTER,
-  DecisionPhase.EVOLUTION,
-  DecisionPhase.FORM_CHANGE,
-]);
+// SETUP_PHASES comes from the shared #rl/episode-runtime module.
 
 // ── Message Auto-Dismiss ──────────────────────────────────────────────
 
@@ -565,11 +370,13 @@ async function dismissBlockingMessages(): Promise<void> {
 async function advanceWithAutoDismiss(router: PhaseRouter): Promise<PhaseState> {
   let running = true;
 
-  // Background loop: press ACTION whenever stuck in MESSAGE mode
-  const dismissLoop = (async () => {
+  // Background loop (fire-and-forget): press ACTION whenever stuck in MESSAGE mode
+  void (async () => {
     while (running) {
       await sleep(300);
-      if (!running) break;
+      if (!running) {
+        break;
+      }
       try {
         const uiMode = globalScene.ui?.getMode();
         if (uiMode === UiMode.MESSAGE) {
@@ -623,12 +430,18 @@ async function waitForPhaseChange(currentPhaseName: string, timeoutMs = 30000): 
  */
 function phaseNameForDecision(decision: string): string | null {
   switch (decision) {
-    case DecisionPhase.TITLE: return "TitlePhase";
-    case DecisionPhase.SELECT_GENDER: return "SelectGenderPhase";
-    case DecisionPhase.SELECT_STARTER: return "SelectStarterPhase";
-    case DecisionPhase.EVOLUTION: return "EvolutionPhase";
-    case DecisionPhase.FORM_CHANGE: return "FormChangePhase";
-    default: return null;
+    case DecisionPhase.TITLE:
+      return "TitlePhase";
+    case DecisionPhase.SELECT_GENDER:
+      return "SelectGenderPhase";
+    case DecisionPhase.SELECT_STARTER:
+      return "SelectStarterPhase";
+    case DecisionPhase.EVOLUTION:
+      return "EvolutionPhase";
+    case DecisionPhase.FORM_CHANGE:
+      return "FormChangePhase";
+    default:
+      return null;
   }
 }
 
@@ -664,6 +477,15 @@ async function startBridge(): Promise<void> {
 
   // Step 1: Wait for globalScene + set overrides (tutorials, gender)
   await waitForGameReady(indicator);
+
+  // Step 1b: Apply game overrides from &override=KEY=VALUE (same config
+  // surface as the headless CLI's --override). Must run before the battle is
+  // created so battle-creation reads (STARTING_WAVE_OVERRIDE, movesets, ...)
+  // see the overridden values.
+  if (urlParams.overrides) {
+    console.log("[RL Bridge] Applying overrides:", urlParams.overrides);
+    await applyOverrideValues(urlParams.overrides);
+  }
 
   // Step 2: Create PhaseRouter ASAP — must be before TitlePhase fires
   // so the setMode hook catches it. TitlePhase waits indefinitely for input,
@@ -710,13 +532,19 @@ async function startBridge(): Promise<void> {
 
   // Step 4: Main loop
   let step = 0;
+  // &waves=N ends the session after N*50 decisions (same step budget the
+  // headless CLI derives from --waves). null = unbounded (watching mode).
+  const maxSteps = urlParams.waves !== null ? urlParams.waves * 50 : null;
+  // Reward bookkeeping shared with the headless CLI (episode-runtime.ts) so a
+  // rendered episode reports the same rewards headless training would.
+  const tracker = new EpisodeRewardTracker(urlParams.rewardConfig ?? undefined);
   // Track which setup phases have been handled to avoid re-processing them.
   // In the browser, async asset loading means phases can stay "current" longer
   // than in headless mode, causing re-detection.
   const handledSetupPhases = new Set<string>();
 
   try {
-    while (wsOpen) {
+    while (wsOpen && (maxSteps === null || step < maxSteps)) {
       // Advance to the next decision point, auto-dismissing any blocking
       // MESSAGE dialogs (battle narration, tutorials, etc.) along the way
       let state: PhaseState;
@@ -755,7 +583,8 @@ async function startBridge(): Promise<void> {
         // assets load. Without this wait, the loop immediately re-detects TITLE.
         await waitForPhaseChange(state.phase);
         continue;
-      } else if (SETUP_PHASES.has(state.phase) && handledSetupPhases.has(state.phase)) {
+      }
+      if (SETUP_PHASES.has(state.phase) && handledSetupPhases.has(state.phase)) {
         // Already handled — the phase is still playing out. In the browser this
         // can require player input to advance: an EvolutionPhase sits in
         // EVOLUTION_SCENE mode and waits for ACTION at each "…is evolving / evolved
@@ -789,16 +618,25 @@ async function startBridge(): Promise<void> {
           pic.setVisible(false);
           (pic as any).shown = false;
         }
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
 
       // Check for game over
       if (state.phase === DecisionPhase.GAME_OVER || router.isGameOver()) {
-        const gameState = buildFullGameState(state, step);
+        // The live scene is already post-reset at game over — reuse the last
+        // decision state patched to terminal truth, and report the terminal
+        // reward (both shared with the headless CLI via episode-runtime).
+        const reward = tracker.rewardOnArrival(step, true, router.isVictory());
+        const base = tracker.getLastGameState() ?? buildFullGameState(state, step);
+        const gameState = buildTerminalGameState(base, router.isVictory());
         sendWS(ws, {
           type: "game_over",
           step,
           victory: router.isVictory(),
           gameState,
+          reward,
+          wave: (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0,
         });
         updateIndicator(
           indicator,
@@ -808,9 +646,19 @@ async function startBridge(): Promise<void> {
         break;
       }
 
+      // Reward earned by the previous action (0 on the very first state) —
+      // same bookkeeping the headless CLI uses.
+      const reward = tracker.rewardOnArrival(step, false, false);
+
       // Build state payload
       const actionLabels = buildActionLabels(state);
       const gameState = buildFullGameState(state, step);
+      tracker.noteDecisionState(gameState);
+      const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
+      // TS-encoded observation + mask, additive alongside the full gameState
+      // (the Python tools may keep encoding locally — the two encoders are
+      // bitwise parity-verified, so either source is valid).
+      const obs = encodeObservation(gameState);
 
       // Send state to Python
       sendWS(ws, {
@@ -820,12 +668,16 @@ async function startBridge(): Promise<void> {
         actions: actionLabels,
         gameState,
         metadata: state.metadata,
+        reward,
+        obsB64: obsToBase64(obs),
+        mask: state.actionMask,
+        wave,
       });
 
       // Update on-screen indicator
       updateIndicator(
         indicator,
-        `Step ${step} | Wave ${(gameState as any).battle?.wave_index ?? "?"} | ${state.phase} | ${actionLabels.length} actions`,
+        `Step ${step} | Wave ${wave || "?"} | ${state.phase} | ${actionLabels.length} actions`,
       );
 
       // Wait for action from Python
@@ -837,16 +689,20 @@ async function startBridge(): Promise<void> {
         break;
       }
 
-      // Validate action against mask and execute
-      if (!state.actionMask[action]) {
+      // Validate action against mask and execute (invalid actions fall back
+      // to the first valid one — same rule as the headless CLI)
+      const { executed, wasValid } = resolveExecutedAction(state, action);
+      if (!wasValid) {
         console.warn(
-          `[RL Bridge] Invalid action ${action} for phase ${state.phase}. ` +
-            `Valid: [${state.validActions.join(", ")}]. Using first valid action.`,
+          `[RL Bridge] Invalid action ${action} for phase ${state.phase}. `
+            + `Valid: [${state.validActions.join(", ")}]. Using action ${executed}.`,
         );
-        await router.executeAction(state.validActions[0] ?? 0);
-      } else {
-        await router.executeAction(action);
       }
+
+      // Pre-action bookkeeping for the next step's reward (must run before
+      // executeAction: the modifier phase is gone once the action resolves)
+      tracker.notePreAction(state, executed);
+      await router.executeAction(executed);
 
       // Give the browser time to animate the action before detecting the
       // next decision point. Without this delay, the TUI shows the next
@@ -866,11 +722,7 @@ async function startBridge(): Promise<void> {
   // Send completion message
   sendWS(ws, { type: "done", steps: step });
 
-  updateIndicator(
-    indicator,
-    `Done (${step} steps)`,
-    "rgba(100,100,0,0.8)",
-  );
+  updateIndicator(indicator, `Done (${step} steps)`, "rgba(100,100,0,0.8)");
 
   // Cleanup
   router.destroy();
@@ -879,6 +731,6 @@ async function startBridge(): Promise<void> {
 
 // ── Entry Point ───────────────────────────────────────────────────────
 
-startBridge().catch((err) => {
+startBridge().catch(err => {
   console.error("[RL Bridge] Fatal error:", err);
 });
