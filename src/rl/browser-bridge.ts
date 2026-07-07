@@ -410,6 +410,68 @@ async function advanceWithAutoDismiss(router: PhaseRouter, timeoutMs?: number | 
   }
 }
 
+// ── Cinematic Fast-Forward ────────────────────────────────────────────
+
+/**
+ * Cinematic phases whose animations are pure presentation for RL purposes:
+ * evolutions, form changes and egg hatches run 15-20s of clock-driven beats
+ * (delayedCalls, tween counters, fanfares) that on slow/software-rendered
+ * browsers stretch into minutes and read as a hang. The underlying LOGIC
+ * (pokemon.evolve(), learn-move queueing, dex updates) is clock-independent,
+ * so instead of replicating it we "cut the animations, keep the logic" by
+ * time-warping the scene clocks while one of these phases is current — the
+ * exact same game code runs, just compressed. Rendered-only; headless mock
+ * tweens already complete synchronously.
+ */
+const CINEMATIC_PHASES = new Set([
+  "EvolutionPhase",
+  "EndEvolutionPhase",
+  "FormChangePhase",
+  "EggHatchPhase",
+  "EggSummaryPhase",
+]);
+const CINEMATIC_TIMESCALE = 50;
+
+/** Start the cinematic watcher; returns a stop function. */
+function startCinematicFastForward(): () => void {
+  let warped = false;
+  const setScale = (scale: number) => {
+    try {
+      const scene = globalScene as unknown as { time?: { timeScale: number }; tweens?: { timeScale: number } };
+      if (scene.time) {
+        scene.time.timeScale = scale;
+      }
+      if (scene.tweens) {
+        scene.tweens.timeScale = scale;
+      }
+    } catch {
+      /* scene mid-teardown */
+    }
+  };
+  const tick = setInterval(() => {
+    try {
+      const phaseName = globalScene.phaseManager?.getCurrentPhase()?.phaseName ?? "";
+      const wantWarp = CINEMATIC_PHASES.has(phaseName);
+      if (wantWarp && !warped) {
+        warped = true;
+        console.log(`[RL Bridge] Fast-forwarding cinematic: ${phaseName} (x${CINEMATIC_TIMESCALE})`);
+        setScale(CINEMATIC_TIMESCALE);
+      } else if (!wantWarp && warped) {
+        warped = false;
+        setScale(1);
+      }
+    } catch {
+      /* ignore — next tick retries */
+    }
+  }, 200);
+  return () => {
+    clearInterval(tick);
+    if (warped) {
+      setScale(1);
+    }
+  };
+}
+
 // ── Phase Change Wait ─────────────────────────────────────────────────
 
 /**
@@ -579,6 +641,8 @@ async function startBridge(): Promise<void> {
   // Reward bookkeeping shared with the headless CLI (episode-runtime.ts) so a
   // rendered episode reports the same rewards headless training would.
   const tracker = new EpisodeRewardTracker(urlParams.rewardConfig ?? undefined);
+  // Compress evolution/form-change/egg cinematics to ~nothing (logic intact)
+  const stopCinematicFastForward = startCinematicFastForward();
   // Track which setup phases have been handled to avoid re-processing them.
   // In the browser, async asset loading means phases can stay "current" longer
   // than in headless mode, causing re-detection.
@@ -766,6 +830,7 @@ async function startBridge(): Promise<void> {
   updateIndicator(indicator, `Done (${step} steps)`, "rgba(100,100,0,0.8)");
 
   // Cleanup
+  stopCinematicFastForward();
   router.destroy();
   console.log(`[RL Bridge] Session ended after ${step} steps`);
 }

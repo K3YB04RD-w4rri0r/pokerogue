@@ -395,6 +395,54 @@ export class ModifierSelectUiHandler extends AwaitableUiHandler {
     return true;
   }
 
+  /**
+   * RL helper: render the shop fully-formed immediately — every reward and
+   * shop option in its final revealed state, buttons visible, cursor set,
+   * input armed — instead of the staggered multi-second reveal chain. The
+   * RL runner cancels the chain's scheduled work and calls this right after
+   * show(), so nothing animation-dependent is left pending ("show
+   * everything at the same time, without animations").
+   *
+   * @param onActionInput - The modifier-select callback show() received
+   *  (its args[2]); armed exactly as the reveal chain's final step would.
+   */
+  revealAllInstantly(onActionInput?: (rowCursor: number, cursor: number) => boolean): void {
+    for (const option of this.options) {
+      option.revealInstantly();
+    }
+    for (const option of this.shopOptionsRows.flat()) {
+      option.revealInstantly();
+    }
+
+    // Button visibility, mirroring the reveal chain's delayed block
+    const partyHasHeldItem =
+      this.player
+      && globalScene.findModifiers(m => m instanceof PokemonHeldItemModifier && m.isTransferable).length > 0;
+    const canLockRarities = !!globalScene.findModifier(m => m instanceof LockModifierTiersModifier);
+    const dimmed = this.rerollCost < 0 ? 0.5 : 1;
+    this.transferButtonContainer.setVisible(!!partyHasHeldItem).setAlpha(1);
+    this.rerollButtonContainer.setVisible(true).setAlpha(dimmed);
+    this.checkButtonContainer.setVisible(true).setAlpha(1);
+    this.lockRarityButtonContainer.setVisible(canLockRarities).setAlpha(dimmed);
+    this.continueButtonContainer.setVisible(this.rerollCost < 0).setAlpha(1);
+
+    // Cursor + input arming, mirroring the chain's completion step
+    if (globalScene.shopCursorTarget === ShopCursorTarget.CHECK_TEAM) {
+      this.setRowCursor(0);
+      this.setCursor(2);
+    } else if (globalScene.shopCursorTarget === ShopCursorTarget.SHOP && !globalScene.gameMode.getShopStatus()) {
+      this.setRowCursor(ShopCursorTarget.REWARDS);
+      this.setCursor(0);
+    } else {
+      this.setRowCursor(globalScene.shopCursorTarget);
+      this.setCursor(0);
+    }
+    this.awaitingActionInput = true;
+    if (onActionInput) {
+      this.onActionInput = onActionInput as (typeof this)["onActionInput"];
+    }
+  }
+
   processInput(button: Button): boolean {
     const ui = this.getUi();
 
@@ -785,20 +833,15 @@ class ModifierOption extends Phaser.GameObjects.Container {
     this.setup();
   }
 
-  override destroy(fromScene?: boolean): void {
-    // Cancel the pending reward-reveal timer before our sprites are torn down.
-    // It is a fire-and-forget delayedCall(+2s) that calls setTexture / tweens on
-    // this.pb etc.; if the shop is dismissed before it fires (fast automated play
-    // via the RL bridge), it would otherwise run on already-destroyed sprites —
-    // "Cannot read properties of undefined (reading 'sys')".
-    this.revealTimer?.remove();
-    this.revealTimer = null;
-    // Kill every tween/chain animating this option's sprite tree. Phaser
-    // tweens do NOT stop when their targets are destroyed, and the upgrade
-    // reveal chains (show(), tweens.chain with multi-second delays for
-    // upgraded rewards) call setTexture/setPosition on this.pb / this.pbTint
-    // from onStart/onComplete — firing after a fast shop dismissal crashes
-    // with the same "reading 'sys'" TypeError during a later phase.
+  /**
+   * Kill every tween/chain animating this option's sprite tree. Phaser
+   * tweens do NOT stop when their targets are destroyed, and the upgrade
+   * reveal chains (show(), tweens.chain with multi-second delays for
+   * upgraded rewards) call setTexture/setPosition on this.pb / this.pbTint
+   * from onStart/onComplete — firing after a fast shop dismissal crashes
+   * with a "reading 'sys'" TypeError during a later phase.
+   */
+  private killSpriteTreeTweens(): void {
     try {
       const targets: object[] = [];
       const walk = (obj: { list?: unknown[] }): void => {
@@ -812,6 +855,43 @@ class ModifierOption extends Phaser.GameObjects.Container {
     } catch {
       // scene may already be tearing down
     }
+  }
+
+  /**
+   * RL helper: skip the staggered reveal entirely — cancel this option's
+   * pending reveal work and jump every sprite to its final revealed state
+   * (the state the animation chain would have reached). Used by the RL
+   * runner so the shop renders fully-formed in a single frame.
+   */
+  revealInstantly(): void {
+    this.revealTimer?.remove();
+    this.revealTimer = null;
+    this.killSpriteTreeTweens();
+    try {
+      // Reward options: the pokeball is opened, faded and destroyed by the
+      // end of the reveal; tint flashes are gone.
+      this.pb?.destroy();
+      this.pbTint?.setVisible(false);
+      if (this.itemTint) {
+        this.itemTint.destroy();
+      }
+      this.itemContainer?.setAlpha(1).setScale(2);
+      this.itemText?.setAlpha(1).setY(25);
+      this.itemCostText?.setAlpha(1).setY(35);
+    } catch {
+      /* best-effort — mocked display objects may lack some members */
+    }
+  }
+
+  override destroy(fromScene?: boolean): void {
+    // Cancel the pending reward-reveal timer before our sprites are torn down.
+    // It is a fire-and-forget delayedCall(+2s) that calls setTexture / tweens on
+    // this.pb etc.; if the shop is dismissed before it fires (fast automated play
+    // via the RL bridge), it would otherwise run on already-destroyed sprites —
+    // "Cannot read properties of undefined (reading 'sys')".
+    this.revealTimer?.remove();
+    this.revealTimer = null;
+    this.killSpriteTreeTweens();
     super.destroy(fromScene);
   }
 

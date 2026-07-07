@@ -831,3 +831,76 @@ followed by the shop no longer rendering.
   flows + reroll) with ZERO page errors, shop renders at the decision
   (screenshot-checked); headless quick suite green, smoke episode
   bit-identical (74 steps, 50.74).
+
+---
+
+## 2026-07-07 — Ghost sprites (headless-only killAll), cinematic fast-forward, stable policy seeds
+
+Three user reports from rendered bug hunting, each root-caused:
+
+- **Ghost pokemon (two sprites stacked, ~wave 30)**: the shop show() patch
+  ran `tweens.killAll()` + `time.removeAllEvents()` on shop entry. Safe in
+  HEADLESS (battle anims resolved synchronously by then — and still done
+  there), but in the BROWSER the previous battle's return/faint animations
+  genuinely overlap the shop opening; killing them strands the onComplete
+  that hides/removes the outgoing sprite. Now gated to headless
+  (`inNodeEnv`); the browser relies on the targeted cleanup that has since
+  landed (reveal-chain capture + ModifierOption.destroy tween kill).
+- **Evolutions hang the game (rendered)**: the evolution cinematic is
+  15-20s of clock-driven beats that stretch into minutes on slow browsers,
+  plus an asset-load await with zero clock activity (invisible to the
+  sliding timeout). Per "keep the logic, cut the animations": the bridge
+  now TIME-WARPS the scene clocks (x50) while a cinematic phase is current
+  (EvolutionPhase, EndEvolutionPhase, FormChangePhase, EggHatchPhase,
+  EggSummaryPhase) and restores them after — the exact same game code runs
+  (evolve(), learn-move queueing, dex updates), just compressed. Bridge
+  only; headless untouched.
+- **Same-seed runs diverging from wave 1**: RandomPolicy derived its RNG
+  seed via Python's per-process-salted `hash(str)` (PYTHONHASHSEED), so
+  "seeded" random runs picked different ACTIONS every launch — the game
+  seed was fine. Now zlib.crc32 (stable across processes). Rendered
+  determinism = seeded game + deterministic action sequence; with this fix
+  two same-seed random runs replay identically (validated E2E: identical
+  step/phase/wave/action/reward traces).
+
+Ops note: RL test servers now run on a separate port from the user's dev
+server (vite auto-increments; repro scripts must target their own port —
+earlier probes on :8000 collided with the user's live session).
+
+
+---
+
+## 2026-07-07 — Shop renders instantly ("show everything at once, no animations")
+
+User-suggested and strictly better than managing the reveal chain: the
+shop's staggered reveal (reward counter tween -> per-option reveal timers
+-> shop-row delayedCall -> button fades, 3-9s of presentation) is now
+skipped entirely in RL mode.
+
+- New game-side helpers: `ModifierOption.revealInstantly()` (cancel the
+  option's pending reveal work; jump sprites to the exact final state) and
+  `ModifierSelectUiHandler.revealAllInstantly()` (all rewards + shop rows +
+  buttons, cursor target + awaitingActionInput/onActionInput armed —
+  mirrors the chain's completion step).
+- The RL show() patch runs the original show() inside a SYNCHRONOUS-window
+  scheduler capture (`captureScheduledDuring`): the counter tween and the
+  shop-row delayedCall are created synchronously and the entire async
+  remainder spawns from them, so cancelling those two at birth kills the
+  whole chain with zero foreign-capture risk. Then `revealAllInstantly()`.
+- SUPERSEDED AND REMOVED (per the failed-fixes policy): the persistent
+  ephemera-capture system (`captureShopEphemera`/`cancelShopEphemera`, the
+  handler-attached `__rlShopEphemera`, and per-action `cancelShopReveal()`
+  call-sites). It kept wrappers installed between show() and the next agent
+  action; it prevented the chrome pop-ins but is the prime suspect for the
+  "buy options don't render" report (reveal timers suppressed/cancelled in
+  legitimate flows) and carried foreign-capture risk by design. With the
+  chain cancelled at birth and the UI rendered instantly, there is nothing
+  left for it to manage.
+- Structurally closes: invisible shop/buy rows, mid-battle chrome pop-ins,
+  and the destroyed-sprite tween-crash class (the chain never lives long
+  enough to dangle; ModifierOption.destroy() hardening stays as a belt).
+
+Also in this batch: rendered E2E harness (`tools/verify/check_rendered.py`,
+opt-in V16 via RL_VERIFY_RENDERED=1 — self-hosts vite on a strict isolated
+port), obs-audit Phase 1 tooling (`tools/verify/audit_obs_redundancy.py`)
+and the audit plan (`src/rl/docs/OBS_AUDIT_PLAN.md`).

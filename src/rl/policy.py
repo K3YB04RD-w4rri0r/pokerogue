@@ -33,6 +33,7 @@ one-hots them (dims named ``phase/*`` in feature_names.py).
 
 from __future__ import annotations
 
+import zlib
 from typing import Mapping, Protocol, runtime_checkable
 
 import numpy as np
@@ -54,7 +55,11 @@ class RandomPolicy:
     """Uniformly random LEGAL action — a baseline and a great fuzzer."""
 
     def __init__(self, seed: int | str | None = None):
-        derived = abs(hash(seed)) % (2**32) if isinstance(seed, str) else seed
+        # String seeds must derive a STABLE integer: Python's hash() is salted
+        # per process (PYTHONHASHSEED), which made "seeded" random runs pick
+        # different actions every launch — observed as same-seed rendered runs
+        # diverging from wave 1. crc32 is deterministic across processes.
+        derived = zlib.crc32(seed.encode()) if isinstance(seed, str) else seed
         self._rng = np.random.default_rng(derived)
 
     def act(self, obs: np.ndarray, mask: np.ndarray, info: dict) -> int:

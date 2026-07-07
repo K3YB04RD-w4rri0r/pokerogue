@@ -69,6 +69,11 @@ if [ "$MODE" != "quick" ]; then
   python3 tools/verify/check_mask_gating.py
 fi
 
+if [ "${RL_VERIFY_RENDERED:-}" = "1" ]; then
+  step "V16 rendered E2E (headless Chromium; needs playwright, slow on software rendering)"
+  python3 tools/verify/check_rendered.py
+fi
+
 step "V7 determinism (auto)"
 python3 tools/verify/check_determinism.py --seed verify-det --waves 6 --mode auto
 
