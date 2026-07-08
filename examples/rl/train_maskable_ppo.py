@@ -46,6 +46,17 @@ def main() -> int:
         help="parallel game processes (SubprocVecEnv); each is a full headless game "
         "(~250MB rss, ~1 core). Rule of thumb: cores - 2. Default: train.num_envs or 1",
     )
+    ap.add_argument("--device", default=None, help="torch device (cpu | cuda | cuda:0); default train.device or auto")
+    ap.add_argument(
+        "--net-arch",
+        default=None,
+        help="comma-separated hidden sizes, e.g. 1024,512 — sb3's default 64,64 is undersized "
+        "for the 6,991-dim observation; default train.net_arch or sb3 default",
+    )
+    ap.add_argument("--n-steps", type=int, default=None, help="rollout length per env (default train.n_steps or 256)")
+    ap.add_argument("--checkpoint-every", type=int, default=None,
+                    help="save <save>.ckpt-<steps>.zip every N timesteps (default train.checkpoint_every; 0=off)")
+    ap.add_argument("--tensorboard", default=None, help="tensorboard log dir (default train.tensorboard)")
     args = ap.parse_args()
 
     cfg = load_run_config(args.config) if args.config else RunConfig()
@@ -74,8 +85,37 @@ def main() -> int:
     else:
         env = make_env(0)()
 
-    model = MaskablePPO("MlpPolicy", env, verbose=1, n_steps=256, batch_size=64)
-    model.learn(total_timesteps=timesteps)
+    device = args.device or cfg.train.get("device") or "auto"
+    net_arch_raw = args.net_arch or cfg.train.get("net_arch")
+    policy_kwargs = {}
+    if net_arch_raw:
+        policy_kwargs["net_arch"] = [int(x) for x in str(net_arch_raw).split(",")]
+    n_steps = args.n_steps if args.n_steps is not None else int(cfg.train.get("n_steps", 256))
+    tb = args.tensorboard or cfg.train.get("tensorboard")
+
+    model = MaskablePPO(
+        "MlpPolicy",
+        env,
+        verbose=1,
+        n_steps=n_steps,
+        batch_size=int(cfg.train.get("batch_size", 64)),
+        device=device,
+        policy_kwargs=policy_kwargs or None,
+        tensorboard_log=tb,
+    )
+
+    callback = None
+    ckpt_every = args.checkpoint_every if args.checkpoint_every is not None else int(cfg.train.get("checkpoint_every", 0))
+    if ckpt_every and save_path:
+        from stable_baselines3.common.callbacks import CheckpointCallback
+
+        ckpt_dir = str(Path(save_path).parent)
+        callback = CheckpointCallback(
+            save_freq=max(ckpt_every // max(num_envs, 1), 1),
+            save_path=ckpt_dir,
+            name_prefix=Path(save_path).stem + ".ckpt",
+        )
+    model.learn(total_timesteps=timesteps, callback=callback)
 
     if save_path:
         model.save(save_path)
