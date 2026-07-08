@@ -1003,3 +1003,34 @@ wave 34) after less than an hour of training — the observation carries
 learnable signal, the mask/reward/protocol/trainer/eval stack works end
 to end. Next: horizon-extension curriculum at scale (docs/
 TRAINING_SERVER.md).
+
+---
+
+## 2026-07-08 — Audit round 2: wave cap is real, truncation carries the true final obs
+
+Self-directed audit (3 parallel reviews: env lifecycle, rendered path,
+Python API). Confirmed and fixed:
+
+- **--waves was a STEP cap (waves*50), not a wave cap** — the wave check
+  existed only on the unused auto path. Training/eval episodes ran past
+  the configured horizon (eval reached wave 34 under waves=20), and the
+  curriculum docs' promises were false. Now: the episode ends as
+  truncated at the FIRST DECISION of wave N+1 (plays through wave N);
+  waves*50 stays as a safety backstop. Both transports.
+- **Truncated episodes handed sb3 a ZERO final observation** — `done`
+  carried only {steps}; the env zero-filled obs and reward, so the
+  TimeLimit bootstrap used V(zeros) on every capped episode. Now `done`
+  carries the final decision's obsB64/mask/reward/wave (+gameState when
+  not lean) and the env consumes them. Verified E2E: waves=3 truncates at
+  wave 4's first decision with a real obs and the wave-clear reward.
+- **SMOKE ANCHOR RE-BASELINED (deliberate)**: verify-q1/waves=6 was
+  74 steps / reward 50.74 (game_over — the loose cap let it run to a
+  death at wave 7+). Under correct semantics: **49 steps / reward 101.83 /
+  wave_cap truncation**. Representation unchanged (goldens untouched);
+  SEMANTICS deliberately fixed.
+- eval_policy: read info["victory"] (was a never-set key), record
+  terminated/truncated, add win%/budget% columns.
+- run_config: unknown train.* keys now warn (typos fell to defaults).
+- CI: setup-python cache needed cache-dependency-path (first GitHub run
+  failed there). stderr_log now truncates per spawn. Doc-drift fixes
+  (observation.py header, README protocol line).

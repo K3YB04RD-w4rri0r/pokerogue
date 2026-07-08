@@ -37,7 +37,17 @@ def run_episode(env: PokeRogueEnv, policy, seed: str) -> dict:
             break
     gs = info.get("game_state") or {}
     wave = ((gs.get("battle") or {}).get("wave_index")) or info.get("wave")
-    return {"reward": total, "steps": steps, "wave": wave, "victory": info.get("is_victory")}
+    return {
+        "reward": total,
+        "steps": steps,
+        "wave": wave,
+        # env sets info["victory"] only on real game_over; a wave-budget
+        # stop is truncated (no victory key) — keep the three outcomes
+        # distinguishable in metrics
+        "victory": bool(info.get("victory")),
+        "terminated": terminated,
+        "truncated": truncated,
+    }
 
 
 def main() -> int:
@@ -58,18 +68,24 @@ def main() -> int:
         for i in range(args.episodes):
             r = run_episode(env, policy, seed=f"{args.seed_prefix}-{i}")
             runs.append(r)
-            print(f"  [{name}] ep {i}: reward={r['reward']:.2f} steps={r['steps']} wave={r['wave']}", flush=True)
+            outcome = "win" if r["victory"] else ("loss" if r["terminated"] else "budget")
+            print(
+                f"  [{name}] ep {i}: reward={r['reward']:.2f} steps={r['steps']} wave={r['wave']} ({outcome})",
+                flush=True,
+            )
         env.close()
         results[name] = runs
         print(f"[{name}] {args.episodes} eps in {time.time() - t0:.0f}s", flush=True)
 
-    print(f"\n{'policy':<40} {'mean_reward':>12} {'median':>9} {'mean_wave':>10}")
+    print(f"\n{'policy':<40} {'mean_reward':>12} {'median':>9} {'mean_wave':>10} {'win%':>6} {'budget%':>8}")
     for name, runs in results.items():
         rewards = [r["reward"] for r in runs]
         waves = [r["wave"] for r in runs if r["wave"] is not None]
+        wins = sum(1 for r in runs if r["victory"]) / len(runs)
+        budget = sum(1 for r in runs if r["truncated"]) / len(runs)
         print(
             f"{name:<40} {statistics.mean(rewards):>12.2f} {statistics.median(rewards):>9.2f} "
-            f"{(statistics.mean(waves) if waves else float('nan')):>10.1f}"
+            f"{(statistics.mean(waves) if waves else float('nan')):>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}%"
         )
     return 0
 

@@ -102,7 +102,8 @@ def run_episode(
                 continue
             if mtype == "done":
                 if result["result"] == "incomplete":
-                    result["result"] = "step_cap"
+                    # done carries reason since the B1 fix: wave_cap | step_cap
+                    result["result"] = msg.get("reason", "step_cap")
                 result["steps"] = int(msg.get("steps", result["steps"]))
                 break
             if mtype != "state":
@@ -203,7 +204,7 @@ def main() -> int:
             all_phases[p] = all_phases.get(p, 0) + c
 
         ok = (
-            r["result"] in ("game_over", "step_cap")
+            r["result"] in ("game_over", "step_cap", "wave_cap")
             and not r["unexpected_warnings"]
             and not r["errors"]
             and r["probes_acknowledged"] == r["probes_sent"]

@@ -719,6 +719,9 @@ async function startBridge(): Promise<void> {
   // Reward bookkeeping shared with the headless CLI (episode-runtime.ts) so a
   // rendered episode reports the same rewards headless training would.
   const tracker = new EpisodeRewardTracker(urlParams.rewardConfig ?? undefined);
+  // Set when the episode ends by a cap — the final done message then carries
+  // the true final observation/reward (mirrors the headless CLI).
+  let capPayload: Record<string, unknown> | null = null;
   // Evolutions: run the logic, skip the cinematic entirely
   installInstantEvolution();
   // Compress remaining cinematics (form change, egg hatch) — logic intact
@@ -729,7 +732,7 @@ async function startBridge(): Promise<void> {
   const handledSetupPhases = new Set<string>();
 
   try {
-    while (wsOpen && (maxSteps === null || step < maxSteps)) {
+    while (wsOpen) {
       // Advance to the next decision point, auto-dismissing any blocking
       // MESSAGE dialogs (battle narration, tutorials, etc.) along the way
       let state: PhaseState;
@@ -845,6 +848,21 @@ async function startBridge(): Promise<void> {
       // bitwise parity-verified, so either source is valid).
       const obs = encodeObservation(gameState, { fogOfWar: urlParams.fogOfWar });
 
+      // REAL wave cap (+ N*50 step backstop), matching the headless CLI: end
+      // as truncated at a genuine decision state so the final observation is
+      // real, not zeros. null waves = unbounded (watching mode).
+      if (urlParams.waves !== null && (wave > urlParams.waves || (maxSteps !== null && step >= maxSteps))) {
+        capPayload = {
+          reason: wave > urlParams.waves ? "wave_cap" : "step_cap",
+          reward,
+          obsB64: obsToBase64(obs),
+          mask: state.actionMask,
+          wave,
+          gameState,
+        };
+        break;
+      }
+
       // Send state to Python
       sendWS(ws, {
         type: "state",
@@ -905,7 +923,7 @@ async function startBridge(): Promise<void> {
   }
 
   // Send completion message
-  sendWS(ws, { type: "done", steps: step });
+  sendWS(ws, { type: "done", steps: step, ...(capPayload ?? {}) });
 
   updateIndicator(indicator, `Done (${step} steps)`, "rgba(100,100,0,0.8)");
 

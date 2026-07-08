@@ -60,6 +60,14 @@ REWARD_CONFIG_KEYS = frozenset({
 })
 
 # PokeRogueEnv constructor kwargs accepted in the `env:` section.
+# Known train: section keys (consumed by examples/rl/train_maskable_ppo.py).
+# Unknown keys warn — a typo like `timestep:` would otherwise silently fall
+# back to the default.
+TRAIN_CONFIG_KEYS = frozenset({
+    "timesteps", "save", "num_envs", "n_steps", "net_arch", "device",
+    "checkpoint_every", "tensorboard", "batch_size",
+})
+
 ENV_KWARG_KEYS = frozenset({
     "cli_path", "node_bin", "step_timeout", "boot_timeout", "stderr_log",
     "lean", "respawn", "respawn_every", "fog_of_war",
@@ -221,6 +229,9 @@ def _validate(cfg: RunConfig) -> None:
     unknown_env = set(cfg.env) - ENV_KWARG_KEYS
     if unknown_env:
         raise RunConfigError(f"env section: unknown PokeRogueEnv kwargs {sorted(unknown_env)}")
+    unknown_train = set(cfg.train) - TRAIN_CONFIG_KEYS
+    if unknown_train:
+        warnings.warn(f"run config: unknown train keys {sorted(unknown_train)} (the trainer will ignore them)")
     if not isinstance(cfg.overrides, dict):
         raise RunConfigError("overrides must be a mapping of DefaultOverrides keys")
 

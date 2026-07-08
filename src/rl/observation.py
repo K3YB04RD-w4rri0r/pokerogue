@@ -3,9 +3,9 @@ Clean observation state: dataclasses, parser, and encoder for RL.
 
 Converts the raw GameState JSON dict (364 fields, 35 TypedDicts) into typed
 dataclasses with all strings mapped to unique integers, then encodes into a
-fixed-size float32 observation vector compatible with spaces.ts (9,875 dims).
+fixed-size float32 observation vector compatible with spaces.ts (6,991 dims).
 
-Layout (9,875 float32):
+Layout (6,991 float32):
   Pokemon block:            771 dims x 12 slots = 9,252
   Field block:              94
   Battle block:             40
@@ -18,7 +18,7 @@ Usage:
     from observation import parse_game_state, encode_observation, extract_action_mask
 
     state = parse_game_state(raw_json)  # dict -> CleanGameState
-    obs = encode_observation(state)      # -> np.ndarray(9875, float32)
+    obs = encode_observation(state)      # -> np.ndarray(6991, float32)
     mask = extract_action_mask(state)    # -> np.ndarray(58, bool)
 """
 
@@ -1241,7 +1241,7 @@ def parse_game_state(raw: dict) -> CleanGameState:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ENCODING: CleanGameState -> float32 vector (5,450 dims)
+# ENCODING: CleanGameState -> float32 vector (6,991 dims)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _clamp(v: float, lo: float, hi: float) -> float:

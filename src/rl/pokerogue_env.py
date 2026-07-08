@@ -307,7 +307,9 @@ class PokeRogueEnv(gym.Env):
             cmd.append(f"--starters={self._starters}")
         # stderr must be discarded or drained: an unread PIPE deadlocks node at 64KB
         if self._stderr_log:
-            self._stderr_fh = open(self._stderr_log, "a")
+            # "w": fresh log per process generation — append mode grows
+            # unbounded across respawn_every recycles on long runs
+            self._stderr_fh = open(self._stderr_log, "w")
         else:
             self._stderr_fh = subprocess.DEVNULL
         self._proc = subprocess.Popen(

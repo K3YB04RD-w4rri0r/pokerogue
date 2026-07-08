@@ -285,7 +285,7 @@ prompt — type `h` for the list (inspect modifiers, field, party, etc.). `q` qu
 
 ## Developer reference
 
-- **Observation:** 10,403 float32 dims (protocolVersion 4 / obs v8). The TypeScript
+- **Observation:** 6,991 float32 dims (protocolVersion 5 / obs v9). The TypeScript
   encoder (`spaces.ts`) is the wire authority; `observation.py` mirrors it bitwise.
   See `docs/OBSERVATION_BUILDING.md` and `docs/OBSERVATION_CHUNKS.md`.
 - **Reward:** `rewards.ts` (14 base + shaped components).

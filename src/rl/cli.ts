@@ -512,8 +512,13 @@ async function runInteractiveEpisode(
   // transports report identical rewards for the same trajectory.
   const tracker = new EpisodeRewardTracker(options.rewardConfig ?? undefined);
 
+  // Set when the episode ends by a cap (wave or step backstop): the final
+  // done message then carries the true final observation/reward so the
+  // learner's truncation bootstrap uses V(s_final), not V(zeros).
+  let capPayload: Record<string, unknown> | null = null;
+
   try {
-    while (step < MAX_STEPS) {
+    while (true) {
       let state: PhaseState;
       const tAdvance = now();
       try {
@@ -594,6 +599,23 @@ async function runInteractiveEpisode(
       const obs = encodeObservation(gameState, { fogOfWar: options.fogOfWar });
       prof.encode += now() - tEncode;
       const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
+
+      // REAL wave cap (+ the old step count as a safety backstop): end the
+      // episode as truncated at a genuine decision state. wave > maxWaves
+      // fires at the first decision of wave N+1, so the episode plays
+      // THROUGH wave N. Before this check, --waves was a step cap only
+      // (waves*50) and capped episodes ended with a zero observation.
+      if (wave > options.maxWaves || step >= MAX_STEPS) {
+        capPayload = {
+          reason: wave > options.maxWaves ? "wave_cap" : "step_cap",
+          reward,
+          obsB64: obsToBase64(obs),
+          mask: state.actionMask,
+          wave,
+          ...(options.lean ? {} : { gameState }),
+        };
+        break;
+      }
 
       // Send state to Python. The TS encoding is the wire authority: obsB64 +
       // mask are always present; --lean drops the bulky gameState JSON.
@@ -682,7 +704,7 @@ async function runInteractiveEpisode(
   }
 
   dumper?.write({ v: 1, kind: "summary", seed: options.seed, steps: step });
-  sendJson({ type: "done", steps: step });
+  sendJson({ type: "done", steps: step, ...(capPayload ?? {}) });
 }
 
 // ─── Main ──────────────────────────────────────────────────────────
