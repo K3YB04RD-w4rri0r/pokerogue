@@ -33,6 +33,7 @@ import argparse
 import base64
 import glob as globlib
 import json
+import re
 import sys
 from collections import defaultdict
 
@@ -172,7 +173,43 @@ def main() -> int:
         if d in exact_dup_set:
             block_stats[b]["dup"] += 1
 
+    # ── lane-collapsed deadness (uniform-slot metric) ─────────────────
+    # A LANE merges semantically-identical positions across slots (pokemon
+    # slots, move slots, shop/reward slots, item channels, sides). In a
+    # uniform-slot layout, a lane proves itself if ANY slot exercises it;
+    # per-slot deadness merely reflects party sizes and item draws. This is
+    # the v9 acceptance metric (see docs/OBS_V9_LAYOUT.md §6).
+    def lane_of(name: str) -> str:
+        n = re.sub(r"^(player|enemy)_\d/", "mon/", name)
+        n = re.sub(r"/moves\[\d\]/", "/moves[]/", n)
+        n = re.sub(r"^shop/(item|reward)\[\d+\]/", r"shop/\1[]/", n)
+        n = re.sub(r"^inventory/held/[a-z_0-9]+/item\[\d\]/", "inventory/held/item[]/", n)
+        n = re.sub(r"^inventory/held/[a-z_0-9]+/", "inventory/held/", n)
+        n = re.sub(r"^field/(player|enemy)_", "field/side_", n)
+        return n
+
+    dead_names = set(dim_to_name(int(d)) for d in dead)
+    lanes_total: dict[str, int] = defaultdict(int)
+    lanes_dead: dict[str, int] = defaultdict(int)
+    for di in range(n_dims):
+        k = lane_of(dim_to_name(di))
+        lanes_total[k] += 1
+        if dim_to_name(di) in dead_names:
+            lanes_dead[k] += 1
+    dead_lanes = sorted(k for k in lanes_total if lanes_dead[k] == lanes_total[k])
+    lane_dead_dims = sum(lanes_total[k] for k in dead_lanes)
+    print(
+        f"lane-collapsed: {len(dead_lanes)}/{len(lanes_total)} lanes fully dead "
+        f"({lane_dead_dims} dims, {100 * lane_dead_dims / n_dims:.2f}%)"
+    )
+
     ledger = {
+        "lanes": {
+            "total": len(lanes_total),
+            "fully_dead": len(dead_lanes),
+            "fully_dead_dims": lane_dead_dims,
+            "dead_lanes": dead_lanes,
+        },
         "corpus": {"steps": n_steps, "episodes": n_episodes, "globs": args.globs},
         "summary": {
             "dims": n_dims,
