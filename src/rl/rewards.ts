@@ -92,8 +92,6 @@ export interface StateSnapshot {
 export class RewardCalculator {
   private config: RewardConfig;
   private prevSnapshot: StateSnapshot | null = null;
-  /** Monotonically increasing player faint counter (RB2: survives revives) */
-  private cumulativePlayerFaints = 0;
   /** Monotonically increasing catch counter (RB3: survives party size decreases) */
   private cumulativeCatches = 0;
 
@@ -211,18 +209,27 @@ export class RewardCalculator {
       reward += this.config.enemyKo * enemyKoDelta;
     }
 
-    // [RB2] Player KOs — use cumulative counter that never decrements on revive
-    if (postSnap.playerFaints > this.cumulativePlayerFaints) {
-      const newFaints = postSnap.playerFaints - this.cumulativePlayerFaints;
-      reward += this.config.playerKo * newFaints;
-      this.cumulativePlayerFaints = postSnap.playerFaints;
+    // [RB2] Player KOs — per-step delta of the game's cumulative faint
+    // counter (arena.playerFaints, snapshot source), mirroring enemyKo. The
+    // old approach counted currently-fainted party members and max-tracked
+    // them, so a faint→revive→faint of the same mon was NOT penalized the
+    // second time (the max never rose). arena.playerFaints is monotonic
+    // within an arena, so a genuine re-faint now scores; a biome-reset
+    // decrement is a negative delta and is ignored, exactly like enemyKo.
+    const playerKoDelta = postSnap.playerFaints - pre.playerFaints;
+    if (playerKoDelta > 0) {
+      reward += this.config.playerKo * playerKoDelta;
     }
 
     // [RB4] Wave cleared — reward per wave advanced, not just once
     if (postSnap.waveIndex > pre.waveIndex) {
       const wavesAdvanced = postSnap.waveIndex - pre.waveIndex;
-      // Boss wave check on the final wave cleared
-      const isBossWave = postSnap.waveIndex % 10 === 0;
+      // Boss wave check on the wave that was CLEARED, not the one arrived at.
+      // postSnap.waveIndex is the new wave; the boss lives AT waves %10==0, so
+      // beating it means arriving at %10==1. Keying on postSnap.waveIndex
+      // paid the boss bonus for clearing the trivial wave 9/19/... and only
+      // the regular reward for actually beating the boss (bug fixed 2026-07-08).
+      const isBossWave = (postSnap.waveIndex - 1) % 10 === 0;
       if (wavesAdvanced === 1) {
         reward += isBossWave ? this.config.bossWaveCleared : this.config.waveCleared;
       } else {
@@ -286,7 +293,6 @@ export class RewardCalculator {
   /** Reset the calculator for a new episode */
   reset(): void {
     this.prevSnapshot = null;
-    this.cumulativePlayerFaints = 0;
     this.cumulativeCatches = 0;
   }
 

@@ -1086,3 +1086,57 @@ byte-identical RESET observation on both transports (the reset obs encodes
 the whole starting party, so it proves cross-transport party determinism +
 encoder equivalence; this is what caught the party bug). Full-trajectory
 identity is deliberately NOT gated — see the rendered switch quirk above.
+
+---
+
+## 2026-07-08 — Reward + mask audit (round 5): correctness fixes
+
+Two focused audits (reward-function correctness; mask/action-execution
+fidelity). CONFIRMED bugs fixed:
+
+- **Boss reward off-by-one (rewards.ts)**: `isBossWave` keyed on
+  `postSnap.waveIndex % 10` — the wave ARRIVED at, not cleared. It paid
+  the +25 boss bonus for clearing the trivial wave 9/19/… and only the
+  regular +10 for actually beating the boss at wave 10/20/…, teaching the
+  agent to value reaching the boss over beating it. Now
+  `(postSnap.waveIndex - 1) % 10 === 0`. Verified E2E: clearing the wave-10
+  boss pays 24.99 vs 9.99 for the pre-boss wave.
+- **playerKo spurious + missed penalties (rewards.ts + episode-runtime.ts)**:
+  the snapshot counted CURRENTLY-fainted party members
+  (`filter(isFainted)`) with max-tracking. Two failure modes: (a) a
+  faint→revive→faint scored only once (max never rose); (b) transient
+  point-in-time reads produced PHANTOM penalties for deaths that never
+  happened — verify-q1 (zero real faints, confirmed via arena.playerFaints
+  AND serialized is_fainted) was carrying 3 phantom −5 penalties. Now uses
+  the game's cumulative `arena.playerFaints` with a positive per-step
+  delta, mirroring enemyKo. Smoke reward corrected 91.14 → 106.14 (the 15
+  phantom points removed); rewards unit tests updated to the corrected
+  behavior.
+- **Ally-target mask over-permissive (phase-router.ts)**: in doubles,
+  NEAR_ALLY/ALLY moves were offered even with no living ally (empty slot /
+  lone survivor) → game rejection. Now gated on a living ally, mirroring
+  the enemy1Active gate; USER_OR_NEAR_ALLY (self-targetable) stays.
+
+Audit confirmed OK (no change): tera execution + masking, doubles target
+BattlerIndex mapping, shop obs/mask/execution index alignment, ball
+gating, struggle, command/switch mapping — the carefully-built paths hold.
+
+KNOWN LIMITATIONS documented (need a future action-space/protocol bump —
+same class as the deferred obs items; NOT silent corruption, all bounded):
+- Golden/Silver Pokéball EXTRA reward slots (>3) are unreachable +
+  unencoded (action space has 3 reward slots). Buying those items is
+  wasted for the policy.
+- Shop items 13-14 at very high waves unreachable (12 buy actions).
+- Move-target modifiers (Memory Mushroom, PP items) always hit move slot
+  0 — no move sub-selection in the action space.
+- Mystery-encounter / select-biome masks can offer an option the game
+  rejects → invalid-action fallback (now visible via info, round-3).
+- Empty-mask edge (switch/revival/target with no legal option) livelocks
+  until the step timeout → graceful truncation (round-3 H2), i.e. a lost
+  episode not a hang; a universal auto-proceed is the proper fix.
+- pokemonCaught fires on any party-size increase, incl. egg hatches
+  (mislabeled trigger, minor).
+
+Reward-DESIGN choices (money scale, farmable modifier/self-heal, HP+KO
+double-weighting) are the researcher's modeling call — surfaced
+separately, not changed unilaterally.

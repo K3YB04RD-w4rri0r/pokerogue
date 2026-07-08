@@ -130,7 +130,11 @@ export class EpisodeRewardTracker {
       playerParty,
       enemyParty,
       scene?.currentBattle?.enemyFaints ?? 0,
-      playerParty.filter((p: { isFainted: () => boolean }) => p.isFainted()).length,
+      // arena.playerFaints is the game's CUMULATIVE player-faint counter (the
+      // player analog to currentBattle.enemyFaints), monotonic within an
+      // arena. The old point-in-time filter(isFainted) under-counted deaths
+      // after a revive — see rewards.ts [RB2].
+      (scene as { arena?: { playerFaints?: number } })?.arena?.playerFaints ?? 0,
       scene?.currentBattle?.waveIndex ?? 0,
       scene?.money ?? 0,
     );

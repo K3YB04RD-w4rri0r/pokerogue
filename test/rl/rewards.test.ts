@@ -87,31 +87,44 @@ describe("RewardCalculator", () => {
     expect(repeat).toBeCloseTo(TP, 9);
   });
 
-  it("[RB2 quirk] faint -> revive -> faint again yields NO second penalty (documented current behavior)", () => {
-    // playerFaints is a count of currently-fainted party members.
-    // The cumulative counter never decrements, so after a revive the next faint
-    // (count returns to 1, not > cumulative 1) goes unpenalized.
-    // This is a probable bug — see Phase 5 triage.
-    step(calc, snap({ playerFaints: 0 }), snap({ playerFaints: 1 })); // penalized, cumulative=1
-    step(calc, snap({ playerFaints: 1 }), snap({ playerFaints: 0 })); // revive
-    const again = step(calc, snap({ playerFaints: 0 }), snap({ playerFaints: 1 }));
-    expect(again).toBeCloseTo(TP, 9); // current behavior: no penalty
+  it("[RB2] every genuine faint is penalized, including after a revive", () => {
+    // playerFaints is now the game's CUMULATIVE faint counter
+    // (arena.playerFaints), monotonic within an arena. Reward is the
+    // positive per-step delta, mirroring enemyKo. A faint→revive→faint of
+    // the same mon therefore scores TWICE (the counter goes 1 then 2); the
+    // old point-in-time-count + max-tracking approach silently dropped the
+    // second faint (bug fixed 2026-07-08).
+    const first = step(calc, snap({ playerFaints: 0 }), snap({ playerFaints: 1 }));
+    expect(first).toBeCloseTo(DEFAULT_REWARD_CONFIG.playerKo + TP, 9);
+    // revive does not change the cumulative counter -> no reward change
+    const revive = step(calc, snap({ playerFaints: 1 }), snap({ playerFaints: 1 }));
+    expect(revive).toBeCloseTo(TP, 9);
+    // second genuine faint: cumulative 1 -> 2, penalized again
+    const again = step(calc, snap({ playerFaints: 1 }), snap({ playerFaints: 2 }));
+    expect(again).toBeCloseTo(DEFAULT_REWARD_CONFIG.playerKo + TP, 9);
   });
 
-  it("rewards wave clears, with boss bonus on every 10th wave", () => {
+  it("rewards wave clears, boss bonus keyed on the wave CLEARED (not arrived at)", () => {
+    // Clearing wave 1 -> arrive at 2: a normal wave.
     const normal = step(calc, snap({ waveIndex: 1 }), snap({ waveIndex: 2 }));
     expect(normal).toBeCloseTo(DEFAULT_REWARD_CONFIG.waveCleared + TP, 9);
 
-    const boss = step(calc, snap({ waveIndex: 9 }), snap({ waveIndex: 10 }));
+    // Clearing wave 9 -> arrive at 10: still a NORMAL clear (wave 9 is not a
+    // boss); the old code wrongly paid the boss bonus here.
+    const preBoss = step(calc, snap({ waveIndex: 9 }), snap({ waveIndex: 10 }));
+    expect(preBoss).toBeCloseTo(DEFAULT_REWARD_CONFIG.waveCleared + TP, 9);
+
+    // Clearing wave 10 (the boss) -> arrive at 11: the boss bonus.
+    const boss = step(calc, snap({ waveIndex: 10 }), snap({ waveIndex: 11 }));
     expect(boss).toBeCloseTo(DEFAULT_REWARD_CONFIG.bossWaveCleared + TP, 9);
   });
 
-  it("[RB4] rewards every wave in a multi-wave skip", () => {
-    // 7 -> 10: two regular waves + boss wave 10
-    const toBoss = step(calc, snap({ waveIndex: 7 }), snap({ waveIndex: 10 }));
+  it("[RB4] rewards every wave in a multi-wave skip, boss on the cleared boss wave", () => {
+    // 8 -> 11: cleared waves 8, 9, 10 — wave 10 is the boss (arrive at 11).
+    const toBoss = step(calc, snap({ waveIndex: 8 }), snap({ waveIndex: 11 }));
     expect(toBoss).toBeCloseTo(2 * DEFAULT_REWARD_CONFIG.waveCleared + DEFAULT_REWARD_CONFIG.bossWaveCleared + TP, 9);
 
-    // 1 -> 3: two regular waves
+    // 1 -> 3: two regular waves, no boss
     const twoWaves = step(calc, snap({ waveIndex: 1 }), snap({ waveIndex: 3 }));
     expect(twoWaves).toBeCloseTo(2 * DEFAULT_REWARD_CONFIG.waveCleared + TP, 9);
   });
