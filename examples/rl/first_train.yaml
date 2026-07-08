@@ -1,0 +1,21 @@
+# First real training run on observation v9 (protocol 5).
+#
+#   python3 examples/rl/train_maskable_ppo.py --config examples/rl/first_train.yaml
+#
+# Scope: a deliberately modest baseline — fixed seed family, 20 waves,
+# default reward weights, full information (fog_of_war off). The point is
+# a clean learning curve to compare against the random / maxdamage
+# baselines (tools/run_policy.py --policy random|maxdamage --waves 20),
+# not a leaderboard number.
+
+seed: v9-train-1
+waves: 20
+
+env:
+  lean: true          # TS-side encoding (fast path)
+  fog_of_war: false   # full information — the oracle baseline trains first
+  respawn_every: 50   # recycle the node process periodically
+
+train:
+  timesteps: 200000
+  save: models/ppo_v9_first.zip

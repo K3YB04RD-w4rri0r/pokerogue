@@ -1,6 +1,21 @@
 {
   "_comment": "Classification of never-varying observation dim GROUPS (see check_dim_exercise.py for status semantics and the group-key collapsing rules). Keys match by prefix against collapsed feature names. Order matters: first match wins, so specific keys go before broad ones.",
   "groups": {
+    "learn_move/offered/type_onehot[": {
+      "status": "sparse-categorical",
+      "reason": "type one-hot bank of the offered move \u2014 one lane per offered-move type; bank reviewed as a unit (layout canary + goldens)",
+      "scenario": "learn-move"
+    },
+    "learn_move/party_index[": {
+      "status": "sparse-categorical",
+      "reason": "learner party-index one-hot \u2014 lane per party slot; which lane lights depends on who levels",
+      "scenario": "learn-move"
+    },
+    "learn_move/": {
+      "status": "unexercised",
+      "reason": "v9 block: offered-move feature scalars vary with WHICH move is offered; a single corpus learn-move scenario lights only that move's features. Block liveness gated separately (nonzero at learn_move decisions).",
+      "scenario": "learn-move"
+    },
     "active-slot/move_effectiveness": {
       "status": "structurally-constant",
       "reason": "the game nulls turn_data.moveEffectiveness at MoveEffectPhase end, before any decision point (move-effect-phase.ts ~900); see UNSOLVED.md U8"
@@ -12,35 +27,65 @@
     "active-slot/is_mega": {
       "status": "unexercised",
       "scenario": "",
-      "reason": "needs a mega evolution: the STARTING_MODIFIER_OVERRIDE bracelet scenario crashes during the title flow (getBattlerCount on null battle) — mid-run bracelet acquisition not scripted yet"
+      "reason": "needs a mega evolution: the STARTING_MODIFIER_OVERRIDE bracelet scenario crashes during the title flow (getBattlerCount on null battle) \u2014 mid-run bracelet acquisition not scripted yet"
     },
     "active-slot/is_max": {
       "status": "unexercised",
       "scenario": "",
-      "reason": "needs dynamax — same situation as is_mega"
+      "reason": "needs dynamax \u2014 same situation as is_mega"
     },
-    "bench-slot/is_mega": { "status": "unexercised", "scenario": "", "reason": "see active-slot/is_mega" },
-    "bench-slot/is_max": { "status": "unexercised", "scenario": "", "reason": "see active-slot/is_max" },
+    "bench-slot/is_mega": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "see active-slot/is_mega"
+    },
+    "bench-slot/is_max": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "see active-slot/is_max"
+    },
     "bench-slot/stat_stages[": {
       "status": "bench-structural",
       "reason": "stat stages reset on switch-out; a benched mon's stages are always 0"
     },
-    "bench-slot/damage_taken": { "status": "bench-structural", "reason": "turn-data field, on-field only" },
-    "bench-slot/acted": { "status": "bench-structural", "reason": "turn-data field, on-field only" },
-    "bench-slot/move_queue_len": { "status": "bench-structural", "reason": "move queues only exist for on-field mons" },
-    "bench-slot/other_tag_count": { "status": "bench-structural", "reason": "volatile tags clear on switch-out" },
-    "bench-slot/ability_suppressed": { "status": "bench-structural", "reason": "suppression clears on switch-out" },
+    "bench-slot/damage_taken": {
+      "status": "bench-structural",
+      "reason": "turn-data field, on-field only"
+    },
+    "bench-slot/acted": {
+      "status": "bench-structural",
+      "reason": "turn-data field, on-field only"
+    },
+    "bench-slot/move_queue_len": {
+      "status": "bench-structural",
+      "reason": "move queues only exist for on-field mons"
+    },
+    "bench-slot/other_tag_count": {
+      "status": "bench-structural",
+      "reason": "volatile tags clear on switch-out"
+    },
+    "bench-slot/ability_suppressed": {
+      "status": "bench-structural",
+      "reason": "suppression clears on switch-out"
+    },
     "bench-slot/hit_count": {
       "status": "bench-structural",
       "reason": "battle-data accumulates while fielded; stays 0 for never-fielded bench in short runs"
     },
-    "bench-slot/wave_turn_count": { "status": "bench-structural", "reason": "on-field turn counter" },
+    "bench-slot/wave_turn_count": {
+      "status": "bench-structural",
+      "reason": "on-field turn counter"
+    },
     "bench-slot/is_boss": {
       "status": "unexercised",
       "scenario": "",
       "reason": "a benched boss requires catching a boss Pokemon; not scripted"
     },
-    "bench-slot/boss_shield": { "status": "unexercised", "scenario": "", "reason": "see bench-slot/is_boss" },
+    "bench-slot/boss_shield": {
+      "status": "unexercised",
+      "scenario": "",
+      "reason": "see bench-slot/is_boss"
+    },
     "bench-slot/is_terastallized": {
       "status": "bench-structural",
       "reason": "tera state clears on switch-out/faint in classic flow"
