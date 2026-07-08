@@ -158,6 +158,10 @@ class PokeRogueEnv(gym.Env):
         self._mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
         self._episode = 0
         self._needs_reset = True
+        # Invalid actions the CLI rejected (fallback executed instead) — a
+        # nonzero count means credit assignment was corrupted for those steps
+        self._invalid_action_count = 0
+        self._last_warning: str | None = None
         # Last step/reset info dict — includes info["game_state"] when
         # lean=False; consumed by ObservationWrappers (README: bring your
         # own features).
@@ -234,6 +238,8 @@ class PokeRogueEnv(gym.Env):
             )
 
         self._needs_reset = False
+        self._invalid_action_count = 0
+        self._last_warning = None
         obs = self._obs_from(msg)
         self.last_info = self._info_from(msg)
         return obs, self.last_info
@@ -388,8 +394,14 @@ class PokeRogueEnv(gym.Env):
                 return {"type": "error", "message": "EOF from CLI subprocess"}
             if msg.get("type") in ("state", "game_over", "done", "error"):
                 return msg
-            # info / warning are consumed; a warning means a masked action was
-            # rejected — should never happen when the mask is respected
+            # info messages are consumed silently. A WARNING means the CLI
+            # rejected the action and fell back to the first valid one — the
+            # transition then belongs to a DIFFERENT action than the agent
+            # chose, which silently corrupts the learner's credit assignment.
+            # Track it and surface it in info (see _info_from).
+            if msg.get("type") == "warning":
+                self._invalid_action_count += 1
+                self._last_warning = msg.get("message")
 
     def _send(self, action: int) -> None:
         assert self._proc is not None and self._proc.stdin is not None
@@ -412,10 +424,13 @@ class PokeRogueEnv(gym.Env):
             else:
                 self._mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
             return obs
-        # Fallback: encode locally from the full gameState (lean=False / old CLI)
+        # Fallback: encode locally from the full gameState (lean=False / old CLI).
+        # Must apply the SAME observability mode as the TS encoder would —
+        # otherwise a fog run silently produces full-info observations on
+        # every message that lacks obsB64.
         state = parse_game_state(msg.get("gameState") or {})
         self._mask = extract_action_mask(state)
-        return encode_observation(state)
+        return encode_observation(state, fog_of_war=self._fog_of_war)
 
     def _info_from(self, msg: dict) -> dict:
         gs = msg.get("gameState") or {}
@@ -436,6 +451,9 @@ class PokeRogueEnv(gym.Env):
         }
         if msg.get("type") == "game_over":
             info["victory"] = bool(msg.get("victory"))
+        if self._invalid_action_count:
+            info["invalid_action_count"] = self._invalid_action_count
+            info["last_warning"] = self._last_warning
         return info
 
     def _kill_group(self, sig: int) -> None:

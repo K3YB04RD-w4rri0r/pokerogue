@@ -1034,3 +1034,55 @@ Python API). Confirmed and fixed:
 - CI: setup-python cache needed cache-dependency-path (first GitHub run
   failed there). stderr_log now truncates per spawn. Doc-drift fixes
   (observation.py header, README protocol line).
+
+---
+
+## 2026-07-08 — Silent-corruption sweep (round 3)
+
+Hunting paths that feed the learner (or a viewer) wrong data with NO error
+signal. Empirical probes + fixes:
+
+- **Cross-transport party divergence (CONFIRMED, fixed)**: the same seed
+  produced DIFFERENT starting parties headless vs rendered. Root cause:
+  generateStarters consumes the seeded RNG stream, whose POSITION at title
+  time differs between the two boots (different boot-time consumption).
+  Fix: re-sow the RNG from the user seed BEFORE party generation
+  (phase-router executeTitleAction) — party is now a pure function of the
+  seed on every transport. (Headless-only detail: the verify-q1 anchor was
+  unaffected — it re-sows to the same stream it always used; steps/reward
+  unchanged.)
+- **Rendered switch double-detection (documented limitation, NOT a
+  corruption path)**: at battle start the browser can present the switch
+  decision twice (switch→switch→command) where headless presents it once —
+  the party UI ends the SwitchPhase async and the driver re-detects it.
+  A trial awaiting SwitchPhase departure after the callback did NOT fix it
+  (the second decision is a distinct re-open, not a lingering phase) and
+  was REMOVED per the failed-fixes policy. This is rendered-only and
+  training-IRRELEVANT: training/eval are always headless (synchronous
+  phase transitions, single switch). Consequence is cosmetic — a
+  headless-trained policy watched in the browser may take one redundant
+  no-op switch at battle start.
+- **Fog leak in the fallback encoder (fixed)**: `_obs_from`'s local-encode
+  path (messages without obsB64) ignored fog_of_war → silent full-info
+  obs in a fog run. Now passes self._fog_of_war.
+- **Fog leak in rendered watching (fixed)**: run_policy --rendered
+  re-encoded locally (always full-info) instead of using the wire obs; a
+  fog-trained model would watch with information it never trained on. Now
+  prefers the authoritative wire obsB64/mask.
+- **Irreproducible eval (fixed)**: sb3: policies sampled stochastically
+  (deterministic=False) — every eval table differed run to run. Now
+  decode deterministically.
+- **Invisible invalid-action fallback (now surfaced)**: if the CLI rejects
+  an action and executes a fallback, the transition is mis-attributed to a
+  different action than the agent chose (credit-assignment corruption).
+  The env now counts these and exposes info["invalid_action_count"] +
+  last_warning instead of swallowing the warning.
+
+Verified clean (no corruption): in-process reset purity (episode-2 obs/
+action/reward byte-identical to a fresh process, same seed); reset-after-
+wave-cap chains (both episodes truncate with real final obs). New permanent
+gate: check_rendered.py `equivalence` scenario — same seed must yield a
+byte-identical RESET observation on both transports (the reset obs encodes
+the whole starting party, so it proves cross-transport party determinism +
+encoder equivalence; this is what caught the party bug). Full-trajectory
+identity is deliberately NOT gated — see the rendered switch quirk above.

@@ -16,6 +16,10 @@ Scenarios (--scenario all|determinism|evolution|shop):
   shop         buy (two-step target flow) + reroll + skip across waves with
                ZERO page errors — guards the ModifierOption tween-chain
                crash class and shop rendering.
+  equivalence  headless env vs rendered bridge, same seed + policy: the
+               (phase, action, reward, obs-BYTES) traces must be identical
+               — the one-shot proof of the shared-module architecture
+               (caught the transport-divergent party generation bug).
 
 Requirements:
   pip install playwright websocket-client && playwright install chromium
@@ -31,6 +35,7 @@ minutes; this is a deep gate, not part of the quick suite. Optional hook:
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import subprocess
@@ -79,12 +84,15 @@ def start_vite(port: int) -> subprocess.Popen:
     return proc
 
 
-def run_session(pw, port: int, query: str, policy, max_steps: int, tag: str, timeout_s: int = 240):
+def run_session(pw, port: int, query: str, policy, max_steps: int, tag: str, timeout_s: int = 240, collect_obs: bool = False):
     """Open the game with the bridge, drive it via the WS relay, return
-    (trace, last_game_state, page_errors)."""
+    (trace, last_game_state, page_errors). With collect_obs, trace entries
+    are (phase, prev_action, reward, obs_bytes) — comparable to a headless
+    env trace (reset entry first)."""
     trace: list = []
     last_gs: dict = {}
     done = {"v": False}
+    last_action: list = [None]
 
     def drive() -> None:
         try:
@@ -111,8 +119,18 @@ def run_session(pw, port: int, query: str, policy, max_steps: int, tag: str, tim
                     acts = sorted(a["index"] for a in msg.get("actions", []))
                     mask = np.zeros(58, dtype=bool)
                     mask[acts] = True
-                    a = policy.act(None, mask, {"phase": phase})
-                    trace.append((step, phase, msg.get("wave"), a, round(msg.get("reward") or 0, 4)))
+                    obs_arg = None
+                    if collect_obs:
+                        obs_bytes = base64.b64decode(msg["obsB64"]) if msg.get("obsB64") else b""
+                        obs_arg = np.frombuffer(obs_bytes, dtype="<f4") if obs_bytes else None
+                        if step == 0:
+                            trace.append(("reset", None, None, obs_bytes))
+                        else:
+                            trace.append((phase, last_action[0], round(msg.get("reward") or 0, 6), obs_bytes))
+                    a = policy.act(obs_arg, mask, {"phase": phase})
+                    last_action[0] = a
+                    if not collect_obs:
+                        trace.append((step, phase, msg.get("wave"), a, round(msg.get("reward") or 0, 4)))
                     last_gs.clear()
                     last_gs.update(msg.get("gameState") or {})
                     print(
@@ -207,10 +225,48 @@ def scenario_shop(pw, port: int) -> None:
     check("no decision timeout", not timed_out)
 
 
+def scenario_equivalence(pw, port: int) -> None:
+    """Same seed -> the SAME initial game state on both transports, and the
+    shared encoder turns that state into the SAME observation bytes.
+
+    We assert the RESET observation is byte-identical headless vs rendered.
+    The reset obs encodes the entire starting party, so this is the real
+    proof of (a) seed-deterministic party generation across transports —
+    the check that caught the RNG-stream-position party-divergence bug — and
+    (b) encoder equivalence. We deliberately do NOT assert full-trajectory
+    identity: the browser's async party UI can present the battle-start
+    switch decision one extra time (switch->switch->command), a documented
+    rendered-only step-count quirk that never touches headless training/eval
+    (see executeSwitchAction in phase-router.ts)."""
+    print("equivalence) same seed -> byte-identical reset observation on both transports", flush=True)
+    from rl.pokerogue_env import PokeRogueEnv
+
+    seed = "verify-xtrans"
+    env = PokeRogueEnv(waves=6, seed="verify-xtrans-base", lean=True)
+    obs, _info = env.reset(options={"game_seed": seed})
+    headless_reset = obs.tobytes()
+    env.close()
+
+    trace, _, errors = run_session(pw, port, f"&seed={seed}", FirstLegalPolicy(), 2, "E", collect_obs=True)
+    check("rendered run clean", not errors, str(errors[:1]))
+    rendered_reset = next((e[3] for e in trace if e[0] == "reset"), None)
+    check("rendered produced a reset observation", rendered_reset is not None)
+    if rendered_reset is not None:
+        same = rendered_reset == headless_reset
+        detail = ""
+        if not same:
+            import numpy as _np
+
+            h = _np.frombuffer(headless_reset, dtype="<f4")
+            r = _np.frombuffer(rendered_reset, dtype="<f4")
+            detail = f"{int((h != r).sum())} dims differ (party/encoder divergence)"
+        check("reset obs byte-identical headless vs rendered", same, detail)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int, default=8123, help="dedicated vite port (strict; default 8123)")
-    ap.add_argument("--scenario", default="all", choices=["all", "determinism", "evolution", "shop"])
+    ap.add_argument("--scenario", default="all", choices=["all", "determinism", "evolution", "shop", "equivalence"])
     args = ap.parse_args()
 
     os.environ.setdefault("PLAYWRIGHT_CHROMIUM_USE_HEADLESS_NEW", "1")
@@ -228,6 +284,8 @@ def main() -> int:
                 scenario_evolution(pw, args.port)
             if args.scenario in ("all", "shop"):
                 scenario_shop(pw, args.port)
+            if args.scenario in ("all", "equivalence"):
+                scenario_equivalence(pw, args.port)
     finally:
         vite.terminate()
         try:

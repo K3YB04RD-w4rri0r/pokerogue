@@ -1902,6 +1902,16 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       return false;
     };
 
+    // NOTE (rendered-only, training-irrelevant): at battle start the browser
+    // can present the switch decision TWICE (switch→switch→command) where
+    // headless presents it once — the party UI ends the SwitchPhase async, so
+    // the driver briefly re-detects it. A trial that awaited SwitchPhase
+    // departure after the callback did NOT eliminate it (the second decision
+    // comes from a distinct re-open, not a lingering phase) and was removed
+    // per the failed-fixes policy. This does not affect training or eval,
+    // which are ALWAYS headless (synchronous phase transitions, single
+    // switch); it only means a headless-trained policy WATCHED in the browser
+    // may take one redundant no-op switch at battle start.
     if (tryCallback()) {
       return;
     }
@@ -2104,6 +2114,15 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     if (verbose && starterSpecies?.length > 0) {
       console.log(`[PhaseRouter] Using starter override: [${starterSpecies.join(", ")}]`);
     }
+    // RE-SOW the seeded RNG from the user seed BEFORE generating the party.
+    // Species picks and IV/nature/gender rolls consume the global RNG
+    // stream, and the stream POSITION at title time differs between the
+    // headless and browser boots (different boot-time consumption) — the
+    // same seed silently produced DIFFERENT PARTIES per transport (caught
+    // by the cross-transport equivalence test). After this, the party is a
+    // pure function of the user seed on every transport.
+    globalScene.setSeed(userSeed);
+    globalScene.resetSeed();
     const starters = generateStarters(globalScene, starterSpecies);
     globalScene.setSeed(userSeed);
     globalScene.resetSeed();

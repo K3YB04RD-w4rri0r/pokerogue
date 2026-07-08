@@ -34,10 +34,13 @@ The same policy headless (no browser)::
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import time
 from pathlib import Path
+
+import numpy as np
 
 # Match the import convention used by examples/rl/* and the Gym env: put src/ on
 # the path and import the rl package. observation.py is the single source of truth
@@ -45,6 +48,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from rl.observation import (  # noqa: E402
+    ACTION_SPACE_SIZE,
     encode_observation,
     extract_action_mask,
     parse_game_state,
@@ -119,9 +123,16 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
                 ws.send(json.dumps({"type": "start"}))
             elif mtype == "state":
                 game_state = msg.get("gameState", {})
-                state = parse_game_state(game_state)
-                obs = encode_observation(state)
-                mask = extract_action_mask(state)
+                # Prefer the wire encoding: it is the TS authority and already
+                # reflects the bridge's observability mode (&fog=1). Local
+                # re-encode is the fallback for old bundles — full-info only.
+                if msg.get("obsB64"):
+                    obs = np.frombuffer(base64.b64decode(msg["obsB64"]), dtype="<f4").copy()
+                    mask = np.array(msg.get("mask") or [False] * ACTION_SPACE_SIZE, dtype=bool)
+                else:
+                    state = parse_game_state(game_state)
+                    obs = encode_observation(state)
+                    mask = extract_action_mask(state)
                 ctx = {"phase": msg.get("phase"), "game_state": game_state}
                 action = policy.act(obs, mask, ctx)
                 label = next((a.get("label", "") for a in msg.get("actions", []) if a.get("index") == action), "")

@@ -160,5 +160,7 @@ def make_builtin_policy(name: str, seed: int | str | None = None) -> Policy:
     if name == "firstlegal":
         return FirstLegalPolicy()
     if name.startswith("sb3:"):
-        return Sb3Policy(name[4:])
+        # deterministic=True: eval numbers must be reproducible — the sb3
+        # default (stochastic sampling) makes every eval run different.
+        return Sb3Policy(name[4:], deterministic=True)
     raise ValueError(f"unknown policy {name!r} (expected random | maxdamage | firstlegal | sb3:<model.zip>)")
