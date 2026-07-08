@@ -40,12 +40,23 @@ each turn. Drop `--starters` for the default team, change `--delay` for pacing.
 
 ## Setup
 
+One command from a fresh clone (checks toolchain, inits submodules,
+builds, installs python deps, smoke-tests the round trip):
+
+```bash
+bash scripts/rl-setup.sh            # environment
+bash scripts/rl-setup.sh --train    # + sb3/torch training extras
+```
+
+Prereqs: Node ≥ 24.9, Python ≥ 3.10, git. Details per use-case:
+
 | You want to… | Need |
 |---|---|
-| Play/bot **headless** or **terminal** | `pnpm install`, then **`pnpm rl:build`** (builds `dist/rl/cli.js`) |
+| Play/bot **headless** or **terminal** | the setup script (or `pnpm install` + **`pnpm rl:build`**) |
 | Play/bot **rendered** (browser) | the Vite interactive server (below) + `pip install websocket-client` |
-| Run **`run_policy.py`** | `pip install numpy` (and `sb3-contrib` only for `--model`) |
-| **Train** | `pip install "stable-baselines3" sb3-contrib gymnasium` |
+| Run **`run_policy.py`** | the setup script (`sb3-contrib` only for `--model`) |
+| **Train** | `bash scripts/rl-setup.sh --train` (see `docs/TRAINING_SERVER.md` for big boxes) |
+| **Contribute** | `src/rl/CONTRIBUTING.md` — the invariants + the `rl-verify.sh quick` gate (also run by CI) |
 
 `pnpm rl:build` = `vite build --config vite.headless.config.ts`. Rebuild it after
 changing any TypeScript the headless runner uses. The **rendered** server serves
