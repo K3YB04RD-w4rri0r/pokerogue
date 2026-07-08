@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 try:
     from sb3_contrib import MaskablePPO
     from sb3_contrib.common.wrappers import ActionMasker
+    from stable_baselines3.common.vec_env import SubprocVecEnv
 except ImportError:
     sys.exit("sb3-contrib not installed — pip install stable-baselines3 sb3-contrib torch")
 
@@ -38,6 +39,13 @@ def main() -> int:
     ap.add_argument("--timesteps", type=int, default=None)
     ap.add_argument("--waves", type=int, default=None)
     ap.add_argument("--save", type=str, default=None, help="path to save the model zip")
+    ap.add_argument(
+        "--num-envs",
+        type=int,
+        default=None,
+        help="parallel game processes (SubprocVecEnv); each is a full headless game "
+        "(~250MB rss, ~1 core). Rule of thumb: cores - 2. Default: train.num_envs or 1",
+    )
     args = ap.parse_args()
 
     cfg = load_run_config(args.config) if args.config else RunConfig()
@@ -48,10 +56,23 @@ def main() -> int:
     timesteps = args.timesteps if args.timesteps is not None else int(cfg.train.get("timesteps", 1_000))
     save_path = args.save if args.save is not None else cfg.train.get("save")
 
-    env = PokeRogueEnv.from_config(cfg)
-    # PokeRogueEnv exposes action_masks() directly; ActionMasker makes the
-    # contract explicit and works with vectorized setups too.
-    env = ActionMasker(env, lambda e: e.unwrapped.action_masks())
+    num_envs = args.num_envs if args.num_envs is not None else int(cfg.train.get("num_envs", 1))
+
+    def make_env(rank: int):
+        def _init():
+            # per-worker seed family keeps parallel episodes decorrelated
+            # while staying reproducible
+            env = PokeRogueEnv.from_config(cfg, seed=f"{cfg.seed or 'train'}-w{rank}")
+            return ActionMasker(env, lambda e: e.unwrapped.action_masks())
+
+        return _init
+
+    if num_envs > 1:
+        # Each worker is its own node process — throughput scales ~linearly
+        # with cores (the game, not the network, is the bottleneck).
+        env = SubprocVecEnv([make_env(i) for i in range(num_envs)])
+    else:
+        env = make_env(0)()
 
     model = MaskablePPO("MlpPolicy", env, verbose=1, n_steps=256, batch_size=64)
     model.learn(total_timesteps=timesteps)
