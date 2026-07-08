@@ -89,7 +89,13 @@ function getModifierTier(action: number): number {
       && action < ACTION_BUY_SHOP_START + MAX_SHOP_OPTIONS
       && action - ACTION_BUY_SHOP_START < modifiers.shop.length
     ) {
-      return modifiers.shop[action - ACTION_BUY_SHOP_START].tier;
+      // De-farm (2026-07-08): a shop BUY returns tier -1 so it does NOT earn
+      // the modifierSelected/+tier reward. Buying is repeatable while the
+      // shop stays open, so rewarding each purchase let a money-rich agent
+      // farm +0.5/buy. The once-per-shop free reward pick (SELECT_REWARD
+      // above) still scores; a bought item's value flows through its own
+      // effects (HP/stats/etc.), and money spent is not penalized.
+      return -1;
     }
   } catch {
     /* not in a modifier phase */

@@ -165,12 +165,38 @@ action = policy.act(obs, env.action_masks(), info)   # info["phase"] routes
 `examples/rl/phase_routed_policy.py` is a runnable template, including a
 custom Python-side reward as a `gym.RewardWrapper` over `info["game_state"]`.
 
-**Where the reward lives:** `src/rl/rewards.ts` (`RewardCalculator`, 16
-weighted components). Weights are configurable from Python — the `reward:`
-section of a run config / `--reward-config` / `PokeRogueEnv(reward_config=...)`
-— and both transports report it per step via the shared episode-runtime
-tracker. Structurally different rewards: compute them Python-side from
-`info["game_state"]` (run with `lean=False`), as in the example above.
+**Where the reward lives — two levels of control:**
+
+1. **Reweight the built-in reward** (no code): `src/rl/rewards.ts`
+   (`RewardCalculator`, 16 weighted components) is the DEFAULT, a sane
+   documented baseline — not "the one true reward." Retune any component's
+   magnitude via the `reward:` section of a run config / `--reward-config`
+   / `PokeRogueEnv(reward_config=...)`; set a weight to 0 to drop a
+   component. Both transports report it per step. Note the default's
+   editorial choices (all overridable): money is rewarded linearly
+   (unbounded — cap it yourself if you don't want economy-focus), a
+   faint/KO is counted by BOTH its HP-delta and the ±KO event (dense +
+   sparse shaping), and only the once-per-shop reward *pick* scores, not
+   repeated buys.
+
+2. **Write your own reward in Python** (`src/rl/reward.py`): implement a
+   `RewardFn` over the full game state and wrap the env with
+   `CustomReward` — it REPLACES the built-in reward, so none of the
+   default's choices above are load-bearing. Compose weighted components
+   or write from scratch:
+
+   ```python
+   from rl.reward import CustomReward, ComponentReward, delta_component, wave, money
+   reward = ComponentReward({
+       "depth":  (10.0,  delta_component(wave)),    # +10 per wave cleared
+       "wealth": (0.0005, delta_component(money)),  # YOUR money scale
+   })
+   env = CustomReward(PokeRogueEnv.from_config(cfg, lean=False), reward)
+   ```
+
+   The module documents the state accessors (`wave`, `money`,
+   `player_hp_fraction`, `player_faints`, …); the full `game_state` schema
+   is in `INPUT.md`. `examples/rl/custom_reward.py` is a runnable template.
 
 **Bring your own features:** the v9 observation is a curated 6,991-dim
 vector (`src/rl/docs/OBS_V9_LAYOUT.md`), but `info["game_state"]` carries
