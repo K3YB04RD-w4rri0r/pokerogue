@@ -27,6 +27,8 @@ import atexit
 import base64
 import json
 import queue
+import os
+import signal
 import subprocess
 import threading
 from pathlib import Path
@@ -42,8 +44,18 @@ from .observation import (
     parse_game_state,
 )
 
+def _resolve_default_cli() -> Path:
+    """Locate dist/rl/cli.js: POKEROGUE_RL_CLI env var, else the repo-relative
+    path (three levels above this file — correct for in-repo use; meaningless
+    when pip-installed, hence the env var)."""
+    env_path = os.environ.get("POKEROGUE_RL_CLI")
+    if env_path:
+        return Path(env_path)
+    return Path(__file__).resolve().parent.parent.parent / "dist" / "rl" / "cli.js"
+
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DEFAULT_CLI = REPO_ROOT / "dist" / "rl" / "cli.js"
+DEFAULT_CLI = _resolve_default_cli()
 
 # Setup phases auto-played by reset(); check_switch is left to the agent.
 SETUP_PHASES = {"title", "select_gender", "starter"}
@@ -154,7 +166,8 @@ class PokeRogueEnv(gym.Env):
 
         if not self._cli_path.exists():
             raise FileNotFoundError(
-                f"{self._cli_path} not found — build the headless bundle first:  pnpm rl:build"
+                f"{self._cli_path} not found — build the headless bundle (pnpm rl:build in the repo) "
+                "or point POKEROGUE_RL_CLI at an existing dist/rl/cli.js"
             )
         atexit.register(self.close)
 
@@ -230,7 +243,18 @@ class PokeRogueEnv(gym.Env):
             raise RuntimeError("episode is done or env not started — call reset() first")
 
         self._send(int(action))
-        msg = self._next_decision()
+        try:
+            msg = self._next_decision()
+        except TimeoutError as err:
+            # A slow-but-progressing game phase can outlast step_timeout while
+            # the CLI's own progress-aware watchdog stays quiet. Truncate the
+            # episode gracefully instead of killing the worker (audit H2).
+            self._reap()
+            self._needs_reset = True
+            obs = np.zeros(OBSERVATION_DIM, np.float32)
+            info = {"protocol_error": f"step timeout: {err}"}
+            self.last_info = info
+            return obs, 0.0, False, True, info
         mtype = msg.get("type")
 
         terminated = mtype == "game_over"
@@ -320,6 +344,9 @@ class PokeRogueEnv(gym.Env):
             stderr=self._stderr_fh,
             text=True,
             bufsize=1,
+            # own process group: close()/_reap() kill the whole tree; a
+            # hard-killed trainer otherwise orphans ~250MB node workers
+            start_new_session=True,
         )
         self._reader = _LineReader(self._proc.stdout)
 
@@ -411,14 +438,26 @@ class PokeRogueEnv(gym.Env):
             info["victory"] = bool(msg.get("victory"))
         return info
 
+    def _kill_group(self, sig: int) -> None:
+        """Signal the node process GROUP (start_new_session) — falls back to
+        the single process if the group is already gone."""
+        assert self._proc is not None
+        try:
+            os.killpg(os.getpgid(self._proc.pid), sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                self._proc.send_signal(sig)
+            except Exception:
+                pass
+
     def _reap(self) -> None:
         if self._proc is not None:
             if self._proc.poll() is None:
-                self._proc.terminate()
+                self._kill_group(signal.SIGTERM)
                 try:
                     self._proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._proc.kill()
+                    self._kill_group(signal.SIGKILL)
                     self._proc.wait()
             for pipe in (self._proc.stdin, self._proc.stdout):
                 try:

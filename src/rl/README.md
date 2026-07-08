@@ -50,6 +50,11 @@ bash scripts/rl-setup.sh --train    # + sb3/torch training extras
 
 Prereqs: Node ≥ 24.9, Python ≥ 3.10, git. Details per use-case:
 
+Library users can also `pip install -e .` from the repo root (extras:
+`.[train]`, `.[rendered]`) and `from rl.pokerogue_env import PokeRogueEnv`
+anywhere — set `POKEROGUE_RL_CLI=/path/to/dist/rl/cli.js` when running
+outside the repo checkout.
+
 | You want to… | Need |
 |---|---|
 | Play/bot **headless** or **terminal** | the setup script (or `pnpm install` + **`pnpm rl:build`**) |

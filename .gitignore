@@ -67,3 +67,5 @@ __pycache__/
 # Claude Code local settings (per-developer)
 .claude/
 .rl-audit/
+
+*.egg-info/

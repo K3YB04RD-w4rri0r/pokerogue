@@ -42,7 +42,7 @@ import { applyOverrideValues } from "#rl/apply-overrides";
 import { buildTerminalGameState, EpisodeRewardTracker, resolveExecutedAction, SETUP_PHASES } from "#rl/episode-runtime";
 import type { PhaseRouter, PhaseState } from "#rl/phase-router";
 import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
-import { encodeObservation } from "#rl/spaces";
+import { ACTION_SPACE_SIZE, encodeObservation, OBSERVATION_DIM } from "#rl/spaces";
 import { buildGameState as buildFullGameState } from "#rl/state-builder";
 import Phaser from "phaser";
 
@@ -698,7 +698,14 @@ async function startBridge(): Promise<void> {
 
   // Notify Python that the bridge is ready and wait for "start" handshake.
   // This prevents the game from auto-starting without Python running.
-  sendWS(ws, { type: "ready" });
+  sendWS(ws, {
+    type: "ready",
+    // Same guard triple the headless CLI sends: lets clients reject a
+    // stale browser bundle instead of silently mis-encoding (audit B3)
+    protocolVersion: 5,
+    obsDim: OBSERVATION_DIM,
+    actionDim: ACTION_SPACE_SIZE,
+  });
   console.log("[RL Bridge] Sent 'ready', waiting for Python 'start' signal...");
 
   const started = await waitForMessageType(ws, "start", 120000);

@@ -50,6 +50,7 @@ from rl.observation import (  # noqa: E402
     parse_game_state,
 )
 from rl.policy import Sb3Policy, make_builtin_policy  # noqa: E402
+from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
 
 
@@ -95,6 +96,17 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
             mtype = msg.get("type")
 
             if mtype == "ready":
+                # Protocol guard: a stale browser bundle (old tab, cached
+                # build) mis-encodes silently — reject it loudly instead.
+                proto = msg.get("protocolVersion")
+                if proto is not None and proto != PROTOCOL_VERSION:
+                    raise SystemExit(
+                        f"browser bundle speaks protocol {proto}, this client needs {PROTOCOL_VERSION} — "
+                        "hard-reload the browser tab (Ctrl+Shift+R) and rerun"
+                    )
+                if proto is None:
+                    print("warning: browser bridge sent no protocolVersion (pre-audit bundle?) — "
+                          "hard-reload the tab if observations look wrong")
                 if started:
                     # A second `ready` mid-session means the PAGE RELOADED (vite
                     # hot-reload after a source edit, manual reload, second tab)

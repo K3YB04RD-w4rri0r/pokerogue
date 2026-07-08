@@ -27,6 +27,7 @@ ls:
 ignore:
    - .pnpm-store
    - .rl-audit
+   - pokerogue_rl.egg-info
    - .rl-verify
    - node_modules
    - .vscode

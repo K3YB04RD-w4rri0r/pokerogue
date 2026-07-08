@@ -17,6 +17,7 @@ starting wave/level/money/items, game overrides, reward shaping — and its
 from __future__ import annotations
 
 import argparse
+import signal
 import sys
 from pathlib import Path
 
@@ -115,13 +116,21 @@ def main() -> int:
             save_path=ckpt_dir,
             name_prefix=Path(save_path).stem + ".ckpt",
         )
-    model.learn(total_timesteps=timesteps, callback=callback)
+    # SIGTERM/SIGINT → raise so the finally below tears the workers down;
+    # without this a killed training run orphans one node process per env.
+    def _graceful(signum, _frame):
+        raise KeyboardInterrupt(f"signal {signum}")
 
-    if save_path:
-        model.save(save_path)
-        print(f"saved model to {save_path}")
+    signal.signal(signal.SIGTERM, _graceful)
+    signal.signal(signal.SIGINT, _graceful)
 
-    env.close()
+    try:
+        model.learn(total_timesteps=timesteps, callback=callback)
+        if save_path:
+            model.save(save_path)
+            print(f"saved model to {save_path}")
+    finally:
+        env.close()
     return 0
 
 

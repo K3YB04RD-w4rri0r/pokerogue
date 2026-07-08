@@ -46,6 +46,21 @@ python3 examples/rl/train_maskable_ppo.py \
   (sb3's default 64×64 CPU net is fine for smoke tests only.)
 - Watch curves: `tensorboard --logdir runs/`.
 
+## Process hygiene on long runs
+
+Ctrl-C / `kill` (SIGTERM) tears the whole worker fleet down cleanly (the
+trainer traps the signal; each env kills its node process GROUP). The one
+uncoverable case is `kill -9` of the trainer itself — SIGKILL skips all
+cleanup by definition and sb3's subprocess workers may linger with their
+game processes. After a hard kill, sweep with:
+
+```bash
+pkill -f "dist/rl/cli[.]js"
+```
+
+`stderr_log` (when configured) now truncates per process generation
+instead of growing across respawns.
+
 ## The second 3090
 
 PPO's learner won't saturate one 3090 for a long time. The second GPU's

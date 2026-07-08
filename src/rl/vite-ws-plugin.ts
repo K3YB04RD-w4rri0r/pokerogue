@@ -11,6 +11,10 @@ export function rlBridgePlugin(): Plugin {
         const wss = new WebSocketServer({ noServer: true });
         let pythonWs: InstanceType<typeof WS> | null = null;
         let browserWs: InstanceType<typeof WS> | null = null;
+        // The browser's `ready` can arrive before Python connects (the relay
+        // never buffers). Keep the LAST ready and replay it to a late Python
+        // client so the handshake can't be lost to ordering.
+        let pendingReady: string | null = null;
 
         server.httpServer?.on("upgrade", (req, socket, head) => {
           // Only handle /ws/rl path - leave Vite's HMR WebSocket alone
@@ -33,15 +37,31 @@ export function rlBridgePlugin(): Plugin {
               }
               browserWs = ws;
               ws.on("message", data => {
+                const text = data.toString();
+                // Buffer the newest ready for a Python client that hasn't
+                // connected yet (ordering race — see pendingReady above)
+                try {
+                  if (JSON.parse(text)?.type === "ready") {
+                    pendingReady = text;
+                  }
+                } catch {
+                  /* non-JSON frames relay as-is */
+                }
                 // Relay browser -> Python (only from the CURRENT browser session)
                 if (ws === browserWs && pythonWs?.readyState === WS.OPEN) {
-                  pythonWs.send(data.toString());
+                  pythonWs.send(text);
                 }
               });
               ws.on("close", () => {
                 if (ws === browserWs) {
                   console.log("[rl-bridge] Browser disconnected");
                   browserWs = null;
+                  pendingReady = null;
+                  // Tell the surviving Python client instead of letting its
+                  // recv() block forever (audit H3)
+                  if (pythonWs?.readyState === WS.OPEN) {
+                    pythonWs.send(JSON.stringify({ type: "error", message: "browser disconnected" }));
+                  }
                 }
               });
             } else {
@@ -51,6 +71,11 @@ export function rlBridgePlugin(): Plugin {
                 pythonWs.close();
               }
               pythonWs = ws;
+              // Replay the buffered ready (browser booted before Python connected)
+              if (pendingReady && browserWs?.readyState === WS.OPEN) {
+                console.log("[rl-bridge] Replaying buffered browser ready to python");
+                ws.send(pendingReady);
+              }
               ws.on("message", data => {
                 // Relay Python -> browser (only from the CURRENT python client)
                 if (ws === pythonWs && browserWs?.readyState === WS.OPEN) {

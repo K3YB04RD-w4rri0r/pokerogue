@@ -28,6 +28,7 @@ import argparse
 # Run-config support (src/rl/run_config.py): --config loads a YAML/JSON file
 # describing the run (seed, starters, overrides, ...); CLI flags override it.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
 
 
@@ -51,12 +52,13 @@ class C:
 
 # ─── Name Lookup Tables ─────────────────────────────────────────────
 
-# Import from enums.py if available (canonical source of truth); fall back to
+# Import from rl.enums if available (canonical source of truth); fall back to
 # inline dicts so play.py keeps working standalone without the RL package.
+# NOTE: import the PACKAGE module (rl.enums), never sys.path-insert src/rl
+# itself — a flat `enums` module alongside an installed `rl.enums` would be
+# two distinct module objects (see docs/VERIFICATION.md).
 try:
-    import sys as _sys
-    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "rl"))
-    from enums import (  # noqa: E402
+    from rl.enums import (  # noqa: E402
         TYPE_NAMES, STATUS_NAMES, WEATHER_NAMES, TERRAIN_NAMES,
         CATEGORY_NAMES, BATTLE_TYPE_NAMES, TYPE_ABBREV, CATEGORY_ABBREV,
     )
@@ -1569,6 +1571,12 @@ def run_rendered(args):
             msg_type = msg.get("type")
 
             if msg_type == "ready":
+                proto = msg.get("protocolVersion")
+                if proto is not None and proto != PROTOCOL_VERSION:
+                    raise SystemExit(
+                        f"browser bundle speaks protocol {proto}, this client needs {PROTOCOL_VERSION} — "
+                        "hard-reload the browser tab (Ctrl+Shift+R) and rerun"
+                    )
                 if started:
                     print(f"\n  {C.RED}Browser session restarted (page reload?) — "
                           f"starting a FRESH episode.{C.RESET}\n")

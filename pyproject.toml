@@ -1,0 +1,35 @@
+# Python packaging for the RL environment (the `rl` package under src/).
+#
+#   pip install -e .              # library API: from rl.pokerogue_env import PokeRogueEnv
+#   pip install -e ".[train]"     # + sb3 / torch
+#   pip install -e ".[rendered]"  # + websocket-client (browser transport tools)
+#
+# The Node game bundle is a separate build artifact: run `pnpm rl:build`
+# in the repo (or point POKEROGUE_RL_CLI at an existing dist/rl/cli.js).
+# The repo's tools/ and examples/ keep working without installation
+# (they sys.path the src/ tree).
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pokerogue-rl"
+version = "0.9.0"
+description = "PokeRogue as a Gymnasium reinforcement-learning environment (headless + browser-rendered)"
+readme = "src/rl/README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-only" }
+dependencies = [
+  "numpy>=1.24",
+  "gymnasium>=0.29",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+train = ["stable-baselines3>=2.3", "sb3-contrib>=2.3", "torch"]
+rendered = ["websocket-client>=1.6"]
+
+[tool.setuptools]
+package-dir = { "rl" = "src/rl" }
+packages = ["rl"]
