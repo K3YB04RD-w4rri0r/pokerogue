@@ -935,3 +935,51 @@ and the audit plan (`src/rl/docs/OBS_AUDIT_PLAN.md`).
   citations). NEW encoder gaps found: enemy ai_type and multi_hit_type are
   serialized but never encoded; plus the known learn-move/6th-member/
   shop-tail gaps. v9 direction: ~3.5-4.5k dims with MORE content.
+
+---
+
+## 2026-07-08 — Observation protocol v9 (4 → 5): 10,403 → 6,991 dims
+
+Evidence-based redesign per the Phase 1-2 audit (docs/OBS_V9_LAYOUT.md has
+the full design; docs/AUDIT_FINDINGS_P1.md + SUFFICIENCY_MATRIX.md the
+evidence). Approved layout decisions: fog-of-war as a toggle defaulting to
+FULL info; move vector cut to the evidence keep-list; ONE fixed layout
+(no layout toggles — escape hatch is ObservationWrapper over
+info["game_state"], README example added; env now exposes `last_info`).
+
+CUT (−3,732): per-move vector 136→60 (77 near-dead flags → one
+has_other_effect catch-all; exact OR-list in the design doc); volatile
+tags 76→69 (TURN_END-transient tags — structurally unobservable at
+decision boundaries, now excluded in the coverage manifest with reasons).
+
+ADDED (+320): per-pokemon ai_type_onehot(3) + move_known(4) +
+ability_known + was_seen (revealed-indicators; constant-truthy under full
+obs); multi_hit_count (replaces the is_multi_hit boolean — 2-5 hit count
+was serialized but dropped); shop options encoded 6→12 (all buy actions
+observable); field +8 Wish/Future-Sight dims per side; NEW learn_move
+block (66): the OFFERED move as a compact move vector + learner
+party-index (phase-router now writes learnMoveStats/learnMovePartyIndex —
+previously never populated).
+
+FIXED (0 dims): singles slot mapping — slot 1 = second active in doubles,
+FIRST BENCH in singles; the 6th party member (both sides) was silently
+invisible before v9.
+
+FOG OF WAR (value-mask toggle, default OFF): PokeRogueEnv(fog_of_war=True)
+/ --fog-of-war / &fog=1 zeroes enemy unseen moves (move_history-derived,
+conservative: resets on re-summon), unrevealed abilities, nature_mults +
+computed_stats, and never-seen bench members; indicators carry reveal
+state. Parity verified bitwise in BOTH modes; dump records carry fogOfWar
+so check_parity re-encodes faithfully.
+
+Verification: quick suite fully green (99/99, coverage OK, fixture parity
+OK incl. new ai_type default alignment, live parity OK) and the smoke
+anchor SURVIVED — verify-q1 bit-identical at 74 steps / reward 50.74
+(auto-mode reads mask/gameState, not the obs), proving the protocol bump
+changed representation, not behavior. Goldens regenerated. Trained v8
+checkpoints are invalidated by design (none exist yet).
+
+Honest notes: the audit-tool mishap during implementation (a careless
+multi-line edit deleted entries from _BATTLER_TAG_VALUES instead of
+CURATED_VOLATILE_TAGS) was caught by the tag-parity check and reverted —
+the lockstep gates work. state_schema.py's stale v7 constant fixed.

@@ -20,6 +20,13 @@
     "POWER_TRICK": "covered: the Atk/Def swap is reflected in the encoded effective stats (live getStats)",
     "GULP_MISSILE_ARROKUDA": "covered: duplicates the visible Cramorant form change (form_index encoded)",
     "GULP_MISSILE_PIKACHU": "covered: duplicates the visible Cramorant form change (form_index encoded)",
-    "MYSTERY_ENCOUNTER_POST_SUMMON": "internal: mystery-encounter bookkeeping trigger, no battle semantics"
+    "MYSTERY_ENCOUNTER_POST_SUMMON": "internal: mystery-encounter bookkeeping trigger, no battle semantics",
+    "FLINCHED": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "PROTECTED": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "ENDURING": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "HELPING_HAND": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "MAGIC_COAT": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "POWDER": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)",
+    "CENTER_OF_ATTENTION": "v9 cut: TURN_END-transient \u2014 lapses before every decision boundary (0 alive in audit corpus)"
   }
 }

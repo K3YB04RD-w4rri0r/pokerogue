@@ -67,9 +67,13 @@ describe("RL Semantic - Double Battle Slots & KO/Switch", () => {
   it("remaps slots after a switch: new active in player_0, old active on bench", async () => {
     await game.classicMode.startBattle(SpeciesId.MAGIKARP, SpeciesId.ABRA);
 
+    // v9 singles slot mapping: the (empty-in-singles) ally slot doubles as
+    // FIRST BENCH — slot 1 = second active in doubles, first bench in
+    // singles. This is what makes a 6th party member observable at all.
     const before = gs();
     expect(before.player_0.species_id).toBe(SpeciesId.MAGIKARP);
-    expect(before.player_2.species_id).toBe(SpeciesId.ABRA);
+    expect(before.player_1.species_id).toBe(SpeciesId.ABRA);
+    expect(before.player_2.valid).toBe(false);
 
     game.doSwitchPokemon(1);
     await game.toNextTurn();
@@ -79,9 +83,9 @@ describe("RL Semantic - Double Battle Slots & KO/Switch", () => {
     // is_on_field is field membership; is_active means "alive and allowed in
     // battle" (pokemon.isActive()) and stays true for a healthy benched mon
     expect(after.player_0.is_on_field).toBe(true);
-    expect(after.player_2.species_id).toBe(SpeciesId.MAGIKARP);
-    expect(after.player_2.is_on_field).toBe(false);
-    expect(after.player_2.is_active).toBe(true);
+    expect(after.player_1.species_id).toBe(SpeciesId.MAGIKARP);
+    expect(after.player_1.is_on_field).toBe(false);
+    expect(after.player_1.is_active).toBe(true);
   });
 
   it("marks a KO'd enemy as fainted with zero HP ratio (doubles, one survivor)", async () => {

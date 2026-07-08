@@ -48,7 +48,7 @@ DEFAULT_CLI = REPO_ROOT / "dist" / "rl" / "cli.js"
 # Setup phases auto-played by reset(); check_switch is left to the agent.
 SETUP_PHASES = {"title", "select_gender", "starter"}
 
-PROTOCOL_VERSION = 4  # v8 observation: 76 curated tags, 136-dim moves, 10403 dims
+PROTOCOL_VERSION = 5  # v9 observation: 69 curated tags, 60-dim moves, 6991 dims
 
 
 class ProtocolError(RuntimeError):
@@ -95,6 +95,7 @@ class PokeRogueEnv(gym.Env):
         reward_config: dict | None = None,
         overrides: dict | None = None,
         starters: str | None = None,
+        fog_of_war: bool = False,
     ):
         super().__init__()
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, (OBSERVATION_DIM,), np.float32)
@@ -111,6 +112,10 @@ class PokeRogueEnv(gym.Env):
         # obsB64 + mask and omit the bulky gameState JSON. Set lean=False to
         # receive full gameState and encode locally (debugging / inspection).
         self._lean = lean
+        # fog_of_war: mask enemy private info to what a human could know
+        # (unseen moves, unrevealed abilities, IV/nature-derived values,
+        # never-seen bench members). Default False = full information.
+        self._fog_of_war = fog_of_war
         # respawn: force a fresh node process per episode (the original,
         # slower lifecycle). Default False = in-process resets (~3ms vs ~2s),
         # with automatic fallback to respawn whenever the reset path errors.
@@ -141,6 +146,10 @@ class PokeRogueEnv(gym.Env):
         self._mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
         self._episode = 0
         self._needs_reset = True
+        # Last step/reset info dict — includes info["game_state"] when
+        # lean=False; consumed by ObservationWrappers (README: bring your
+        # own features).
+        self.last_info: dict = {}
         self._last_wave = 0
 
         if not self._cli_path.exists():
@@ -213,7 +222,8 @@ class PokeRogueEnv(gym.Env):
 
         self._needs_reset = False
         obs = self._obs_from(msg)
-        return obs, self._info_from(msg)
+        self.last_info = self._info_from(msg)
+        return obs, self.last_info
 
     def step(self, action):
         if self._needs_reset or self._proc is None:
@@ -232,6 +242,7 @@ class PokeRogueEnv(gym.Env):
             has_obs = "obsB64" in msg or msg.get("gameState")
             obs = self._obs_from(msg) if has_obs else np.zeros(OBSERVATION_DIM, np.float32)
             info = self._info_from(msg)
+            self.last_info = info
             if mtype == "error":
                 info["protocol_error"] = msg.get("message")
             if self._respawn or mtype == "error":
@@ -242,7 +253,8 @@ class PokeRogueEnv(gym.Env):
 
         if mtype != "state":
             raise ProtocolError(f"unexpected message type {mtype!r}")
-        return self._obs_from(msg), reward, False, False, self._info_from(msg)
+        self.last_info = self._info_from(msg)
+        return self._obs_from(msg), reward, False, False, self.last_info
 
     def action_masks(self) -> np.ndarray:
         """Valid-action mask for the current state (sb3-contrib MaskablePPO hook)."""
@@ -285,6 +297,8 @@ class PokeRogueEnv(gym.Env):
         ]
         if self._lean:
             cmd.append("--lean")
+        if self._fog_of_war:
+            cmd.append("--fog-of-war")
         if self._reward_config:
             cmd.append(f"--reward-config={json.dumps(self._reward_config)}")
         for key, value in self._overrides.items():

@@ -1094,6 +1094,18 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       metadata.learnMoveId = phase.moveId;
       metadata.newMoveName = newMove?.name ?? "???";
       metadata.currentMoveNames = moveset.map((m: any) => m?.getMove()?.name ?? "???");
+      // v9: full feature payload for the OFFERED move + who is learning —
+      // state-builder maps these to phase.learn_move_stats /
+      // learn_move_party_index, which the encoder's learn_move block reads.
+      // buildMoveSlot only needs a PokemonMove-shaped { moveId, getMove() }.
+      metadata.learnMoveStats = {
+        moveId: phase.moveId,
+        ppUsed: 0,
+        getMove: () => newMove,
+        getMovePp: () => newMove?.pp ?? 0,
+        isUsable: () => true,
+      };
+      metadata.learnMovePartyIndex = globalScene.getPlayerParty().indexOf(pokemon);
     }
 
     // Actions 0-3: replace move at slot 0-3

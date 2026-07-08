@@ -89,6 +89,8 @@ interface UrlParams {
   /** Decision-timeout override in SECONDS from &timeout=N (default: the
    *  router's 30s). For slow machines / software-rendered browsers. */
   timeoutMs: number | null;
+  /** v9: mask enemy private info (fog of war) */
+  fogOfWar: boolean;
 }
 
 function parseUrlParams(): UrlParams {
@@ -136,6 +138,7 @@ function parseUrlParams(): UrlParams {
 
   return {
     seed: params.get("seed") || undefined,
+    fogOfWar: params.get("fog") === "1" || params.get("fog") === "true",
     renderDelay: Number(params.get("delay") ?? 500),
     starters: starters ? parseStarterCsv(starters) : undefined,
     overrides,
@@ -840,7 +843,7 @@ async function startBridge(): Promise<void> {
       // TS-encoded observation + mask, additive alongside the full gameState
       // (the Python tools may keep encoding locally — the two encoders are
       // bitwise parity-verified, so either source is valid).
-      const obs = encodeObservation(gameState);
+      const obs = encodeObservation(gameState, { fogOfWar: urlParams.fogOfWar });
 
       // Send state to Python
       sendWS(ws, {

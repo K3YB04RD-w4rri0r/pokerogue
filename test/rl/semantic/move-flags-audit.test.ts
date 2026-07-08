@@ -108,14 +108,21 @@ describe("RL Semantic - Move Flag Audit", () => {
     expect(obs[moveDim("player_0", 0, MOVE.PP_RATIO)]).toBeCloseTo((move.pp_max - 1) / move.pp_max, 6);
   });
 
-  it("encodes v6/v7 flag dims for Stealth Rock and Knock Off", async () => {
+  it("encodes kept flags + has_other_effect for Stealth Rock and Knock Off (v9)", async () => {
     game.override.moveset([MoveId.STEALTH_ROCK, MoveId.KNOCK_OFF]);
     await game.classicMode.startBattle(SpeciesId.MEW);
 
     const obs = encodeObservation(gs());
-    expect(obs[moveDim("player_0", 0, MOVE.SETS_HAZARD)]).toBe(1);
-    expect(obs[moveDim("player_0", 0, MOVE.SETS_SCREEN)]).toBe(0);
-    expect(obs[moveDim("player_0", 1, MOVE.REMOVES_ITEM)]).toBe(1);
+    // Stealth Rock: sets_arena_tag is a KEPT flag; sets_hazard folded into
+    // the catch-all
+    expect(obs[moveDim("player_0", 0, MOVE.SETS_ARENA_TAG)]).toBe(1);
+    expect(obs[moveDim("player_0", 0, MOVE.HAS_OTHER_EFFECT)]).toBe(1);
+    // Knock Off: removes_item is a CUT flag → catch-all; steals_item kept
+    // and false for Knock Off
     expect(obs[moveDim("player_0", 1, MOVE.STEALS_ITEM)]).toBe(0);
+    expect(obs[moveDim("player_0", 1, MOVE.HAS_OTHER_EFFECT)]).toBe(1);
+    // A vanilla damaging move with no folded effects keeps the catch-all 0
+    // (Stealth Rock's slot-2 empty move stays all-zero)
+    expect(obs[moveDim("player_0", 2, MOVE.HAS_OTHER_EFFECT)]).toBe(0);
   });
 });

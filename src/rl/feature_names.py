@@ -39,6 +39,7 @@ from .enums import (
     POKEMON_SLOT_KEYS,
 )
 from .observation import (
+    LEARN_MOVE_BLOCK_DIM,
     ABILITY_FEATURE_DIM,
     BATTLE_META_DIM,
     DERIVED_FIELDS_DIM,
@@ -128,79 +129,26 @@ ABILITY_FEATURE_LABELS = [
     "tinted_lens", "parental_bond", "good_as_gold",
 ]
 
-# Scalar move fields written after the category one-hot, in _encode_move order
+# Scalar move fields written after the category one-hot, in _encode_move
+# order (v9 compact vector — docs/OBS_V9_LAYOUT.md §1)
 _MOVE_SCALAR_FIELDS = [
     "power", "accuracy", "pp_ratio", "priority", "effect_chance",
-    "drain_ratio", "heal_ratio", "is_multi_hit", "self_switch",
+    "drain_ratio", "heal_ratio", "multi_hit_count",
     "force_switch", "is_protect", "traps_target", "makes_contact",
     "is_usable",
     # secondary effect fields
     "status_effect", "stat_change_self_sum", "stat_change_target_sum",
-    "recoil_ratio", "is_ohko", "is_charging", "is_sacrifice",
-    "crit_stage_boost",
+    "recoil_ratio", "crit_stage_boost",
 ]
 
-# Scalar move fields written after the target-class one-hot
-_MOVE_POST_TARGET_FIELDS = ["ignores_protect", "is_sound_based"]
-
-# v6 move semantic flags (36), in _encode_move write order
-_MOVE_V6_FIELDS = [
-    # Group 1: boolean attr flags (12)
-    "can_flinch", "can_confuse", "is_recharge", "is_frenzy", "is_typeless",
-    "creates_substitute", "suppresses_ability", "has_variable_power",
-    "has_variable_type", "has_variable_category", "bypass_burn_penalty",
-    "ignores_stat_stages",
-    # Group 2: field control (4)
-    "weather_change", "terrain_change", "sets_arena_tag", "removes_arena_tags",
-    # Group 3: arena tag semantics (3)
-    "sets_hazard", "sets_screen", "arena_tag_self_side",
-    # Group 4: battler tag semantics (3)
-    "applies_battler_tag", "applies_move_restriction",
-    "applies_continuous_damage",
-    # Group 5: fixed damage discrimination (4)
-    "is_user_hp_damage", "is_target_half_hp", "is_counter_damage",
-    "is_level_damage",
-    # Group 6: additional strategic flags (2)
-    "is_delayed_attack", "post_victory_stat_boost",
-    # Group 7: missing MoveFlags (8)
-    "is_wind_move", "is_reckless_move", "is_reflectable", "hides_user",
-    "is_triage_move", "check_all_hits", "affected_by_gravity", "hides_target",
-]
-
-# v7 MoveAttr boolean flags (46), in _encode_move write order
-_MOVE_V7_FIELDS = [
-    # Group 8: item manipulation (3)
-    "steals_item", "removes_item", "steals_berry",
-    # Group 9: stat manipulation (8)
-    "copies_stats", "inverts_stats", "resets_stats", "swaps_stat_stages",
-    "steals_stat_boosts", "averages_stats", "swaps_single_stat",
-    "shifts_own_stat",
-    # Group 10: HP / PP / revival (3)
-    "splits_hp", "reduces_pp", "revives_ally",
-    # Group 11: move-calling (5)
-    "copies_last_move", "calls_random_move", "calls_moveset_move",
-    "copies_move_temp", "copies_move_perm",
-    # Group 12: ability manipulation (5)
-    "copies_ability", "swaps_abilities", "changes_ability", "gives_ability",
-    "suppresses_if_acted",
-    # Group 13: targeting & priority (4)
-    "bypass_redirect", "forces_target_next", "forces_target_last",
-    "has_conditional_priority",
-    # Group 14: status & tag manipulation (5)
-    "cures_party_status", "transfers_status", "heals_status",
-    "removes_battler_tag", "removes_substitutes",
-    # Group 15: transform & special moves (4)
-    "transforms_into_target", "is_curse", "is_wish", "is_destiny_bond",
-    # Group 16: field control (3)
-    "swaps_arena_tags", "clears_weather", "clears_terrain",
-    # Group 17: damage calc & misc (6)
-    "has_variable_target", "resists_last_type", "has_variable_accuracy",
-    "uses_alt_stat", "overrides_type_chart", "scatters_money",
-]
-
-# v8: +4 survival / HP-relative move flags (appended after the v7 block)
-_MOVE_V8_FIELDS = [
-    "survives_at_1hp", "matches_user_hp", "hp_cost_stat_boost", "hits_semi_invulnerable",
+# Move fields written after the target-class one-hot (v9 kept effect
+# flags in _encode_move order, then the catch-all)
+_MOVE_POST_TARGET_FIELDS = [
+    "ignores_protect", "is_sound_based", "can_flinch", "can_confuse",
+    "has_variable_power", "weather_change", "sets_arena_tag",
+    "applies_battler_tag", "applies_move_restriction", "is_wind_move",
+    "is_reckless_move", "is_reflectable", "is_triage_move", "steals_item",
+    "hits_semi_invulnerable", "has_other_effect",
 ]
 
 # Non-move scalar pokemon fields between tera one-hot bank and the move blocks
@@ -266,12 +214,6 @@ def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
         add_one_hot(f"{prefix}/target_class_onehot", 3)
         for f in _MOVE_POST_TARGET_FIELDS:
             add(f"{prefix}/{f}")
-        for f in _MOVE_V6_FIELDS:
-            add(f"{prefix}/{f}")
-        for f in _MOVE_V7_FIELDS:
-            add(f"{prefix}/{f}")
-        for f in _MOVE_V8_FIELDS:
-            add(f"{prefix}/{f}")
         assert len(names) - start == MOVE_BLOCK_DIM, (
             f"move block for {prefix} is {len(names) - start}, expected {MOVE_BLOCK_DIM}"
         )
@@ -304,6 +246,12 @@ def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
         # computed stats: indices 1-5 of the [HP,ATK,DEF,SPATK,SPDEF,SPD] list
         for s in _STAT5_LABELS:
             add(f"{slot}/stats[{s}]")
+        # v9: enemy AI type + revealed-indicators
+        add_one_hot(f"{slot}/ai_type_onehot", 3, ["RANDOM", "SMART_RANDOM", "SMART"])
+        for mi in range(MAX_MOVES):
+            add(f"{slot}/move_known[{mi}]")
+        add(f"{slot}/ability_known")
+        add(f"{slot}/was_seen")
         for mi in range(MAX_MOVES):
             add_move(f"{slot}/moves[{mi}]")
         assert len(names) - start == POKEMON_BLOCK_DIM, (
@@ -336,6 +284,12 @@ def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
             for tag in _KEY_ARENA_TAGS:
                 add(f"field/tag_turns/{side}[{tag}]")
         add("field/player_teras_used")
+        # v9: positional tags (Wish / Future Sight per side)
+        for side in ["player", "enemy"]:
+            add(f"field/{side}_wish_active")
+            add(f"field/{side}_wish_turns")
+            add(f"field/{side}_future_sight_active")
+            add(f"field/{side}_future_sight_turns")
         assert len(names) - start == FIELD_STATE_DIM, (
             f"field block is {len(names) - start}, expected {FIELD_STATE_DIM}"
         )
@@ -465,6 +419,13 @@ def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
         + MODIFIER_PHASE_DIM + MODIFIER_INVENTORY_DIM + DERIVED_FIELDS_DIM
     )
 
+    # Learn-move block (66), mirrors _encode_learn_move (v9)
+    lm_start = len(names)
+    add_move("learn_move/offered")
+    for i in range(6):
+        add(f"learn_move/party_index[{i}]")
+    assert len(names) - lm_start == LEARN_MOVE_BLOCK_DIM
+
     # Phase indicator (16), mirrors _encode_phase
     add_one_hot("phase_onehot", PHASE_INDICATOR_DIM, _PHASE_LABELS)
     assert len(names) == OBSERVATION_DIM, (
@@ -489,7 +450,7 @@ assert NUM_ARENA_TAG_TYPES == len(ARENA_TAG_ORDER)
 assert MODIFIER_FEATURE_DIM == len(MODIFIER_FEATURE_LABELS)
 assert ABILITY_FEATURE_DIM == len(ABILITY_FEATURE_LABELS)
 assert PHASE_INDICATOR_DIM == len(_PHASE_LABELS)
-assert len(_MOVE_V6_FIELDS) == 36 and len(_MOVE_V7_FIELDS) == 46 and len(_MOVE_V8_FIELDS) == 4
+assert len(_MOVE_SCALAR_FIELDS) == 18 and len(_MOVE_POST_TARGET_FIELDS) == 16
 
 # Block ranges: (label, start, size) in observation order
 _POKEMON_TOTAL = TOTAL_POKEMON_SLOTS * POKEMON_BLOCK_DIM
@@ -509,9 +470,13 @@ BLOCK_RANGES: List[Tuple[str, int, int]] = [
      _POKEMON_TOTAL + FIELD_STATE_DIM + BATTLE_META_DIM + MODIFIER_PHASE_DIM
      + MODIFIER_INVENTORY_DIM,
      DERIVED_FIELDS_DIM),
-    ("phase_indicator",
+    ("learn_move",
      _POKEMON_TOTAL + FIELD_STATE_DIM + BATTLE_META_DIM + MODIFIER_PHASE_DIM
      + MODIFIER_INVENTORY_DIM + DERIVED_FIELDS_DIM,
+     LEARN_MOVE_BLOCK_DIM),
+    ("phase_indicator",
+     _POKEMON_TOTAL + FIELD_STATE_DIM + BATTLE_META_DIM + MODIFIER_PHASE_DIM
+     + MODIFIER_INVENTORY_DIM + DERIVED_FIELDS_DIM + LEARN_MOVE_BLOCK_DIM,
      PHASE_INDICATOR_DIM),
 ]
 assert BLOCK_RANGES[-1][1] + BLOCK_RANGES[-1][2] == OBSERVATION_DIM

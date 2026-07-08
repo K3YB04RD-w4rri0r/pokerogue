@@ -71,7 +71,7 @@ def main() -> int:
                 where = f"{path}:step{rec['step']}:phase={rec['phase']}"
 
                 state = parse_game_state(rec["gameState"])
-                py_obs = encode_observation(state)
+                py_obs = encode_observation(state, fog_of_war=bool(rec.get("fogOfWar", False)))
                 ts_obs = decode_obs_b64(rec["obsB64"])
 
                 # Invariants on both vectors

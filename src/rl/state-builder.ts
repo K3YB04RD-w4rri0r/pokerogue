@@ -1162,6 +1162,22 @@ function buildPokemonState(
       has_passive: safe(() => pokemon.hasPassive(), false),
       ability_suppressed: hasSummonData ? (pokemon.summonData.abilitySuppressed ?? false) : false,
       ability_revealed: pokemon.waveData?.abilityRevealed ?? false,
+      // v9 fog-of-war inputs: whether a human player could know this mon /
+      // its moves. Players are always fully known. move_known derives from
+      // the CURRENT summon's move history (conservative: knowledge resets
+      // when the enemy re-summons — refine when fog training starts).
+      was_seen: isPlayer
+        ? true
+        : safe(() => globalScene.currentBattle?.seenEnemyPartyMemberIds?.has(pokemon.id) ?? false, false),
+      move_known: isPlayer
+        ? moveset.map(() => true)
+        : safe(
+            () => {
+              const seenIds = new Set((pokemon.summonData?.moveHistory ?? []).map(mh => mh.move));
+              return moveset.map(m => (m?.moveId != null ? seenIds.has(m.moveId) : false));
+            },
+            moveset.map(() => false),
+          ),
       nature: safe(() => pokemon.getNature(), pokemon.nature ?? 0),
       nature_multipliers: natureMults,
       moves,
@@ -1709,6 +1725,7 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
       learn_move_id: null,
       learn_move_name: null,
       learn_move_stats: null,
+      learn_move_party_index: null,
       learn_move_current: null,
       biome_options: null,
       mystery_option_count: null,
@@ -1731,6 +1748,7 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
     learn_move_id: (meta.learnMoveId as number) ?? null,
     learn_move_name: (meta.newMoveName as string) ?? null,
     learn_move_stats: meta.learnMoveStats ? buildMoveSlot(meta.learnMoveStats as any, null) : null,
+    learn_move_party_index: (meta.learnMovePartyIndex as number) ?? null,
     learn_move_current: (meta.currentMoveNames as string[]) ?? null,
     biome_options: (meta.biomeNames as string[]) ?? null,
     mystery_option_count: phaseState.phase === "mystery" ? ((meta.optionCount as number) ?? null) : null,
@@ -1927,20 +1945,28 @@ export function buildGameState(phaseState: PhaseState | null, step: number): Rec
   }
 
   // ── Build 12 Pokemon slots ──
-  // player_0 = active slot 0, player_1 = active slot 1, player_2..5 = bench
+  // v9 slot mapping: slot 1 = second active in DOUBLES, first bench
+  // member in SINGLES. Before v9 the ally slot sat empty in singles and
+  // bench held only 4 of the 5 reserves — the 6th party member (both
+  // sides) was structurally invisible to the agent.
+  const isDouble = safe(() => !!globalScene.currentBattle?.double, false);
+  const playerSlot1 = isDouble ? (playerField[1] ?? null) : (playerBench[0] ?? null);
+  const enemySlot1 = isDouble ? (enemyField[1] ?? null) : (enemyBench[0] ?? null);
+  const benchBase = isDouble ? 0 : 1;
+
   const player0 = buildPokemonState(playerField[0] ?? null, true, 0);
-  const player1 = buildPokemonState(playerField[1] ?? null, true, 1);
-  const player2 = buildPokemonState(playerBench[0] ?? null, true, 2);
-  const player3 = buildPokemonState(playerBench[1] ?? null, true, 3);
-  const player4 = buildPokemonState(playerBench[2] ?? null, true, 4);
-  const player5 = buildPokemonState(playerBench[3] ?? null, true, 5);
+  const player1 = buildPokemonState(playerSlot1, true, 1);
+  const player2 = buildPokemonState(playerBench[benchBase] ?? null, true, 2);
+  const player3 = buildPokemonState(playerBench[benchBase + 1] ?? null, true, 3);
+  const player4 = buildPokemonState(playerBench[benchBase + 2] ?? null, true, 4);
+  const player5 = buildPokemonState(playerBench[benchBase + 3] ?? null, true, 5);
 
   const enemy0 = buildPokemonState(enemyField[0] ?? null, false, 0);
-  const enemy1 = buildPokemonState(enemyField[1] ?? null, false, 1);
-  const enemy2 = buildPokemonState(enemyBench[0] ?? null, false, 2);
-  const enemy3 = buildPokemonState(enemyBench[1] ?? null, false, 3);
-  const enemy4 = buildPokemonState(enemyBench[2] ?? null, false, 4);
-  const enemy5 = buildPokemonState(enemyBench[3] ?? null, false, 5);
+  const enemy1 = buildPokemonState(enemySlot1, false, 1);
+  const enemy2 = buildPokemonState(enemyBench[benchBase] ?? null, false, 2);
+  const enemy3 = buildPokemonState(enemyBench[benchBase + 1] ?? null, false, 3);
+  const enemy4 = buildPokemonState(enemyBench[benchBase + 2] ?? null, false, 4);
+  const enemy5 = buildPokemonState(enemyBench[benchBase + 3] ?? null, false, 5);
 
   return {
     // Pokemon slots

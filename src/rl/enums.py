@@ -603,18 +603,18 @@ POSITIONAL_TAG_STR_TO_ID: Dict[str, int] = {
 # 3. CURATED ORDERINGS (match spaces.ts exactly)
 # ═══════════════════════════════════════════════════════════════════════════
 
-# 39 strategically important volatile tags, in spaces.ts order (lines 88-129)
+# Strategically important volatile tags, in spaces.ts order.
+# v9: 7 TURN_END-transient tags cut (FLINCHED/PROTECTED/ENDURING/
+# HELPING_HAND/MAGIC_COAT/POWDER/CENTER_OF_ATTENTION) — they lapse before
+# every decision boundary. Must match spaces.ts CURATED_VOLATILE_TAGS.
 CURATED_VOLATILE_TAGS: List[str] = [
-    "CONFUSED", "INFATUATED", "SEEDED", "TRAPPED", "PROTECTED",
-    "ENDURING", "FLINCHED", "ENCORE", "SUBSTITUTE", "DISABLED",
+    "CONFUSED", "INFATUATED", "SEEDED", "TRAPPED",
+    "ENCORE", "SUBSTITUTE", "DISABLED",
     "TAUNT", "TORMENT", "HEAL_BLOCK", "INGRAIN", "AQUA_RING",
     "FLYING", "UNDERGROUND", "UNDERWATER", "CHARGING", "RECHARGING",
     "FRENZY", "PERISH_SONG", "DESTINY_BOND", "CURSED", "SALT_CURED",
     "OCTOLOCK", "DROWSY", "STOCKPILING", "MINIMIZED", "IMPRISON",
-    "MAGIC_COAT", "POWDER",
-    # v2: 7 additional strategically important tags
-    "CENTER_OF_ATTENTION",  # Follow Me/Rage Powder — redirects moves in doubles
-    "HELPING_HAND",         # +50% ally damage in doubles
+    # v2 additions (v9-kept)
     "SLOW_START",           # Regigigas halved ATK/SPD for 5 turns
     "UNBURDEN",             # Doubled speed after item loss
     "RECEIVE_DOUBLE_DAMAGE",  # Tar Shot — 2x fire damage

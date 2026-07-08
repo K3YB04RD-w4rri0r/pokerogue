@@ -56,26 +56,28 @@ NUM_MOVE_CATEGORIES = 3
 NUM_BATTLE_TYPES = 4
 NUM_MODIFIER_TIERS = 6
 NUM_POKEBALL_TYPES = 5  # Tracked in pokeball_counts (0-4)
-NUM_CURATED_TAGS = 76   # 48 + 28 v8 additions (partial-trap family, charge/boost/ignore states)
+NUM_CURATED_TAGS = 69   # v9: 7 TURN_END-transient tags cut (see OBS_V9_LAYOUT.md)
 NUM_ARENA_TAG_TYPES = 28
 MAX_MOVES = 4
+MAX_PARTY_SIZE = 6
 MAX_REWARD_OPTIONS = 3
 MAX_SHOP_OPTIONS = 12
-MAX_SHOP_OPTIONS_ENCODED = 6  # First 6 shop options, natural (action-id) order
+MAX_SHOP_OPTIONS_ENCODED = 12  # v9: all 12 shop options, natural (action-id) order
 MAX_HELD_ITEMS_ENCODED = 2   # Top-N held items encoded per active slot
 
 ABILITY_FEATURE_DIM = 40     # v3: semantic features per ability (replaces ability_id/310)
 MODIFIER_FEATURE_DIM = 20    # v4: semantic features per modifier
-MOVE_BLOCK_DIM = 136          # v8: +4 survival/HP-relative flags (was 132)
-POKEMON_BLOCK_DIM = 815      # 271 non-move (v8: tags 48->76) + 4*136 moves
-FIELD_STATE_DIM = 94         # +11: weather/terrain permanence, arena tag turns, teras
+MOVE_BLOCK_DIM = 60           # v9: compact evidence keep-list (was 136)
+POKEMON_BLOCK_DIM = 513      # v9: 273 non-move (tags 69, +ai_type 3, +indicators 6) + 4*60 moves
+FIELD_STATE_DIM = 102        # v9: +8 positional tags (Wish/Future Sight per side)
 BATTLE_META_DIM = 40         # +9: game mode flags, inverse_battle
-MODIFIER_PHASE_DIM = 225     # v4: header(3) + reward(3*28) + shop(6*23)
+MODIFIER_PHASE_DIM = 363     # v9: header(3) + reward(3*28) + shop(12*23)
 MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8)
 DERIVED_FIELDS_DIM = 28      # type effectiveness, STAB, speed ordering
+LEARN_MOVE_BLOCK_DIM = 66    # v9: offered move (60) + learner party-index one-hot (6)
 PHASE_INDICATOR_DIM = 16
 TOTAL_POKEMON_SLOTS = 12
-OBSERVATION_DIM = 10403      # 12*815 + 94 + 40 + 225 + 220 + 28 + 16
+OBSERVATION_DIM = 6991       # 12*513 + 102 + 40 + 363 + 220 + 28 + 66 + 16
 ACTION_SPACE_SIZE = 58
 
 # Held item slot dims: valid(1) + features(20) + stack_ratio(1) = 22
@@ -375,6 +377,9 @@ class ObsPokemon:
     has_passive: bool = False
     ability_suppressed: bool = False
     ability_revealed: bool = False
+    # v9 fog-of-war inputs
+    was_seen: bool = True
+    move_known: List[bool] = dc_field(default_factory=list)
     nature: int = 0
     nature_multipliers: List[float] = dc_field(default_factory=lambda: [1.0] * 5)
     moves: List[ObsMove] = dc_field(default_factory=list)
@@ -384,7 +389,7 @@ class ObsPokemon:
     is_boss: bool = False
     boss_segments: int = 0
     boss_segment_index: int = 0
-    ai_type: int = 0
+    ai_type: int = -1  # -1 = unknown/absent (all-zero one-hot); RANDOM=0
     is_fusion: bool = False
     fusion_species_id: int = -1
     is_on_field: bool = False
@@ -611,6 +616,9 @@ class ObsPhase:
     action_mask: List[bool] = dc_field(default_factory=lambda: [False] * ACTION_SPACE_SIZE)
     valid_actions: List[int] = dc_field(default_factory=list)
     learn_move_id: int = -1
+    # v9: full feature payload for the offered move + who is learning
+    learn_move_stats: Optional[ObsMove] = None
+    learn_move_party_index: int = -1
     # Biome names offered by the select_biome phase (not encoded; decision metadata)
     biome_options: List[str] = dc_field(default_factory=list)
     mystery_option_count: int = -1
@@ -922,6 +930,8 @@ def _parse_pokemon(d: dict) -> ObsPokemon:
         has_passive=_gb(d, "has_passive"),
         ability_suppressed=_gb(d, "ability_suppressed"),
         ability_revealed=_gb(d, "ability_revealed"),
+        was_seen=_gb(d, "was_seen", True),
+        move_known=[bool(x) for x in (d.get("move_known") or [])],
         nature=_g(d, "nature"),
         nature_multipliers=_gl(d, "nature_multipliers") or [1.0] * 5,
         moves=[_parse_move(m) for m in _gl(d, "moves")],
@@ -931,7 +941,7 @@ def _parse_pokemon(d: dict) -> ObsPokemon:
         is_boss=_gb(d, "is_boss"),
         boss_segments=_g(d, "boss_segments"),
         boss_segment_index=_g(d, "boss_segment_index"),
-        ai_type=_g(d, "ai_type"),
+        ai_type=_g(d, "ai_type", -1),
         is_fusion=_gb(d, "is_fusion"),
         fusion_species_id=_g(d, "fusion_species_id", -1),
         is_on_field=_gb(d, "is_on_field"),
@@ -1195,6 +1205,8 @@ def _parse_phase(d: dict) -> ObsPhase:
         action_mask=mask[:ACTION_SPACE_SIZE],
         valid_actions=_gl(d, "valid_actions"),
         learn_move_id=_g(d, "learn_move_id", -1),
+        learn_move_stats=_parse_move(d["learn_move_stats"]) if isinstance(d.get("learn_move_stats"), dict) else None,
+        learn_move_party_index=_g(d, "learn_move_party_index", -1),
         biome_options=[str(b) for b in _gl(d, "biome_options")],
         mystery_option_count=_g(d, "mystery_option_count", -1),
         is_game_over=_gb(d, "is_game_over"),
@@ -1912,8 +1924,54 @@ _SELF_ALLY_TARGETS = {0, 10, 11, 12, 13, 15, 18}
 _SINGLE_ENEMY_TARGETS = {1, 3, 5, 9}
 
 
+
+# v8 boolean flags folded into the v9 has_other_effect catch-all (76
+# booleans; terrain_change is OR'd separately). Mirrors spaces.ts
+# OTHER_EFFECT_FLAGS exactly — see docs/OBS_V9_LAYOUT.md §1.
+_OTHER_EFFECT_FLAGS = (
+    "self_switch", "is_ohko", "is_charging", "is_sacrifice",
+    "is_recharge", "is_frenzy", "is_typeless", "creates_substitute",
+    "suppresses_ability", "has_variable_type", "has_variable_category",
+    "bypass_burn_penalty", "ignores_stat_stages", "removes_arena_tags",
+    "sets_hazard", "sets_screen", "arena_tag_self_side",
+    "applies_continuous_damage", "is_user_hp_damage", "is_target_half_hp",
+    "is_counter_damage", "is_level_damage", "is_delayed_attack",
+    "post_victory_stat_boost", "hides_user", "hides_target",
+    "check_all_hits", "affected_by_gravity",
+    "removes_item", "steals_berry", "copies_stats", "inverts_stats",
+    "resets_stats", "swaps_stat_stages", "steals_stat_boosts",
+    "averages_stats", "swaps_single_stat", "shifts_own_stat", "splits_hp",
+    "reduces_pp", "revives_ally", "copies_last_move", "calls_random_move",
+    "calls_moveset_move", "copies_move_temp", "copies_move_perm",
+    "copies_ability", "swaps_abilities", "changes_ability", "gives_ability",
+    "suppresses_if_acted", "bypass_redirect", "forces_target_next",
+    "forces_target_last", "has_conditional_priority", "cures_party_status",
+    "transfers_status", "heals_status", "removes_battler_tag",
+    "removes_substitutes", "transforms_into_target", "is_curse", "is_wish",
+    "is_destiny_bond", "swaps_arena_tags", "clears_weather",
+    "clears_terrain", "has_variable_target", "resists_last_type",
+    "has_variable_accuracy", "uses_alt_stat", "overrides_type_chart",
+    "scatters_money", "survives_at_1hp", "matches_user_hp",
+    "hp_cost_stat_boost",
+)
+
+
+def _multi_hit_count(multi_hit_type: int) -> int:
+    """-1 -> 0 (not multi-hit); TWO(0) -> 2; TWO_TO_FIVE(1) -> 5;
+    THREE(2) -> 3; TEN(3)/BEAT_UP(4) -> clamp 5. Mirrors spaces.ts."""
+    if multi_hit_type == 0:
+        return 2
+    if multi_hit_type == 1:
+        return 5
+    if multi_hit_type == 2:
+        return 3
+    if multi_hit_type in (3, 4):
+        return 5
+    return 0
+
+
 def _encode_move(buf: np.ndarray, offset: int, m: ObsMove) -> None:
-    """Encode one move slot (132 dims). Matches spaces.ts encodeMoveFromDict()."""
+    """Encode one move slot (60 dims, v9). Matches spaces.ts encodeMoveFromDict()."""
     if m.move_id <= 0:
         return
     pos = offset
@@ -1929,15 +1987,12 @@ def _encode_move(buf: np.ndarray, offset: int, m: ObsMove) -> None:
     buf[pos] = _clamp(m.effect_chance / 100, 0, 1); pos += 1      # effect_chance
     buf[pos] = _clamp(m.drain_ratio, 0, 1); pos += 1              # drain_ratio
     buf[pos] = _clamp(m.heal_ratio, 0, 1); pos += 1               # heal_ratio
-    buf[pos] = 1.0 if m.is_multi_hit else 0.0; pos += 1           # is_multi_hit
-    buf[pos] = 1.0 if m.self_switch else 0.0; pos += 1            # self_switch
+    buf[pos] = _multi_hit_count(m.multi_hit_type) / 5; pos += 1  # multi_hit_count (v9)
     buf[pos] = 1.0 if m.force_switch else 0.0; pos += 1           # force_switch
     buf[pos] = 1.0 if m.is_protect else 0.0; pos += 1             # is_protect
     buf[pos] = 1.0 if m.traps_target else 0.0; pos += 1           # traps_target
     buf[pos] = 1.0 if m.makes_contact else 0.0; pos += 1          # makes_contact
     buf[pos] = 1.0 if m.is_usable else 0.0; pos += 1              # is_usable
-
-    # ── New secondary effect fields (+13 dims) ──
 
     # status_effect /7
     buf[pos] = _clamp(m.status_effect / 7, 0, 1); pos += 1
@@ -1956,15 +2011,6 @@ def _encode_move(buf: np.ndarray, offset: int, m: ObsMove) -> None:
     # recoil_ratio
     buf[pos] = _clamp(m.recoil_ratio, 0, 1); pos += 1
 
-    # is_ohko
-    buf[pos] = 1.0 if m.is_ohko else 0.0; pos += 1
-
-    # is_charging
-    buf[pos] = 1.0 if m.is_charging else 0.0; pos += 1
-
-    # is_sacrifice
-    buf[pos] = 1.0 if m.is_sacrifice else 0.0; pos += 1
-
     # crit_stage_boost /3 (99=always_crit maps to 1.0)
     buf[pos] = _clamp(m.crit_stage_boost / 3, 0, 1); pos += 1
 
@@ -1977,132 +2023,46 @@ def _encode_move(buf: np.ndarray, offset: int, m: ObsMove) -> None:
         buf[pos + 2] = 1.0
     pos += 3
 
-    # ignores_protect
+    # [44-58] kept effect flags (evidence keep-list)
     buf[pos] = 1.0 if m.ignores_protect else 0.0; pos += 1
-
-    # is_sound_based
     buf[pos] = 1.0 if m.is_sound_based else 0.0; pos += 1
-
-    # ── v6: Move semantic encoding (+36 dims) ──
-
-    # Group 1: Boolean attr flags (12)
     buf[pos] = 1.0 if m.can_flinch else 0.0; pos += 1
     buf[pos] = 1.0 if m.can_confuse else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_recharge else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_frenzy else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_typeless else 0.0; pos += 1
-    buf[pos] = 1.0 if m.creates_substitute else 0.0; pos += 1
-    buf[pos] = 1.0 if m.suppresses_ability else 0.0; pos += 1
     buf[pos] = 1.0 if m.has_variable_power else 0.0; pos += 1
-    buf[pos] = 1.0 if m.has_variable_type else 0.0; pos += 1
-    buf[pos] = 1.0 if m.has_variable_category else 0.0; pos += 1
-    buf[pos] = 1.0 if m.bypass_burn_penalty else 0.0; pos += 1
-    buf[pos] = 1.0 if m.ignores_stat_stages else 0.0; pos += 1
-
-    # Group 2: Field control (4)
     buf[pos] = _clamp(m.weather_change / 9, 0, 1); pos += 1
-    buf[pos] = _clamp(m.terrain_change / 4, 0, 1); pos += 1
     buf[pos] = 1.0 if m.sets_arena_tag else 0.0; pos += 1
-    buf[pos] = 1.0 if m.removes_arena_tags else 0.0; pos += 1
-
-    # Group 3: Arena tag semantics (3)
-    buf[pos] = 1.0 if m.sets_hazard else 0.0; pos += 1
-    buf[pos] = 1.0 if m.sets_screen else 0.0; pos += 1
-    buf[pos] = 1.0 if m.arena_tag_self_side else 0.0; pos += 1
-
-    # Group 4: Battler tag semantics (3)
     buf[pos] = 1.0 if m.applies_battler_tag else 0.0; pos += 1
     buf[pos] = 1.0 if m.applies_move_restriction else 0.0; pos += 1
-    buf[pos] = 1.0 if m.applies_continuous_damage else 0.0; pos += 1
-
-    # Group 5: Fixed damage discrimination (4)
-    buf[pos] = 1.0 if m.is_user_hp_damage else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_target_half_hp else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_counter_damage else 0.0; pos += 1
-    buf[pos] = 1.0 if m.is_level_damage else 0.0; pos += 1
-
-    # Group 6: Additional strategic flags (2)
-    buf[pos] = 1.0 if m.is_delayed_attack else 0.0; pos += 1
-    buf[pos] = 1.0 if m.post_victory_stat_boost else 0.0; pos += 1
-
-    # Group 7: Missing MoveFlags (8)
     buf[pos] = 1.0 if m.is_wind_move else 0.0; pos += 1
     buf[pos] = 1.0 if m.is_reckless_move else 0.0; pos += 1
     buf[pos] = 1.0 if m.is_reflectable else 0.0; pos += 1
-    buf[pos] = 1.0 if m.hides_user else 0.0; pos += 1
     buf[pos] = 1.0 if m.is_triage_move else 0.0; pos += 1
-    buf[pos] = 1.0 if m.check_all_hits else 0.0; pos += 1
-    buf[pos] = 1.0 if m.affected_by_gravity else 0.0; pos += 1
-    buf[pos] = 1.0 if m.hides_target else 0.0; pos += 1
+    buf[pos] = 1.0 if m.steals_item else 0.0; pos += 1
+    buf[pos] = 1.0 if m.hits_semi_invulnerable else 0.0; pos += 1
 
-    # ── v7: MoveAttr boolean flags (+46 fields) ──
-    # Group 8: Item Manipulation (3)
-    buf[pos] = float(m.steals_item); pos += 1
-    buf[pos] = float(m.removes_item); pos += 1
-    buf[pos] = float(m.steals_berry); pos += 1
-    # Group 9: Stat Manipulation (8)
-    buf[pos] = float(m.copies_stats); pos += 1
-    buf[pos] = float(m.inverts_stats); pos += 1
-    buf[pos] = float(m.resets_stats); pos += 1
-    buf[pos] = float(m.swaps_stat_stages); pos += 1
-    buf[pos] = float(m.steals_stat_boosts); pos += 1
-    buf[pos] = float(m.averages_stats); pos += 1
-    buf[pos] = float(m.swaps_single_stat); pos += 1
-    buf[pos] = float(m.shifts_own_stat); pos += 1
-    # Group 10: HP / PP / Revival (3)
-    buf[pos] = float(m.splits_hp); pos += 1
-    buf[pos] = float(m.reduces_pp); pos += 1
-    buf[pos] = float(m.revives_ally); pos += 1
-    # Group 11: Move-Calling (5)
-    buf[pos] = float(m.copies_last_move); pos += 1
-    buf[pos] = float(m.calls_random_move); pos += 1
-    buf[pos] = float(m.calls_moveset_move); pos += 1
-    buf[pos] = float(m.copies_move_temp); pos += 1
-    buf[pos] = float(m.copies_move_perm); pos += 1
-    # Group 12: Ability Manipulation (5)
-    buf[pos] = float(m.copies_ability); pos += 1
-    buf[pos] = float(m.swaps_abilities); pos += 1
-    buf[pos] = float(m.changes_ability); pos += 1
-    buf[pos] = float(m.gives_ability); pos += 1
-    buf[pos] = float(m.suppresses_if_acted); pos += 1
-    # Group 13: Targeting & Priority (4)
-    buf[pos] = float(m.bypass_redirect); pos += 1
-    buf[pos] = float(m.forces_target_next); pos += 1
-    buf[pos] = float(m.forces_target_last); pos += 1
-    buf[pos] = float(m.has_conditional_priority); pos += 1
-    # Group 14: Status & Tag Manipulation (5)
-    buf[pos] = float(m.cures_party_status); pos += 1
-    buf[pos] = float(m.transfers_status); pos += 1
-    buf[pos] = float(m.heals_status); pos += 1
-    buf[pos] = float(m.removes_battler_tag); pos += 1
-    buf[pos] = float(m.removes_substitutes); pos += 1
-    # Group 15: Transform & Special Moves (4)
-    buf[pos] = float(m.transforms_into_target); pos += 1
-    buf[pos] = float(m.is_curse); pos += 1
-    buf[pos] = float(m.is_wish); pos += 1
-    buf[pos] = float(m.is_destiny_bond); pos += 1
-    # Group 16: Field Control (3)
-    buf[pos] = float(m.swaps_arena_tags); pos += 1
-    buf[pos] = float(m.clears_weather); pos += 1
-    buf[pos] = float(m.clears_terrain); pos += 1
-    # Group 17: Damage Calc & Misc (6)
-    buf[pos] = float(m.has_variable_target); pos += 1
-    buf[pos] = float(m.resists_last_type); pos += 1
-    buf[pos] = float(m.has_variable_accuracy); pos += 1
-    buf[pos] = float(m.uses_alt_stat); pos += 1
-    buf[pos] = float(m.overrides_type_chart); pos += 1
-    buf[pos] = float(m.scatters_money); pos += 1
-    # Group 18: v8 survival / HP-relative semantics (4)
-    buf[pos] = float(m.survives_at_1hp); pos += 1
-    buf[pos] = float(m.matches_user_hp); pos += 1
-    buf[pos] = float(m.hp_cost_stat_boost); pos += 1
-    buf[pos] = float(m.hits_semi_invulnerable)
+    # [59] has_other_effect — OR of the 77 cut v8 flags (OTHER_EFFECT_FLAGS
+    # mirrors spaces.ts; terrain_change scalar counts as "other" if nonzero)
+    has_other = m.terrain_change != 0
+    if not has_other:
+        for flag in _OTHER_EFFECT_FLAGS:
+            if getattr(m, flag, False):
+                has_other = True
+                break
+    buf[pos] = 1.0 if has_other else 0.0
 
 
-def _encode_pokemon(buf: np.ndarray, offset: int, poke: ObsPokemon) -> None:
-    """Encode one Pokemon slot (771 dims). Matches spaces.ts encodePokemonFromDict()."""
+def _encode_pokemon(
+    buf: np.ndarray, offset: int, poke: ObsPokemon, is_enemy: bool = False, fog_of_war: bool = False
+) -> None:
+    """Encode one Pokemon slot (513 dims, v9). Matches spaces.ts encodePokemonFromDict()."""
     if not poke.valid:
         return
+    fogged = fog_of_war and is_enemy
+    # Never-seen enemy bench member: whole block stays zero (like an empty
+    # slot) — mirrors spaces.ts.
+    if fogged and not poke.was_seen:
+        return
+    ability_known = (not fogged) or poke.ability_revealed
     pos = offset
     buf[pos] = 1.0; pos += 1                                      # valid
     buf[pos] = _clamp(poke.hp_ratio, 0, 1); pos += 1              # hp_ratio
@@ -2129,14 +2089,18 @@ def _encode_pokemon(buf: np.ndarray, offset: int, poke: ObsPokemon) -> None:
     # status one-hot(8)
     _write_one_hot(buf, pos, NUM_STATUS_EFFECTS, poke.status_effect); pos += NUM_STATUS_EFFECTS
 
-    # nature_mults(5)
-    for i in range(5):
-        v = poke.nature_multipliers[i] if i < len(poke.nature_multipliers) else 1.0
-        buf[pos] = v; pos += 1
+    # nature_mults(5) — fog: zeroed for enemies (IV/nature-derived)
+    if fogged:
+        pos += 5
+    else:
+        for i in range(5):
+            v = poke.nature_multipliers[i] if i < len(poke.nature_multipliers) else 1.0
+            buf[pos] = v; pos += 1
 
     # ability features (40 dims) + passive ability features (40 dims) = 80
-    if poke.ability_suppressed:
-        # All zeros for both ability and passive when suppressed
+    # fog: zeroed until the ability has revealed itself in battle
+    if poke.ability_suppressed or not ability_known:
+        # All zeros for both ability and passive when suppressed or unknown
         pos += ABILITY_FEATURE_DIM * 2
     else:
         pos = _encode_ability_features(poke.ability_id, buf, pos)
@@ -2217,14 +2181,41 @@ def _encode_pokemon(buf: np.ndarray, offset: int, poke: ObsPokemon) -> None:
     buf[pos] = _clamp(getattr(poke.turn_data, "move_effectiveness", 0) / 4, 0, 1); pos += 1
 
     # computed_stats: ATK/DEF/SPATK/SPDEF/SPD (indices 1-5) /500
-    for i in range(1, 6):
-        v = poke.stats[i] if i < len(poke.stats) else 0
-        buf[pos] = _clamp(v / 500, 0, 1); pos += 1
+    # fog: zeroed for enemies (exact stats are IV/nature-derived)
+    if fogged:
+        pos += 5
+    else:
+        for i in range(1, 6):
+            v = poke.stats[i] if i < len(poke.stats) else 0
+            buf[pos] = _clamp(v / 500, 0, 1); pos += 1
 
-    # moves (4 slots x 50 dims)
+    def _move_exists(i: int) -> bool:
+        return i < len(poke.moves) and poke.moves[i].move_id > 0
+
+    def _move_known(i: int) -> bool:
+        if not _move_exists(i):
+            return False
+        if not fogged:
+            return True
+        return i < len(poke.move_known) and poke.move_known[i] is True
+
+    # ── v9 additions (9 dims) ──
+
+    # ai_type one-hot(3): RANDOM/SMART_RANDOM/SMART — all-zero on players
+    _write_one_hot(buf, pos, 3, poke.ai_type if is_enemy else -1); pos += 3
+
+    # move_known(4), ability_known(1), was_seen(1) — revealed-indicators;
+    # constant-truthy for enemies under full obs, all-zero on player slots
+    for i in range(MAX_MOVES):
+        buf[pos] = 1.0 if (is_enemy and _move_known(i)) else 0.0; pos += 1
+    buf[pos] = 1.0 if (is_enemy and ability_known) else 0.0; pos += 1
+    buf[pos] = 1.0 if is_enemy else 0.0; pos += 1  # was_seen (fog never-seen returned early)
+
+    # moves (4 slots x 60 dims) — fog: unseen enemy moves stay zero
     for i in range(MAX_MOVES):
         m = poke.moves[i] if i < len(poke.moves) else ObsMove()
-        _encode_move(buf, pos, m)
+        if (not fogged) or _move_known(i):
+            _encode_move(buf, pos, m)
         pos += MOVE_BLOCK_DIM
 
 
@@ -2232,7 +2223,7 @@ _KEY_ARENA_TAGS = ["REFLECT", "LIGHT_SCREEN", "AURORA_VEIL", "TAILWIND", "TRICK_
 
 
 def _encode_field(buf: np.ndarray, offset: int, fld: ObsField) -> None:
-    """Encode field state (94 dims). Matches spaces.ts encodeFieldFromDict()."""
+    """Encode field state (102 dims, v9). Matches spaces.ts encodeFieldFromDict()."""
     pos = offset
 
     # weather one-hot(10) + turns
@@ -2295,7 +2286,26 @@ def _encode_field(buf: np.ndarray, offset: int, fld: ObsField) -> None:
             buf[pos] = _clamp(turns / 8, 0, 1); pos += 1
 
     # player_teras_used /3
-    buf[pos] = _clamp(fld.player_teras_used / 3, 0, 1)
+    buf[pos] = _clamp(fld.player_teras_used / 3, 0, 1); pos += 1
+
+    # ── v9: positional tags (+8) — Wish / Future Sight per side ──
+    # target_index (BattlerIndex): 0-1 = player side, 2-3 = enemy side.
+    # Multiple pending on a side: active=1, turns = min countdown.
+    # tag_type_id: DELAYED_ATTACK=1 (Future Sight/Doom Desire), WISH=2.
+    pos_agg = [[0, float("inf"), 0, float("inf")], [0, float("inf"), 0, float("inf")]]
+    for tag in fld.positional_tags:
+        side_idx = 1 if tag.target_index >= 2 else 0
+        if tag.tag_type_id == 2:  # WISH
+            pos_agg[side_idx][0] = 1
+            pos_agg[side_idx][1] = min(pos_agg[side_idx][1], tag.countdown)
+        elif tag.tag_type_id == 1:  # DELAYED_ATTACK
+            pos_agg[side_idx][2] = 1
+            pos_agg[side_idx][3] = min(pos_agg[side_idx][3], tag.countdown)
+    for agg in pos_agg:
+        buf[pos] = agg[0]; pos += 1
+        buf[pos] = _clamp(agg[1] / 8, 0, 1) if agg[0] else 0.0; pos += 1
+        buf[pos] = agg[2]; pos += 1
+        buf[pos] = _clamp(agg[3] / 8, 0, 1) if agg[2] else 0.0; pos += 1
 
 
 def _encode_battle(buf: np.ndarray, offset: int, battle: ObsBattle, phase: ObsPhase) -> None:
@@ -2868,28 +2878,41 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
         pos += 1
 
 
-def encode_observation(state: CleanGameState) -> np.ndarray:
-    """Encode a CleanGameState into a 9,875-dim float32 observation vector.
+def _encode_learn_move(buf: np.ndarray, offset: int, phase: ObsPhase) -> None:
+    """v9 learn-move block (66): offered move (60) + learner party one-hot (6).
+    All-zero outside the learn_move phase. Matches spaces.ts."""
+    if phase.learn_move_stats is not None:
+        _encode_move(buf, offset, phase.learn_move_stats)
+    _write_one_hot(buf, offset + MOVE_BLOCK_DIM, MAX_PARTY_SIZE, phase.learn_move_party_index)
+
+
+def encode_observation(state: CleanGameState, fog_of_war: bool = False) -> np.ndarray:
+    """Encode a CleanGameState into a 6,991-dim float32 observation vector.
 
     Compatible with the TypeScript encodeObservation() in spaces.ts.
     Same normalization formulas, same ordering.
 
-    Layout:
-      Pokemon blocks:     12 x 771 = 9,252
-      Field state:        94
+    Layout (v9 — docs/OBS_V9_LAYOUT.md):
+      Pokemon blocks:     12 x 513 = 6,156
+      Field state:        102
       Battle meta:        40
-      Modifier phase:     225
+      Modifier phase:     363
       Modifier inventory: 220
       Derived fields:     28
+      Learn-move block:   66
       Phase indicator:    16
-      Total:              9,875
+      Total:              6,991
+
+    fog_of_war: mask enemy private info to what a human could know
+    (unseen moves, unrevealed abilities, IV/nature-derived values,
+    never-seen bench members). Default False = full information.
     """
     buf = np.zeros(OBSERVATION_DIM, dtype=np.float32)
     offset = 0
 
-    # Pokemon blocks (12 x 771 = 9,252)
-    for poke in state.pokemon:
-        _encode_pokemon(buf, offset, poke)
+    # Pokemon blocks (12 x 513 = 6,156); slot order mirrors POKEMON_SLOT_KEYS
+    for slot_key, poke in zip(POKEMON_SLOT_KEYS, state.pokemon):
+        _encode_pokemon(buf, offset, poke, is_enemy=slot_key.startswith("enemy"), fog_of_war=fog_of_war)
         offset += POKEMON_BLOCK_DIM
 
     # Field state (94)
@@ -2911,6 +2934,10 @@ def encode_observation(state: CleanGameState) -> np.ndarray:
     # Derived fields (28)
     _encode_derived_fields(buf, offset, state)
     offset += DERIVED_FIELDS_DIM
+
+    # Learn-move block (66)
+    _encode_learn_move(buf, offset, state.phase)
+    offset += LEARN_MOVE_BLOCK_DIM
 
     # Phase indicator (16)
     _encode_phase(buf, offset, state.phase)

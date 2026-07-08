@@ -62,7 +62,7 @@ REWARD_CONFIG_KEYS = frozenset({
 # PokeRogueEnv constructor kwargs accepted in the `env:` section.
 ENV_KWARG_KEYS = frozenset({
     "cli_path", "node_bin", "step_timeout", "boot_timeout", "stderr_log",
-    "lean", "respawn", "respawn_every",
+    "lean", "respawn", "respawn_every", "fog_of_war",
 })
 
 # PokeballType enum order (spaces.ts NUM_POKEBALL_TYPES / PokeballCounts keys).
@@ -175,6 +175,8 @@ class RunConfig:
             args.append(f"--reward-config={json.dumps(self.reward)}")
         if self.env.get("lean"):
             args.append("--lean")
+        if self.env.get("fog_of_war"):
+            args.append("--fog-of-war")
         return args
 
     def to_url_query(self) -> str:
@@ -191,6 +193,8 @@ class RunConfig:
             pairs.append(("override", f"{key}={json.dumps(value)}"))
         if self.reward:
             pairs.append(("rewardConfig", json.dumps(self.reward)))
+        if self.env.get("fog_of_war"):
+            pairs.append(("fog", "1"))
         query = urlencode(pairs)
         return f"&{query}" if query else ""
 

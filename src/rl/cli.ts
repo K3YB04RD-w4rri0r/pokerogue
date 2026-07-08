@@ -36,6 +36,8 @@ interface CliOptions {
   /** Comma-separated SpeciesId names for a custom starting party (e.g. a legendary team) */
   starters: string | null;
   lean: boolean;
+  /** v9: mask enemy private info to what a human could know (fog of war) */
+  fogOfWar: boolean;
   /** Partial RewardConfig overrides parsed from --reward-config */
   rewardConfig: Record<string, number> | null;
   /** Game override values from repeated --override KEY=VALUE flags */
@@ -54,6 +56,7 @@ function parseArgs(): CliOptions {
     dumpObs: null,
     starters: null,
     lean: false,
+    fogOfWar: false,
     rewardConfig: null,
     overrides: null,
     profile: false,
@@ -74,6 +77,7 @@ Options:
   --dump-obs=<path>     Write per-step JSONL records (gameState + encoded observation)
                         for the TS<->Python parity harness (tools/verify)
   --lean                Omit the full gameState from interactive state messages
+  --fog-of-war          Mask enemy private info (unseen moves/abilities/stats)
                         (obsB64/mask/wave are always included; training fast path)
   --reward-config=<json|@path>
                         Partial RewardConfig overrides, e.g. '{"turnPenalty":-1}'
@@ -103,6 +107,8 @@ Options:
       options.dumpObs = arg.slice("--dump-obs=".length);
     } else if (arg.startsWith("--starters=")) {
       options.starters = arg.slice("--starters=".length);
+    } else if (arg === "--fog-of-war") {
+      options.fogOfWar = true;
     } else if (arg === "--lean") {
       options.lean = true;
     } else if (arg.startsWith("--reward-config=")) {
@@ -282,7 +288,7 @@ async function runEpisode(
   // Parity-dump dependencies (only loaded when --dump-obs is active)
   let dumpDeps: {
     buildGameState: (s: PhaseState | null, step: number) => Record<string, unknown>;
-    encodeObservation: (gs: Record<string, unknown>) => Float32Array;
+    encodeObservation: (gs: Record<string, unknown>, opts?: { fogOfWar?: boolean }) => Float32Array;
   } | null = null;
   if (dumper) {
     const { buildGameState } = await import("#rl/state-builder");
@@ -351,10 +357,11 @@ async function runEpisode(
       // Parity dump: record the exact encoder input/output for this decision
       if (dumper && dumpDeps) {
         const gameState = dumpDeps.buildGameState(state, stats.totalSteps);
-        const obs = dumpDeps.encodeObservation(gameState);
+        const obs = dumpDeps.encodeObservation(gameState, { fogOfWar: options.fogOfWar });
         dumper.write({
           v: 1,
           kind: "step",
+          fogOfWar: options.fogOfWar,
           seed: options.seed,
           step: stats.totalSteps,
           phase: state.phase,
@@ -541,7 +548,7 @@ async function runInteractiveEpisode(
         const base = tracker.getLastGameState() ?? buildGameState(state, step);
         const gameState = buildTerminalGameState(base, router.isVictory());
         const terminalMask = (gameState.phase as Record<string, unknown>).action_mask as boolean[];
-        const obs = encodeObservation(gameState);
+        const obs = encodeObservation(gameState, { fogOfWar: options.fogOfWar });
         const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
         sendJson({
           type: "game_over",
@@ -584,7 +591,7 @@ async function runInteractiveEpisode(
       prof.buildState += now() - tBuild;
       tracker.noteDecisionState(gameState);
       const tEncode = now();
-      const obs = encodeObservation(gameState);
+      const obs = encodeObservation(gameState, { fogOfWar: options.fogOfWar });
       prof.encode += now() - tEncode;
       const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
 
@@ -635,6 +642,7 @@ async function runInteractiveEpisode(
         dumper.write({
           v: 1,
           kind: "step",
+          fogOfWar: options.fogOfWar,
           seed: options.seed,
           step,
           phase: state.phase,
@@ -773,7 +781,7 @@ async function main(): Promise<void> {
         bootTime: initMs,
         obsDim: OBSERVATION_DIM,
         actionDim: ACTION_SPACE_SIZE,
-        protocolVersion: 4,
+        protocolVersion: 5,
         ...(options.rewardConfig ? { rewardConfig: options.rewardConfig } : {}),
       });
       await runInteractiveEpisode(

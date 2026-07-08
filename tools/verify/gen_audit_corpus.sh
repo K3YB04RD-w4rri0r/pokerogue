@@ -52,6 +52,11 @@ run "status-toxic" 8 --override=OPP_MOVESET_OVERRIDE='[92,79]'   # Toxic, Sleep 
 # Rich economy (large money exercises shop affordability dims)
 run "rich" 10 --override=STARTING_MONEY_OVERRIDE=99999
 
+# Trainer battles (fills enemy bench slots 2-5: multi-mon enemy parties;
+# without these the enemy_3..5 blocks register corpus-dead)
+run "trainer-1" 8 --override=BATTLE_TYPE_OVERRIDE='"trainer"' --override=STARTING_WAVE_OVERRIDE=35 --override=STARTING_LEVEL_OVERRIDE=40
+run "trainer-2" 8 --override=BATTLE_TYPE_OVERRIDE='"trainer"' --override=STARTING_WAVE_OVERRIDE=95 --override=STARTING_LEVEL_OVERRIDE=80 --starters=MEWTWO,LUGIA,RAYQUAZA,DIALGA,GIRATINA,ARCEUS
+
 echo
 echo "corpus in $OUT:"
 wc -l "$OUT"/*.jsonl | tail -1

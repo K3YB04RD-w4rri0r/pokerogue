@@ -6,7 +6,6 @@
  * - import.meta.env — provides defaults
  */
 
-import { readFile } from "node:fs/promises";
 import { URL as NodeURL } from "node:url";
 
 const RAW_EXTENSIONS = new Set([".frag", ".vert", ".glsl"]);

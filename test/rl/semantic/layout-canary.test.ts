@@ -34,6 +34,7 @@ import {
   FIELD_BASE,
   fieldDim,
   keyTagTurnsDim,
+  LEARN_MOVE_BASE,
   MODINV_BASE,
   MODPHASE_BASE,
   MOVE,
@@ -48,28 +49,29 @@ import {
 describe("RL Semantic Audit — Layout Canary", () => {
   describe("block-base arithmetic", () => {
     it("block bases land on the expected absolute indices", () => {
-      expect(POKEMON_BLOCK_DIM).toBe(815);
-      expect(MOVE_BLOCK_DIM).toBe(136);
-      expect(FIELD_BASE).toBe(9780);
-      expect(BATTLE_BASE).toBe(9874);
-      expect(MODPHASE_BASE).toBe(9914);
-      expect(MODINV_BASE).toBe(10139);
-      expect(DERIVED_BASE).toBe(10359);
-      expect(PHASE_BASE).toBe(10387);
+      expect(POKEMON_BLOCK_DIM).toBe(513);
+      expect(MOVE_BLOCK_DIM).toBe(60);
+      expect(FIELD_BASE).toBe(6156);
+      expect(BATTLE_BASE).toBe(6258);
+      expect(MODPHASE_BASE).toBe(6298);
+      expect(MODINV_BASE).toBe(6661);
+      expect(DERIVED_BASE).toBe(6881);
+      expect(LEARN_MOVE_BASE).toBe(6909);
+      expect(PHASE_BASE).toBe(6975);
       expect(PHASE_BASE + PHASE_INDICATOR_DIM).toBe(OBSERVATION_DIM);
-      expect(OBSERVATION_DIM).toBe(10403);
+      expect(OBSERVATION_DIM).toBe(6991);
     });
 
     it("intra-block offsets tile their blocks exactly", () => {
       // Pokemon non-move segment + 4 move blocks fill the pokemon block
-      expect(PKMN.MOVES).toBe(271);
+      expect(PKMN.MOVES).toBe(273);
       expect(PKMN.MOVES + 4 * MOVE_BLOCK_DIM).toBe(POKEMON_BLOCK_DIM);
       // Last named offsets are the last dims of their blocks
-      expect(MOVE.HITS_SEMI_INVULNERABLE).toBe(MOVE_BLOCK_DIM - 1);
-      expect(FIELD.PLAYER_TERAS_USED).toBe(FIELD_STATE_DIM - 1);
+      expect(MOVE.HAS_OTHER_EFFECT).toBe(MOVE_BLOCK_DIM - 1);
+      expect(FIELD.ENEMY_FUTURE_SIGHT_TURNS).toBe(FIELD_STATE_DIM - 1);
       expect(BATTLE.INVERSE_BATTLE).toBe(BATTLE_META_DIM - 1);
       // Last dim of move slot 3 is the last dim of the pokemon block
-      expect(moveDim("player_0", 3, MOVE.HITS_SEMI_INVULNERABLE)).toBe(POKEMON_BLOCK_DIM - 1);
+      expect(moveDim("player_0", 3, MOVE.HAS_OTHER_EFFECT)).toBe(POKEMON_BLOCK_DIM - 1);
       // 12 slots, no gaps
       expect(SLOT_ORDER.length).toBe(12);
       expect(pokemonDim("enemy_5", PKMN.VALID) + POKEMON_BLOCK_DIM).toBe(FIELD_BASE);
@@ -77,9 +79,9 @@ describe("RL Semantic Audit — Layout Canary", () => {
   });
 
   describe("constant table sizes", () => {
-    it("CURATED_VOLATILE_TAGS has 76 entries", () => {
-      expect(CURATED_VOLATILE_TAGS.length).toBe(76);
-      expect(NUM_CURATED_TAGS).toBe(76);
+    it("CURATED_VOLATILE_TAGS has 69 entries (v9)", () => {
+      expect(CURATED_VOLATILE_TAGS.length).toBe(69);
+      expect(NUM_CURATED_TAGS).toBe(69);
     });
 
     it("ARENA_TAG_ORDER has 28 entries", () => {
@@ -130,7 +132,7 @@ describe("RL Semantic Audit — Layout Canary", () => {
       expect(obs[pokemonDim("enemy_5", PKMN.VALID)]).toBe(0);
     });
 
-    it("move block offsets (head, v6 and v7 tail)", () => {
+    it("move block offsets (head, kept flags, catch-all)", () => {
       const obs = encodeObservation({
         player_0: {
           valid: true,
@@ -173,24 +175,16 @@ describe("RL Semantic Audit — Layout Canary", () => {
       expect(d(MOVE.ACCURACY)).toBe(0.5);
       expect(d(MOVE.PP_RATIO)).toBe(0.5);
       expect(d(MOVE.PRIORITY)).toBe(1);
-      expect(d(MOVE.SELF_SWITCH)).toBe(1);
       expect(d(MOVE.FORCE_SWITCH)).toBe(0);
       expect(d(MOVE.WEATHER_CHANGE)).toBeCloseTo(2 / 9, 6);
-      expect(d(MOVE.TERRAIN_CHANGE)).toBe(0.75);
       expect(d(MOVE.SETS_ARENA_TAG)).toBe(1);
-      expect(d(MOVE.SETS_HAZARD)).toBe(1);
-      expect(d(MOVE.SETS_SCREEN)).toBe(1);
-      expect(d(MOVE.ARENA_TAG_SELF_SIDE)).toBe(1);
       expect(d(MOVE.APPLIES_BATTLER_TAG)).toBe(1);
       expect(d(MOVE.APPLIES_MOVE_RESTRICTION)).toBe(1);
-      expect(d(MOVE.APPLIES_CONTINUOUS_DAMAGE)).toBe(1);
-      expect(d(MOVE.IS_LEVEL_DAMAGE)).toBe(1);
-      expect(d(MOVE.IS_USER_HP_DAMAGE)).toBe(0);
-      expect(d(MOVE.IS_DELAYED_ATTACK)).toBe(1);
       expect(d(MOVE.STEALS_ITEM)).toBe(1);
-      expect(d(MOVE.REMOVES_ITEM)).toBe(1);
-      expect(d(MOVE.STEALS_BERRY)).toBe(0);
-      expect(d(MOVE.SCATTERS_MONEY)).toBe(1);
+      // self_switch, terrain_change, sets_hazard/screen, continuous damage,
+      // level damage, delayed attack, removes_item — all cut flags — fold
+      // into the catch-all
+      expect(d(MOVE.HAS_OTHER_EFFECT)).toBe(1);
       // empty move slot 1 stays invalid
       expect(obs[moveDim("player_0", 1, MOVE.VALID)]).toBe(0);
     });

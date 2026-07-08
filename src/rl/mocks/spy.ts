@@ -59,7 +59,7 @@ function recordResult(fn: any, result: any, thisArg: any): void {
   fn.mock.results.push({ type: "return", value: result });
   fn.mock.instances.push(thisArg);
   fn.mock.invocationCallOrder.push(++invocationCounter);
-  fn.mock.lastCall = fn.mock.calls[fn.mock.calls.length - 1];
+  fn.mock.lastCall = fn.mock.calls.at(-1);
 }
 
 /**
@@ -86,22 +86,22 @@ export function mockFn<T extends (...args: any[]) => any>(impl?: T): MockInstanc
   fn.calls = calls;
   stampVitestCompat(fn, calls);
 
-  fn.mockReturnValue = function (val: any) {
+  fn.mockReturnValue = (val: any) => {
     currentImpl = () => val;
     return fn;
   };
 
-  fn.mockReturnValueOnce = function (val: any) {
+  fn.mockReturnValueOnce = (val: any) => {
     onceQueue.push(val);
     return fn;
   };
 
-  fn.mockImplementation = function (newImpl: (...args: any[]) => any) {
+  fn.mockImplementation = (newImpl: (...args: any[]) => any) => {
     currentImpl = newImpl;
     return fn;
   };
 
-  fn.mockRestore = function () {
+  fn.mockRestore = () => {
     currentImpl = impl;
     onceQueue.length = 0;
     calls.length = 0;
@@ -122,11 +122,7 @@ export function mockFn<T extends (...args: any[]) => any>(impl?: T): MockInstanc
  * @param prop - The property/method name
  * @param accessType - If `"get"`, spy on the getter; otherwise spy on the method
  */
-export function spyOn<T extends object>(
-  obj: T,
-  prop: string & keyof T,
-  accessType?: "get" | "set",
-): MockInstance {
+export function spyOn<T extends object>(obj: T, prop: string & keyof T, accessType?: "get" | "set"): MockInstance {
   // Save the original descriptor for restoration
   const originalDescriptor = Object.getOwnPropertyDescriptor(obj, prop);
   activeSpies.push({ obj, prop, descriptor: originalDescriptor });
@@ -142,7 +138,7 @@ export function spyOn<T extends object>(
 function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDescriptor | undefined): MockInstance {
   const spy = mockFn();
 
-  spy.mockReturnValue = function (val: any) {
+  spy.mockReturnValue = (val: any) => {
     Object.defineProperty(obj, prop, {
       get: () => val,
       configurable: true,
@@ -150,11 +146,9 @@ function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDes
     return spy;
   };
 
-  spy.mockReturnValueOnce = function (val: any) {
+  spy.mockReturnValueOnce = (val: any) => {
     const previousGetter =
-      Object.getOwnPropertyDescriptor(obj, prop)?.get ??
-      originalDescriptor?.get ??
-      (() => originalDescriptor?.value);
+      Object.getOwnPropertyDescriptor(obj, prop)?.get ?? originalDescriptor?.get ?? (() => originalDescriptor?.value);
 
     let consumed = false;
     Object.defineProperty(obj, prop, {
@@ -175,7 +169,7 @@ function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDes
     return spy;
   };
 
-  spy.mockRestore = function () {
+  spy.mockRestore = () => {
     if (originalDescriptor) {
       Object.defineProperty(obj, prop, originalDescriptor);
     } else {
@@ -189,7 +183,8 @@ function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDes
 /** Create a spy that intercepts a method call */
 function createMethodSpy(obj: any, prop: string): MockInstance {
   const originalMethod = obj[prop];
-  let currentImpl: ((...args: any[]) => any) | undefined = typeof originalMethod === "function" ? originalMethod : undefined;
+  let currentImpl: ((...args: any[]) => any) | undefined =
+    typeof originalMethod === "function" ? originalMethod : undefined;
   const onceQueue: { type: "value" | "impl"; data: any }[] = [];
   const calls: any[][] = [];
 
@@ -213,25 +208,25 @@ function createMethodSpy(obj: any, prop: string): MockInstance {
   spy.calls = calls;
   stampVitestCompat(spy, calls, prop);
 
-  spy.mockReturnValue = function (val: any) {
+  spy.mockReturnValue = (val: any) => {
     currentImpl = () => val;
     obj[prop] = spy;
     return spy;
   };
 
-  spy.mockReturnValueOnce = function (val: any) {
+  spy.mockReturnValueOnce = (val: any) => {
     onceQueue.push({ type: "value", data: val });
     obj[prop] = spy;
     return spy;
   };
 
-  spy.mockImplementation = function (fn: (...args: any[]) => any) {
+  spy.mockImplementation = (fn: (...args: any[]) => any) => {
     currentImpl = fn;
     obj[prop] = spy;
     return spy;
   };
 
-  spy.mockRestore = function () {
+  spy.mockRestore = () => {
     obj[prop] = originalMethod;
     onceQueue.length = 0;
     calls.length = 0;

@@ -27,26 +27,41 @@ Generated: 2026-02-09 by research team (8 parallel agents).
 
 ## 1. Observation Space Overview
 
-Current encoding: **10,403 float32** values (v8 — verified TS↔Python
-bit-identical, see `docs/VERIFICATION.md`).
+Current encoding: **6,991 float32** values (**v9**, protocol 5 — verified
+TS↔Python bit-identical; full design + audit evidence in
+`docs/OBS_V9_LAYOUT.md`, `docs/AUDIT_FINDINGS_P1.md`).
 
-| Block | Dimensions | Content |
-|-------|-----------|---------|
-| Pokemon x12 | 9,780 | 12 slots × 815 dims (271 non-move + 4 moves × 136; slot order: player_0, player_1, enemy_0, enemy_1, player bench ×4, enemy bench ×4) |
-| Field State | 94 | Weather/terrain one-hots + turns, per-side arena tag banks (28×2), hazard layers, key-tag turn counters, teras used |
-| Battle Meta | 40 | Wave, turn, money, pokeballs, alive/faint counts, biome, game-mode flags |
-| Modifier Phase | 225 | Header (3) + 3 reward options × 28 + 6 shop options × 23 |
-| Modifier Inventory | 220 | Held items (4 slots × 22 × 2 sides-ish layout), party mods, lapsing, enemy aggregates |
-| Derived | 28 | Type effectiveness (2×4×2), STAB (2×4), speed ranks (4) |
-| Phase Indicator | 16 | One-hot decision phase |
+| Block | Dims | Base | Content |
+|-------|------|------|---------|
+| Pokemon ×12 | 6,156 | 0 | 12 slots × 513 dims (273 non-move + 4 moves × 60; slot order: player_0, player_1, enemy_0, enemy_1, player bench ×4, enemy bench ×4) |
+| Field State | 102 | 6,156 | Weather/terrain one-hots + turns, per-side arena tag banks (28×2), hazard layers, key-tag turn counters, teras used, **Wish/Future-Sight per side (v9)** |
+| Battle Meta | 40 | 6,258 | Wave, turn, money, pokeballs, alive/faint counts, biome, game-mode flags |
+| Modifier Phase | 363 | 6,298 | Header (3) + 3 reward options × 28 + **12 shop options × 23 (v9: all buy actions observable)** |
+| Modifier Inventory | 220 | 6,661 | Held items (4 active slots × 45), party mods, lapsing, enemy aggregates |
+| Derived | 28 | 6,881 | Type effectiveness (2×4×2), STAB (2×4), speed ranks (4) |
+| **Learn-Move (v9)** | 66 | 6,909 | The OFFERED move as a compact move vector + learner party-index one-hot; zero outside the learn_move phase |
+| Phase Indicator | 16 | 6,975 | One-hot decision phase |
 
-Per-move 136 dims = 50 base + 36 v6 semantic flags + 46 v7 MoveAttr flags +
-4 v8 survival/HP-relative flags (survives_at_1hp, matches_user_hp,
-hp_cost_stat_boost, hits_semi_invulnerable). Volatile-tag bank is 76 curated
-tags (v8: +28 — partial-trap family, charge/crit/boost, exposure/ignore states).
-Per-Pokemon ability encoding = 2 × 40-dim semantic feature vectors
-(ability-features.ts). The historical 2,951-dim table that used to live here
-described the pre-v5 layout.
+**v9 changes** (protocol 4 → 5; evidence-based redesign):
+- Per-move vector 136 → **60**: core scalars/one-hots + the ~15 effect
+  flags the audit found alive; ~77 near-dead flags fold into ONE
+  `has_other_effect` catch-all. NEW `multi_hit_count` (was a boolean).
+- Volatile-tag bank 76 → **69**: 7 TURN_END-transient tags cut (they
+  lapse before every decision and were structurally unobservable).
+- NEW per-Pokemon: `ai_type_onehot(3)` (RANDOM/SMART_RANDOM/SMART — the
+  enemy's move-selection intelligence), `move_known(4)`,
+  `ability_known(1)`, `was_seen(1)` revealed-indicators.
+- **Singles slot mapping**: slot 1 = second active in doubles, FIRST
+  BENCH member in singles — the 6th party member (both sides) is now
+  observable (it was silently dropped before v9).
+- **Fog of war** (`fog_of_war=True` env kwarg / `--fog-of-war` /
+  `&fog=1`): enemy unseen moves, unrevealed abilities, IV/nature-derived
+  values and never-seen bench members are zeroed; the indicators carry
+  what is known. Default OFF (full information).
+
+Cut dims are NOT lost: `state-builder.ts` still serializes everything into
+`info["game_state"]` — a Python `ObservationWrapper` can append any field
+without touching the protocol (see README "Bring your own features").
 
 Action space: **58 discrete actions** with validity mask (unchanged).
 Python-side dim names for every index: `src/rl/feature_names.py`

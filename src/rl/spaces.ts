@@ -4,13 +4,14 @@
  * Encodes the GameState JSON dict (from state-builder.ts) into a fixed-size
  * Float32Array observation vector, and extracts action masks from it.
  *
- * Layout (9,875 float32):
- *   Pokemon block:            815 dims × 12 slots = 9,780
- *   Field block:              94
+ * Layout v9 (6,991 float32) — see src/rl/docs/OBS_V9_LAYOUT.md:
+ *   Pokemon block:            513 dims × 12 slots = 6,156
+ *   Field block:              102
  *   Battle block:             40
- *   Modifier phase block:     225
+ *   Modifier phase block:     363
  *   Modifier inventory block: 220
  *   Derived fields block:     28
+ *   Learn-move block:         66
  *   Phase block:              16
  */
 
@@ -70,8 +71,8 @@ export const TOTAL_POKEMON_SLOTS = 12;
 /** Number of reward modifier options */
 export const MAX_REWARD_OPTIONS = 3;
 
-/** Number of shop item slots encoded (first 6, natural/action-id order) */
-export const MAX_SHOP_OPTIONS_ENCODED = 6;
+/** Number of shop item slots encoded (all 12, natural/action-id order) */
+export const MAX_SHOP_OPTIONS_ENCODED = 12;
 
 /** Max shop options in game state */
 export const MAX_SHOP_OPTIONS = 12;
@@ -79,63 +80,46 @@ export const MAX_SHOP_OPTIONS = 12;
 // ─── Move Feature Block ───────────────────────────────────────────────
 
 /**
- * Dims per move: valid(1) + type_onehot(19) + category_onehot(3) + power(1) +
- * accuracy(1) + pp_ratio(1) + priority(1) + effect_chance(1) + drain_ratio(1) +
- * heal_ratio(1) + is_multi_hit(1) + self_switch(1) + force_switch(1) +
- * is_protect(1) + traps_target(1) + makes_contact(1) + is_usable(1) +
- * status_effect(1) + stat_change_self_sum(1) + stat_change_target_sum(1) +
- * recoil_ratio(1) + is_ohko(1) + is_charging(1) + is_sacrifice(1) +
- * crit_stage_boost(1) + move_target_class(3) + ignores_protect(1) +
- * is_sound_based(1) = 50
- * v6 additions (+36):
- *   can_flinch(1) + can_confuse(1) + is_recharge(1) + is_frenzy(1) +
- *   is_typeless(1) + creates_substitute(1) + suppresses_ability(1) +
- *   has_variable_power(1) + has_variable_type(1) + has_variable_category(1) +
- *   bypass_burn_penalty(1) + ignores_stat_stages(1) +
- *   weather_change(1) + terrain_change(1) + sets_arena_tag(1) + removes_arena_tags(1) +
- *   sets_hazard(1) + sets_screen(1) + arena_tag_self_side(1) +
- *   applies_battler_tag(1) + applies_move_restriction(1) + applies_continuous_damage(1) +
- *   is_user_hp_damage(1) + is_target_half_hp(1) + is_counter_damage(1) + is_level_damage(1) +
- *   is_delayed_attack(1) + post_victory_stat_boost(1) +
- *   is_wind_move(1) + is_reckless_move(1) + is_reflectable(1) + hides_user(1) +
- *   is_triage_move(1) + check_all_hits(1) + affected_by_gravity(1) + hides_target(1)
- * = 86
- * v7 additions (+46):
- *   steals_item(1) + removes_item(1) + steals_berry(1) +
- *   copies_stats(1) + inverts_stats(1) + resets_stats(1) + swaps_stat_stages(1) +
- *   steals_stat_boosts(1) + averages_stats(1) + swaps_single_stat(1) + shifts_own_stat(1) +
- *   splits_hp(1) + reduces_pp(1) + revives_ally(1) +
- *   copies_last_move(1) + calls_random_move(1) + calls_moveset_move(1) +
- *   copies_move_temp(1) + copies_move_perm(1) +
- *   copies_ability(1) + swaps_abilities(1) + changes_ability(1) +
- *   gives_ability(1) + suppresses_if_acted(1) +
- *   bypass_redirect(1) + forces_target_next(1) + forces_target_last(1) +
- *   has_conditional_priority(1) +
- *   cures_party_status(1) + transfers_status(1) + heals_status(1) +
- *   removes_battler_tag(1) + removes_substitutes(1) +
- *   transforms_into_target(1) + is_curse(1) + is_wish(1) + is_destiny_bond(1) +
- *   swaps_arena_tags(1) + clears_weather(1) + clears_terrain(1) +
- *   has_variable_target(1) + resists_last_type(1) + has_variable_accuracy(1) +
- *   uses_alt_stat(1) + overrides_type_chart(1) + scatters_money(1)
- * = 132
- * v8 additions (+4):
- *   survives_at_1hp(1) + matches_user_hp(1) + hp_cost_stat_boost(1) +
- *   hits_semi_invulnerable(1)
- * = 136
+ * v9 compact move vector (60 dims) — evidence keep-list from the obs audit
+ * (docs/OBS_V9_LAYOUT.md §1). Exact order:
+ *   [0]     valid
+ *   [1-19]  type_onehot(19)
+ *   [20-22] category_onehot(3)
+ *   [23]    power/250  [24] accuracy/100  [25] pp_ratio  [26] priority/7
+ *   [27]    effect_chance/100
+ *   [28]    drain_ratio  [29] heal_ratio
+ *   [30]    multi_hit_count/5 (NEW; 0=not multi-hit — replaces is_multi_hit)
+ *   [31]    force_switch  [32] is_protect  [33] traps_target
+ *   [34]    makes_contact  [35] is_usable
+ *   [36]    status_effect/7
+ *   [37]    stat_change_self_sum/12  [38] stat_change_target_sum/12
+ *   [39]    recoil_ratio  [40] crit_stage_boost/3
+ *   [41-43] target_class_onehot(3)
+ *   [44]    ignores_protect  [45] is_sound_based  [46] can_flinch
+ *   [47]    can_confuse  [48] has_variable_power  [49] weather_change/9
+ *   [50]    sets_arena_tag  [51] applies_battler_tag
+ *   [52]    applies_move_restriction  [53] is_wind_move
+ *   [54]    is_reckless_move  [55] is_reflectable  [56] is_triage_move
+ *   [57]    steals_item  [58] hits_semi_invulnerable
+ *   [59]    has_other_effect (NEW catch-all: OR of the 77 cut v8 flags —
+ *           exact list in OBS_V9_LAYOUT.md; a rare-effect move stays
+ *           distinguishable from a vanilla one without 77 dims/slot)
+ * Cut dims remain serialized in game_state — Python ObservationWrappers
+ * can re-add any of them without a protocol change.
  */
-export const MOVE_BLOCK_DIM = 136;
+export const MOVE_BLOCK_DIM = 60;
 
 // ─── Curated Volatile Tags ────────────────────────────────────────────
 
-/** 39 strategically important volatile status tags, mapped to fixed indices */
+/** Strategically important volatile status tags, mapped to fixed indices.
+ * v9: 7 TURN_END-transient tags cut (FLINCHED/PROTECTED/ENDURING/
+ * HELPING_HAND/MAGIC_COAT/POWDER/CENTER_OF_ATTENTION) — they lapse before
+ * every decision boundary, so they were structurally unobservable. */
 export const CURATED_VOLATILE_TAGS: BattlerTagType[] = [
   BattlerTagType.CONFUSED,
   BattlerTagType.INFATUATED,
   BattlerTagType.SEEDED,
   BattlerTagType.TRAPPED,
-  BattlerTagType.PROTECTED,
-  BattlerTagType.ENDURING,
-  BattlerTagType.FLINCHED,
   BattlerTagType.ENCORE,
   BattlerTagType.SUBSTITUTE,
   BattlerTagType.DISABLED,
@@ -159,11 +143,7 @@ export const CURATED_VOLATILE_TAGS: BattlerTagType[] = [
   BattlerTagType.STOCKPILING,
   BattlerTagType.MINIMIZED,
   BattlerTagType.IMPRISON,
-  BattlerTagType.MAGIC_COAT,
-  BattlerTagType.POWDER,
   // v2: 7 additional strategically important tags
-  BattlerTagType.CENTER_OF_ATTENTION, // Follow Me/Rage Powder - redirects moves in doubles
-  BattlerTagType.HELPING_HAND, // +50% ally damage in doubles
   BattlerTagType.SLOW_START, // Regigigas halved ATK/SPD for 5 turns
   BattlerTagType.UNBURDEN, // Doubled speed after item loss
   BattlerTagType.RECEIVE_DOUBLE_DAMAGE, // Tar Shot - 2x fire damage
@@ -212,29 +192,32 @@ export const CURATED_VOLATILE_TAGS: BattlerTagType[] = [
 ];
 
 /** Number of curated volatile tag flags */
-export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 76
+export const NUM_CURATED_TAGS = CURATED_VOLATILE_TAGS.length; // 69
 
 // ─── Pokemon Block ────────────────────────────────────────────────────
 
 /**
- * Non-move fields (243):
+ * v9 non-move fields (273):
  *   valid(1) + hp_ratio(1) + level(1) + base_stats(6) + stat_stages(7) +
  *   type1_onehot(19) + type2_onehot(19) + status_onehot(8) + nature_mults(5) +
  *   ability_features(40) + passive_ability_features(40) + is_tera(1) + tera_type_onehot(19) +
- *   volatile_tags(76) + other_tag_count(1) + is_boss(1) + boss_shield(1) +
+ *   volatile_tags(69) + other_tag_count(1) + is_boss(1) + boss_shield(1) +
  *   is_trapped(1) + is_grounded(1) + weight(1) + catch_rate(1) + is_fainted(1) +
  *   wave_turn_count(1) + damage_taken(1) + acted(1) + toxic_turn_count(1) +
  *   sleep_turns_remaining(1) + held_item_count(1) +
  *   species_id(1) + gender(1) + friendship(1) + move_queue_len(1) +
  *   battle_data_hit_count(1) + ability_suppressed(1) +
- *   is_mega(1) + is_max(1) + move_effectiveness(1) + computed_stats(5)
- * = 271 (v8: volatile_tags 48 → 76, +28)
+ *   is_mega(1) + is_max(1) + move_effectiveness(1) + computed_stats(5) +
+ *   ai_type_onehot(3, NEW — zeros on player slots) +
+ *   move_known(4) + ability_known(1) + was_seen(1)  (NEW fog indicators —
+ *   constant-truthy for enemies under full observability)
+ * = 271 − 7 tags + 3 + 6 = 273
  *
- * Move sub-block: 136 × 4 = 544
+ * Move sub-block: 60 × 4 = 240
  *
- * Total: 271 + 544 = 815
+ * Total: 273 + 240 = 513
  */
-export const POKEMON_BLOCK_DIM = 815;
+export const POKEMON_BLOCK_DIM = 513;
 
 // ─── Field State Block ────────────────────────────────────────────────
 
@@ -245,9 +228,11 @@ export const POKEMON_BLOCK_DIM = 815;
  * is_double(1) + trick_room(1) + gravity(1) +
  * weather_is_permanent(1) + weather_suppressed(1) + terrain_is_permanent(1) +
  * arena_tag_turns(5_tags × 2_sides = 10) + player_teras_used(1)
- * = 94
+ * v9 additions (+8): per side [wish_active(1) + wish_turns(1) +
+ * future_sight_active(1) + future_sight_turns(1)] from positional_tags
+ * = 102
  */
-export const FIELD_STATE_DIM = 94;
+export const FIELD_STATE_DIM = 102;
 
 // ─── Battle Meta Block ────────────────────────────────────────────────
 
@@ -269,13 +254,14 @@ export const BATTLE_META_DIM = 40;
 // ─── Modifier Phase Block ─────────────────────────────────────────────
 
 /**
- * header(3) + reward_options(3 × 28 = 84) + shop_options(6 × 23 = 138) = 225
+ * header(3) + reward_options(3 × 28 = 84) + shop_options(12 × 23 = 276) = 363
+ * (v9: shop 6 → 12 encoded slots — actions 40-51 all observable now)
  *
  * Header: modifier_active(1) + can_reroll(1) + reroll_cost_ratio(1)
  * Reward per slot: valid(1) + tier_onehot(6) + is_pokemon(1) + modifier_features(20)
  * Shop per slot: valid(1) + cost_ratio(1) + affordable(1) + modifier_features(20)
  */
-export const MODIFIER_PHASE_DIM = 225;
+export const MODIFIER_PHASE_DIM = 363;
 
 // ─── Modifier Inventory Block ────────────────────────────────────────
 
@@ -306,6 +292,13 @@ export const MODIFIER_INVENTORY_DIM = 220;
 export const DERIVED_FIELDS_DIM = 28;
 
 // ─── Phase Indicator Block ───────────────────────────────────────────
+
+/**
+ * v9 learn-move block: the OFFERED move as one compact move vector (its
+ * valid dim doubles as offer-active) + learner party-index one-hot(6).
+ * All-zero outside the learn_move phase.
+ */
+export const LEARN_MOVE_BLOCK_DIM = MOVE_BLOCK_DIM + MAX_PARTY_SIZE; // 66
 
 /** 16-dim one-hot over DecisionPhase enum values */
 export const PHASE_INDICATOR_DIM = 16;
@@ -338,7 +331,8 @@ export const OBSERVATION_DIM =
   + MODIFIER_PHASE_DIM
   + MODIFIER_INVENTORY_DIM
   + DERIVED_FIELDS_DIM
-  + PHASE_INDICATOR_DIM; // 12*815 + 94 + 40 + 225 + 220 + 28 + 16 = 10403
+  + LEARN_MOVE_BLOCK_DIM
+  + PHASE_INDICATOR_DIM; // 12*513 + 102 + 40 + 363 + 220 + 28 + 66 + 16 = 6991
 
 // ─── Action Space ─────────────────────────────────────────────────────
 
@@ -460,8 +454,118 @@ const SINGLE_ENEMY_TARGETS = new Set([1, 3, 5, 9]);
 // RANDOM_NEAR_ENEMY=7, ALL_ENEMIES=8, ALL=14, ENEMY_SIDE=16, BOTH_SIDES=17, CURSE=19
 
 /**
- * Encode a single move slot from a dict into the buffer.
- * @returns number of floats written (always MOVE_BLOCK_DIM = 136)
+ * v8 boolean flags folded into the v9 has_other_effect catch-all
+ * (76 booleans; terrain_change — a scalar in v8 — is OR'd separately).
+ * Exact provenance: OBS_V9_LAYOUT.md §1. Order irrelevant (pure OR).
+ */
+const OTHER_EFFECT_FLAGS: string[] = [
+  // base-section cuts (4)
+  "self_switch",
+  "is_ohko",
+  "is_charging",
+  "is_sacrifice",
+  // v6 tail cuts (24 booleans; terrain_change handled as scalar)
+  "is_recharge",
+  "is_frenzy",
+  "is_typeless",
+  "creates_substitute",
+  "suppresses_ability",
+  "has_variable_type",
+  "has_variable_category",
+  "bypass_burn_penalty",
+  "ignores_stat_stages",
+  "removes_arena_tags",
+  "sets_hazard",
+  "sets_screen",
+  "arena_tag_self_side",
+  "applies_continuous_damage",
+  "is_user_hp_damage",
+  "is_target_half_hp",
+  "is_counter_damage",
+  "is_level_damage",
+  "is_delayed_attack",
+  "post_victory_stat_boost",
+  "hides_user",
+  "hides_target",
+  "check_all_hits",
+  "affected_by_gravity",
+  // v7 tail cuts (45)
+  "removes_item",
+  "steals_berry",
+  "copies_stats",
+  "inverts_stats",
+  "resets_stats",
+  "swaps_stat_stages",
+  "steals_stat_boosts",
+  "averages_stats",
+  "swaps_single_stat",
+  "shifts_own_stat",
+  "splits_hp",
+  "reduces_pp",
+  "revives_ally",
+  "copies_last_move",
+  "calls_random_move",
+  "calls_moveset_move",
+  "copies_move_temp",
+  "copies_move_perm",
+  "copies_ability",
+  "swaps_abilities",
+  "changes_ability",
+  "gives_ability",
+  "suppresses_if_acted",
+  "bypass_redirect",
+  "forces_target_next",
+  "forces_target_last",
+  "has_conditional_priority",
+  "cures_party_status",
+  "transfers_status",
+  "heals_status",
+  "removes_battler_tag",
+  "removes_substitutes",
+  "transforms_into_target",
+  "is_curse",
+  "is_wish",
+  "is_destiny_bond",
+  "swaps_arena_tags",
+  "clears_weather",
+  "clears_terrain",
+  "has_variable_target",
+  "resists_last_type",
+  "has_variable_accuracy",
+  "uses_alt_stat",
+  "overrides_type_chart",
+  "scatters_money",
+  // v8 tail cuts (3)
+  "survives_at_1hp",
+  "matches_user_hp",
+  "hp_cost_stat_boost",
+];
+
+/**
+ * Map the serialized multi_hit_type enum to a hit count.
+ * -1 = not multi-hit → 0; TWO(0) → 2; TWO_TO_FIVE(1) → 5; THREE(2) → 3;
+ * TEN(3) and BEAT_UP(4) → clamp to 5. Encoded as count/5 ∈ {0,0.4,0.6,1}.
+ */
+function multiHitCount(multiHitType: number): number {
+  switch (multiHitType) {
+    case 0:
+      return 2;
+    case 1:
+      return 5;
+    case 2:
+      return 3;
+    case 3:
+    case 4:
+      return 5;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Encode a single move slot from a dict into the buffer (v9 compact
+ * vector — order documented at MOVE_BLOCK_DIM and OBS_V9_LAYOUT.md §1).
+ * @returns number of floats written (always MOVE_BLOCK_DIM = 60)
  */
 function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<string, unknown>): number {
   const moveId = num(moveDict, "move_id");
@@ -471,68 +575,53 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
 
   let pos = offset;
 
-  // valid
+  // [0] valid
   buf[pos++] = 1.0;
 
-  // type one-hot(19)
+  // [1-19] type one-hot(19)
   writeOneHot(buf, pos, NUM_POKEMON_TYPES, num(moveDict, "type", -1));
   pos += NUM_POKEMON_TYPES;
 
-  // category one-hot(3)
+  // [20-22] category one-hot(3)
   writeOneHot(buf, pos, NUM_MOVE_CATEGORIES, num(moveDict, "category", -1));
   pos += NUM_MOVE_CATEGORIES;
 
-  // power /250
+  // [23] power /250
   buf[pos++] = clamp(num(moveDict, "power") / 250, 0, 1);
 
-  // accuracy (-1 or 0 means always hits)
+  // [24] accuracy (-1 or 0 means always hits)
   const accuracy = num(moveDict, "accuracy");
   buf[pos++] = accuracy <= 0 ? 1.0 : clamp(accuracy / 100, 0, 1);
 
-  // pp_ratio
+  // [25] pp_ratio
   const ppMax = num(moveDict, "pp_max", 1);
   const ppRemaining = num(moveDict, "pp_remaining");
   buf[pos++] = ppMax > 0 ? clamp(ppRemaining / ppMax, 0, 1) : 0;
 
-  // priority /7
+  // [26] priority /7
   buf[pos++] = clamp(num(moveDict, "priority") / 7, -1, 1);
 
-  // effect_chance /100
+  // [27] effect_chance /100
   buf[pos++] = clamp(num(moveDict, "effect_chance") / 100, 0, 1);
 
-  // drain_ratio (raw, clamped 0..1)
+  // [28] drain_ratio, [29] heal_ratio
   buf[pos++] = clamp(num(moveDict, "drain_ratio"), 0, 1);
-
-  // heal_ratio (raw, clamped 0..1)
   buf[pos++] = clamp(num(moveDict, "heal_ratio"), 0, 1);
 
-  // is_multi_hit
-  buf[pos++] = bool(moveDict, "is_multi_hit") ? 1.0 : 0.0;
+  // [30] multi_hit_count /5 (0 = not multi-hit)
+  buf[pos++] = multiHitCount(num(moveDict, "multi_hit_type", -1)) / 5;
 
-  // self_switch
-  buf[pos++] = bool(moveDict, "self_switch") ? 1.0 : 0.0;
-
-  // force_switch
+  // [31-35] force_switch, is_protect, traps_target, makes_contact, is_usable
   buf[pos++] = bool(moveDict, "force_switch") ? 1.0 : 0.0;
-
-  // is_protect
   buf[pos++] = bool(moveDict, "is_protect") ? 1.0 : 0.0;
-
-  // traps_target
   buf[pos++] = bool(moveDict, "traps_target") ? 1.0 : 0.0;
-
-  // makes_contact
   buf[pos++] = bool(moveDict, "makes_contact") ? 1.0 : 0.0;
-
-  // is_usable
   buf[pos++] = bool(moveDict, "is_usable") ? 1.0 : 0.0;
 
-  // ── New secondary effect fields (+13 dims) ──
-
-  // status_effect /7 (NONE=0 through FAINT=7)
+  // [36] status_effect /7 (NONE=0 through FAINT=7)
   buf[pos++] = clamp(num(moveDict, "status_effect") / 7, 0, 1);
 
-  // stat_change_self_sum /12 and stat_change_target_sum /12
+  // [37-38] stat_change_self_sum /12 and stat_change_target_sum /12
   const statChanges = arr(moveDict, "stat_changes");
   let selfSum = 0;
   let targetSum = 0;
@@ -550,19 +639,10 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
   buf[pos++] = clamp(selfSum / 12, -1, 1);
   buf[pos++] = clamp(targetSum / 12, -1, 1);
 
-  // recoil_ratio (raw, clamped 0..1)
+  // [39] recoil_ratio
   buf[pos++] = clamp(num(moveDict, "recoil_ratio"), 0, 1);
 
-  // is_ohko
-  buf[pos++] = bool(moveDict, "is_ohko") ? 1.0 : 0.0;
-
-  // is_charging
-  buf[pos++] = bool(moveDict, "is_charging") ? 1.0 : 0.0;
-
-  // is_sacrifice
-  buf[pos++] = bool(moveDict, "is_sacrifice") ? 1.0 : 0.0;
-
-  // crit_stage_boost /3 (clamped; 99=always_crit maps to 1.0)
+  // [40] crit_stage_boost /3 (clamped; 99=always_crit maps to 1.0)
   buf[pos++] = clamp(num(moveDict, "crit_stage_boost") / 3, 0, 1);
 
   // move_target_class (3-dim one-hot: [self_or_ally, single_enemy, multi_target_or_field])
@@ -576,137 +656,35 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
   }
   pos += 3;
 
-  // ignores_protect
+  // [44-58] kept effect flags (evidence keep-list)
   buf[pos++] = bool(moveDict, "ignores_protect") ? 1.0 : 0.0;
-
-  // is_sound_based
   buf[pos++] = bool(moveDict, "is_sound_based") ? 1.0 : 0.0;
-
-  // ── v6: Move semantic encoding (+36 dims) ──
-
-  // Group 1: Boolean attr flags (12)
   buf[pos++] = bool(moveDict, "can_flinch") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "can_confuse") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_recharge") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_frenzy") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_typeless") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "creates_substitute") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "suppresses_ability") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "has_variable_power") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "has_variable_type") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "has_variable_category") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "bypass_burn_penalty") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "ignores_stat_stages") ? 1.0 : 0.0;
-
-  // Group 2: Field control (4)
   buf[pos++] = clamp(num(moveDict, "weather_change") / 9, 0, 1);
-  buf[pos++] = clamp(num(moveDict, "terrain_change") / 4, 0, 1);
   buf[pos++] = bool(moveDict, "sets_arena_tag") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "removes_arena_tags") ? 1.0 : 0.0;
-
-  // Group 3: Arena tag semantics (3)
-  buf[pos++] = bool(moveDict, "sets_hazard") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "sets_screen") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "arena_tag_self_side") ? 1.0 : 0.0;
-
-  // Group 4: Battler tag semantics (3)
   buf[pos++] = bool(moveDict, "applies_battler_tag") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "applies_move_restriction") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "applies_continuous_damage") ? 1.0 : 0.0;
-
-  // Group 5: Fixed damage discrimination (4)
-  buf[pos++] = bool(moveDict, "is_user_hp_damage") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_target_half_hp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_counter_damage") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_level_damage") ? 1.0 : 0.0;
-
-  // Group 6: Additional strategic flags (2)
-  buf[pos++] = bool(moveDict, "is_delayed_attack") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "post_victory_stat_boost") ? 1.0 : 0.0;
-
-  // Group 7: Missing MoveFlags (8)
   buf[pos++] = bool(moveDict, "is_wind_move") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "is_reckless_move") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "is_reflectable") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "hides_user") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "is_triage_move") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "check_all_hits") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "affected_by_gravity") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "hides_target") ? 1.0 : 0.0;
-
-  // ── v7: MoveAttr boolean flags (+46 fields) ──
-
-  // Group 8: Item Manipulation (3)
   buf[pos++] = bool(moveDict, "steals_item") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "removes_item") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "steals_berry") ? 1.0 : 0.0;
-
-  // Group 9: Stat Manipulation (8)
-  buf[pos++] = bool(moveDict, "copies_stats") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "inverts_stats") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "resets_stats") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "swaps_stat_stages") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "steals_stat_boosts") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "averages_stats") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "swaps_single_stat") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "shifts_own_stat") ? 1.0 : 0.0;
-
-  // Group 10: HP / PP / Revival (3)
-  buf[pos++] = bool(moveDict, "splits_hp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "reduces_pp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "revives_ally") ? 1.0 : 0.0;
-
-  // Group 11: Move-Calling (5)
-  buf[pos++] = bool(moveDict, "copies_last_move") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "calls_random_move") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "calls_moveset_move") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "copies_move_temp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "copies_move_perm") ? 1.0 : 0.0;
-
-  // Group 12: Ability Manipulation (5)
-  buf[pos++] = bool(moveDict, "copies_ability") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "swaps_abilities") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "changes_ability") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "gives_ability") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "suppresses_if_acted") ? 1.0 : 0.0;
-
-  // Group 13: Targeting & Priority (4)
-  buf[pos++] = bool(moveDict, "bypass_redirect") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "forces_target_next") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "forces_target_last") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "has_conditional_priority") ? 1.0 : 0.0;
-
-  // Group 14: Status & Tag Manipulation (5)
-  buf[pos++] = bool(moveDict, "cures_party_status") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "transfers_status") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "heals_status") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "removes_battler_tag") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "removes_substitutes") ? 1.0 : 0.0;
-
-  // Group 15: Transform & Special Moves (4)
-  buf[pos++] = bool(moveDict, "transforms_into_target") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_curse") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_wish") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "is_destiny_bond") ? 1.0 : 0.0;
-
-  // Group 16: Field Control (3)
-  buf[pos++] = bool(moveDict, "swaps_arena_tags") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "clears_weather") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "clears_terrain") ? 1.0 : 0.0;
-
-  // Group 17: Damage Calc & Misc (6)
-  buf[pos++] = bool(moveDict, "has_variable_target") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "resists_last_type") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "has_variable_accuracy") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "uses_alt_stat") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "overrides_type_chart") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "scatters_money") ? 1.0 : 0.0;
-
-  // Group 18: v8 survival / HP-relative semantics (4)
-  buf[pos++] = bool(moveDict, "survives_at_1hp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "matches_user_hp") ? 1.0 : 0.0;
-  buf[pos++] = bool(moveDict, "hp_cost_stat_boost") ? 1.0 : 0.0;
   buf[pos++] = bool(moveDict, "hits_semi_invulnerable") ? 1.0 : 0.0;
+
+  // [59] has_other_effect — OR of the 77 cut v8 flags (list above; the
+  // terrain_change scalar counts as "other" when nonzero)
+  let hasOther = num(moveDict, "terrain_change") !== 0;
+  if (!hasOther) {
+    for (const flag of OTHER_EFFECT_FLAGS) {
+      if (bool(moveDict, flag)) {
+        hasOther = true;
+        break;
+      }
+    }
+  }
+  buf[pos++] = hasOther ? 1.0 : 0.0;
 
   return MOVE_BLOCK_DIM;
 }
@@ -715,12 +693,36 @@ function encodeMoveFromDict(buf: Float32Array, offset: number, moveDict: Record<
 
 /**
  * Encode a single Pokemon from a dict into the observation buffer.
- * @returns number of floats written (always POKEMON_BLOCK_DIM = 815)
+ *
+ * @param isEnemy - Whether this slot belongs to the enemy side; drives
+ *  ai_type + the revealed-indicator dims and (under fog) masking.
+ * @param fogOfWar - When true, enemy private information is masked to
+ *  what a human player could know: unseen moves, unrevealed abilities,
+ *  IV/nature-derived values, and never-seen bench members (see
+ *  docs/OBS_V9_LAYOUT.md §5). Player slots are never masked.
+ * @returns number of floats written (always POKEMON_BLOCK_DIM = 513)
  */
-function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<string, unknown>): number {
+function encodePokemonFromDict(
+  buf: Float32Array,
+  offset: number,
+  poke: Record<string, unknown>,
+  isEnemy = false,
+  fogOfWar = false,
+): number {
   if (!bool(poke, "valid")) {
     return POKEMON_BLOCK_DIM;
   }
+
+  const fogged = fogOfWar && isEnemy;
+  // Never-seen enemy bench member: the whole block stays zero (including
+  // valid and was_seen) — indistinguishable from an empty slot, exactly
+  // like for a human player. Slot existence remains inferable from
+  // battle.enemy_alive / seen_enemy_count.
+  if (fogged && !bool(poke, "was_seen")) {
+    return POKEMON_BLOCK_DIM;
+  }
+  const abilityKnown = !fogged || bool(poke, "ability_revealed");
+  const moveKnownRaw = arr(poke, "move_known");
 
   let pos = offset;
 
@@ -758,18 +760,23 @@ function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<s
   writeOneHot(buf, pos, NUM_STATUS_EFFECTS, num(poke, "status_effect"));
   pos += NUM_STATUS_EFFECTS;
 
-  // nature_mults(5)
-  const natureMults = arr(poke, "nature_multipliers");
-  for (let i = 0; i < 5; i++) {
-    buf[pos++] = Number(natureMults[i]) || 1.0;
+  // nature_mults(5) — fog: zeroed for enemies (IV/nature-derived)
+  if (fogged) {
+    pos += 5;
+  } else {
+    const natureMults = arr(poke, "nature_multipliers");
+    for (let i = 0; i < 5; i++) {
+      buf[pos++] = Number(natureMults[i]) || 1.0;
+    }
   }
 
   // ability features (40 dims) + passive ability features (40 dims) = 80
+  // fog: zeroed until the ability has revealed itself in battle
   const abilityId = num(poke, "ability_id");
   const passiveId = num(poke, "passive_ability_id");
   const suppressed = bool(poke, "ability_suppressed");
-  if (suppressed) {
-    // All zeros for both ability and passive when suppressed
+  if (suppressed || !abilityKnown) {
+    // All zeros for both ability and passive when suppressed or unknown
     pos += ABILITY_FEATURE_DIM * 2;
   } else {
     pos = encodeAbilityFeatures(abilityId, buf, pos);
@@ -891,17 +898,48 @@ function encodePokemonFromDict(buf: Float32Array, offset: number, poke: Record<s
   buf[pos++] = clamp(num(turnData, "move_effectiveness") / 4, 0, 1);
 
   // computed_stats: ATK/DEF/SPATK/SPDEF/SPD (indices 1-5) /500
-  const computedStats = arr(poke, "stats");
-  for (let i = 1; i <= 5; i++) {
-    buf[pos++] = clamp((Number(computedStats[i]) || 0) / 500, 0, 1);
+  // fog: zeroed for enemies (exact stats are IV/nature-derived)
+  if (fogged) {
+    pos += 5;
+  } else {
+    const computedStats = arr(poke, "stats");
+    for (let i = 1; i <= 5; i++) {
+      buf[pos++] = clamp((Number(computedStats[i]) || 0) / 500, 0, 1);
+    }
   }
 
-  // moves (4 slots × 50 dims each)
   const moves = arr(poke, "moves");
+  const moveExists = (i: number): boolean => {
+    const m = moves[i];
+    return !!m && typeof m === "object" && !Array.isArray(m) && num(m as Record<string, unknown>, "move_id") > 0;
+  };
+  // move j is "known" when full-info (exists = known), or when fog says
+  // it has been seen in this battle (move_history-derived, state-builder)
+  const moveKnown = (i: number): boolean => moveExists(i) && (!fogged || moveKnownRaw[i] === true);
+
+  // ── v9 additions (9 dims) ──
+
+  // ai_type one-hot(3): RANDOM/SMART_RANDOM/SMART — all-zero on player
+  // slots (players have no AI; writeOneHot of -1 writes nothing)
+  writeOneHot(buf, pos, 3, isEnemy ? num(poke, "ai_type", -1) : -1);
+  pos += 3;
+
+  // move_known(4), ability_known(1), was_seen(1) — revealed-indicators.
+  // Constant-truthy for enemies under full observability; all-zero on
+  // player slots (not applicable); live values under fog.
+  for (let i = 0; i < MAX_MOVES; i++) {
+    buf[pos++] = isEnemy && moveKnown(i) ? 1.0 : 0.0;
+  }
+  buf[pos++] = isEnemy && abilityKnown ? 1.0 : 0.0;
+  buf[pos++] = isEnemy ? 1.0 : 0.0; // was_seen (fog never-seen returned early)
+
+  // moves (4 slots × MOVE_BLOCK_DIM) — fog: unseen enemy moves stay zero
   for (let i = 0; i < MAX_MOVES; i++) {
     const moveDict =
       moves[i] && typeof moves[i] === "object" && !Array.isArray(moves[i]) ? (moves[i] as Record<string, unknown>) : {};
-    encodeMoveFromDict(buf, pos, moveDict);
+    if (!fogged || moveKnown(i)) {
+      encodeMoveFromDict(buf, pos, moveDict);
+    }
     pos += MOVE_BLOCK_DIM;
   }
 
@@ -1041,6 +1079,43 @@ function encodeFieldFromDict(buf: Float32Array, offset: number, field: Record<st
 
   // player_teras_used /3
   buf[pos++] = clamp(num(field, "player_teras_used") / 3, 0, 1);
+
+  // ── v9: positional tags (+8) — Wish / Future Sight per side ──
+  // positional_tags entries carry tag_type, countdown and target_index
+  // (BattlerIndex 0-1 = player side, 2-3 = enemy side). Multiple pending
+  // on a side: active=1, turns = min countdown.
+  const positionalTags = arr(field, "positional_tags");
+  // [wishActive, wishTurns, fsActive, fsTurns] × [player, enemy]
+  const posAgg = [
+    [0, Number.POSITIVE_INFINITY, 0, Number.POSITIVE_INFINITY],
+    [0, Number.POSITIVE_INFINITY, 0, Number.POSITIVE_INFINITY],
+  ];
+  for (const tag of positionalTags) {
+    if (!tag || typeof tag !== "object") {
+      continue;
+    }
+    const entry = tag as Record<string, unknown>;
+    const tagType = String(entry.tag_type ?? "");
+    const sideIdx = num(entry, "target_index", 0) >= 2 ? 1 : 0;
+    const countdown = num(entry, "countdown");
+    // PositionalTagType enum: WISH covers Wish; DELAYED_ATTACK covers
+    // Future Sight / Doom Desire
+    const isWish = tagType === "WISH";
+    const isFutureSight = tagType === "DELAYED_ATTACK";
+    if (isWish) {
+      posAgg[sideIdx][0] = 1;
+      posAgg[sideIdx][1] = Math.min(posAgg[sideIdx][1], countdown);
+    } else if (isFutureSight) {
+      posAgg[sideIdx][2] = 1;
+      posAgg[sideIdx][3] = Math.min(posAgg[sideIdx][3], countdown);
+    }
+  }
+  for (const agg of posAgg) {
+    buf[pos++] = agg[0];
+    buf[pos++] = agg[0] ? clamp(agg[1] / 8, 0, 1) : 0;
+    buf[pos++] = agg[2];
+    buf[pos++] = agg[2] ? clamp(agg[3] / 8, 0, 1) : 0;
+  }
 
   return FIELD_STATE_DIM;
 }
@@ -1583,28 +1658,55 @@ const POKEMON_SLOT_KEYS = [
 ];
 
 /**
+ * Encode the v9 learn-move block: the OFFERED move as one compact move
+ * vector (its valid dim doubles as offer-active) + learner party-index
+ * one-hot. All-zero outside the learn_move phase.
+ */
+function encodeLearnMoveBlock(buf: Float32Array, offset: number, phase: Record<string, unknown>): number {
+  const stats = phase.learn_move_stats;
+  if (stats && typeof stats === "object" && !Array.isArray(stats)) {
+    encodeMoveFromDict(buf, offset, stats as Record<string, unknown>);
+  }
+  writeOneHot(buf, offset + MOVE_BLOCK_DIM, MAX_PARTY_SIZE, num(phase, "learn_move_party_index", -1));
+  return LEARN_MOVE_BLOCK_DIM;
+}
+
+/** Options for {@link encodeObservation}. */
+export interface EncodeObservationOptions {
+  /**
+   * Mask enemy private information to what a human player could know
+   * (unseen moves, unrevealed abilities, IV/nature-derived values,
+   * never-seen bench members). Default false — full information.
+   * See docs/OBS_V9_LAYOUT.md §5 for the exact masking table.
+   */
+  fogOfWar?: boolean;
+}
+
+/**
  * Encode a full observation vector from a GameState dict.
  *
  * @param gameState - The GameState dict from buildGameState()
- * @returns Float32Array of size OBSERVATION_DIM (10403)
+ * @param opts - Optional encoding options (fog of war)
+ * @returns Float32Array of size OBSERVATION_DIM (6991)
  */
-export function encodeObservation(gameState: Record<string, unknown>): Float32Array {
+export function encodeObservation(gameState: Record<string, unknown>, opts?: EncodeObservationOptions): Float32Array {
   const buf = new Float32Array(OBSERVATION_DIM);
+  const fogOfWar = opts?.fogOfWar === true;
   let offset = 0;
 
-  // ── Pokemon blocks (12 × 431 = 5172) ──
+  // ── Pokemon blocks (12 × 513 = 6156) ──
   for (const key of POKEMON_SLOT_KEYS) {
     const poke = sub(gameState, key);
-    encodePokemonFromDict(buf, offset, poke);
+    encodePokemonFromDict(buf, offset, poke, key.startsWith("enemy"), fogOfWar);
     offset += POKEMON_BLOCK_DIM;
   }
 
-  // ── Field state (94) ──
+  // ── Field state (102) ──
   const field = sub(gameState, "field");
   encodeFieldFromDict(buf, offset, field);
   offset += FIELD_STATE_DIM;
 
-  // ── Battle meta (31) ──
+  // ── Battle meta (40) ──
   const battle = sub(gameState, "battle");
   const battleStart = offset;
   encodeBattleFromDict(buf, offset, battle);
@@ -1621,19 +1723,23 @@ export function encodeObservation(gameState: Record<string, unknown>): Float32Ar
     buf[cmdIdxOffset] = commandFieldIndex === 0 ? 0.5 : 1.0;
   }
 
-  // ── Modifier phase (62) ──
+  // ── Modifier phase (363) ──
   const shop = gameState.shop as Record<string, unknown> | null;
   const money = num(battle, "money");
   encodeModifierFromDict(buf, offset, shop ?? null, money);
   offset += MODIFIER_PHASE_DIM;
 
-  // ── Modifier inventory (47) ──
+  // ── Modifier inventory (220) ──
   encodeModifierInventory(buf, offset, gameState);
   offset += MODIFIER_INVENTORY_DIM;
 
   // ── Derived fields (28) ──
   encodeDerivedFields(buf, offset, gameState);
   offset += DERIVED_FIELDS_DIM;
+
+  // ── Learn-move block (66) ──
+  encodeLearnMoveBlock(buf, offset, phase);
+  offset += LEARN_MOVE_BLOCK_DIM;
 
   // ── Phase indicator (16-dim one-hot) ──
   const currentPhase = phase.current_phase as string | undefined;

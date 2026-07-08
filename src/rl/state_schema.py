@@ -71,7 +71,7 @@ MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8
 DERIVED_FIELDS_DIM = 28      # Type effectiveness, STAB, speed ordering
 PHASE_INDICATOR_DIM = 16     # One-hot over DecisionPhase
 TOTAL_POKEMON_SLOTS = 12     # 2 active + 4 bench per side
-OBSERVATION_DIM = 9875       # 12*771 + 94 + 40 + 225 + 220 + 28 + 16
+OBSERVATION_DIM = 6991  # v9 (was stale v7 9875; observation.py is the mirror authority)       # 12*771 + 94 + 40 + 225 + 220 + 28 + 16
 
 # Move target enum values (MoveTarget) for reference
 MOVE_TARGET_USER = 0

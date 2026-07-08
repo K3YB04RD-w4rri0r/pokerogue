@@ -156,6 +156,39 @@ section of a run config / `--reward-config` / `PokeRogueEnv(reward_config=...)`
 tracker. Structurally different rewards: compute them Python-side from
 `info["game_state"]` (run with `lean=False`), as in the example above.
 
+**Bring your own features:** the v9 observation is a curated 6,991-dim
+vector (`src/rl/docs/OBS_V9_LAYOUT.md`), but `info["game_state"]` carries
+the COMPLETE serialized state every step (with `lean=False`) — including
+every field the encoder cut (all 100+ per-move effect flags, exact IVs,
+full move history, …). Appending a custom feature needs no protocol
+change, no TypeScript, and breaks nobody else:
+
+```python
+import gymnasium as gym
+import numpy as np
+
+class WithSelfSwitchFlags(gym.ObservationWrapper):
+    """Append 4 dims: does player_0's move i self-switch (U-turn etc.)?"""
+    def __init__(self, env):
+        super().__init__(env)
+        n = env.observation_space.shape[0]
+        self.observation_space = gym.spaces.Box(-np.inf, np.inf, (n + 4,), np.float32)
+
+    def observation(self, obs):
+        gs = self.env.unwrapped.last_info.get("game_state") or {}
+        moves = (gs.get("player_0") or {}).get("moves") or []
+        extra = [1.0 if (m or {}).get("self_switch") else 0.0 for m in (moves + [{}] * 4)[:4]]
+        return np.concatenate([obs, np.asarray(extra, np.float32)])
+```
+
+**Fog of war (optional):** `PokeRogueEnv(fog_of_war=True)` (or
+`--fog-of-war` / `&fog=1`) masks enemy private info to what a human could
+know — unseen moves, unrevealed abilities, IV/nature-derived stats and
+never-seen bench members are zeroed, and per-enemy `move_known` /
+`ability_known` / `was_seen` indicator dims carry the reveal state.
+Default OFF: full information (the right baseline to train first; fog is
+a controlled experiment on top).
+
 ## Custom starting team
 
 Set the starting party to any species, in all three modes, using **SpeciesId names**:

@@ -40,8 +40,19 @@ export const MODIFIER_FEATURES: Record<string, Float32Array> = {};
 
 // Helper to build a 20-dim Float32Array from 13 static features
 function f(
-  d: number, s: number, h: number, sv: number, sp: number, se: number, ec: number, b: number,
-  mag: number, proc: number, turn: number, hit: number, faint: number,
+  d: number,
+  s: number,
+  h: number,
+  sv: number,
+  sp: number,
+  se: number,
+  ec: number,
+  b: number,
+  mag: number,
+  proc: number,
+  turn: number,
+  hit: number,
+  faint: number,
 ): Float32Array {
   //         0   1   2   3   4   5   6   7   8  9  10 11  12    13   14    15   16    17 18 19
   return new Float32Array([d, s, h, sv, sp, se, ec, b, 0, 0, 0, 0, mag, proc, turn, hit, faint, 0, 0, 0]);
@@ -52,135 +63,135 @@ function f(
 // ═══════════════════════════════════════════════════════════════════════
 
 //                                              D  S  H  SV SP SE EC B   mag    proc  turn hit faint
-MODIFIER_FEATURES["ATTACK_TYPE_BOOSTER"]    = f(1, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0,   0,  0);
-MODIFIER_FEATURES["BASE_STAT_BOOSTER"]      = f(0, 1, 0, 0, 0, 0, 0, 0, 0.10,  0,    0,   0,  0);
-MODIFIER_FEATURES["BERRY"]                  = f(0, 0, 0, 0, 0, 0, 0, 1, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["QUICK_CLAW"]             = f(0, 0, 0, 0, 1, 0, 0, 0, 0.10,  0.10, 0,   0,  0);
-MODIFIER_FEATURES["GRIP_CLAW"]              = f(0, 0, 0, 0, 0, 0, 0, 0, 0.10,  0.10, 0,   1,  0);
-MODIFIER_FEATURES["SCOPE_LENS"]             = f(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0,    0,   0,  0);
-MODIFIER_FEATURES["GOLDEN_PUNCH"]           = f(0, 0, 0, 0, 0, 0, 1, 0, 0.50,  0,    0,   1,  0);
-MODIFIER_FEATURES["EVIOLITE"]               = f(0, 1, 0, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
+MODIFIER_FEATURES["ATTACK_TYPE_BOOSTER"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["BASE_STAT_BOOSTER"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0);
+MODIFIER_FEATURES["BERRY"] = f(0, 0, 0, 0, 0, 0, 0, 1, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["QUICK_CLAW"] = f(0, 0, 0, 0, 1, 0, 0, 0, 0.1, 0.1, 0, 0, 0);
+MODIFIER_FEATURES["GRIP_CLAW"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0.1, 0, 1, 0);
+MODIFIER_FEATURES["SCOPE_LENS"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0, 0, 0, 0);
+MODIFIER_FEATURES["GOLDEN_PUNCH"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.5, 0, 0, 1, 0);
+MODIFIER_FEATURES["EVIOLITE"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
 MODIFIER_FEATURES["EVOLUTION_TRACKER_GIMMIGHOUL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-MODIFIER_FEATURES["MYSTICAL_ROCK"]          = f(0, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0,   0,  0);
-MODIFIER_FEATURES["KINGS_ROCK"]             = f(0, 0, 0, 0, 0, 1, 0, 0, 0.10,  0.10, 0,   1,  0);
-MODIFIER_FEATURES["SHELL_BELL"]             = f(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0,    0,   1,  0);
-MODIFIER_FEATURES["MINI_BLACK_HOLE"]        = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    1,   0,  0);
-MODIFIER_FEATURES["MULTI_LENS"]             = f(1, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   1,  0);
+MODIFIER_FEATURES["MYSTICAL_ROCK"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["KINGS_ROCK"] = f(0, 0, 0, 0, 0, 1, 0, 0, 0.1, 0.1, 0, 1, 0);
+MODIFIER_FEATURES["SHELL_BELL"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0, 0, 1, 0);
+MODIFIER_FEATURES["MINI_BLACK_HOLE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 1, 0, 0);
+MODIFIER_FEATURES["MULTI_LENS"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 1, 0);
 MODIFIER_FEATURES["MYSTERY_ENCOUNTER_MACHO_BRACE"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0);
-MODIFIER_FEATURES["MYSTERY_ENCOUNTER_OLD_GATEAU"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.20, 0, 0, 0, 0);
-MODIFIER_FEATURES["MYSTERY_ENCOUNTER_SHUCKLE_JUICE"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.10, 0, 0, 0, 0);
-MODIFIER_FEATURES["FOCUS_BAND"]             = f(0, 0, 0, 1, 0, 0, 0, 0, 0.10,  0.10, 0,   0,  0);
-MODIFIER_FEATURES["SPECIES_STAT_BOOSTER"]   = f(0, 1, 0, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["RARE_SPECIES_STAT_BOOSTER"] = f(1, 1, 0, 0, 0, 0, 0, 0, 1.0, 0,   0,   0,  0);
-MODIFIER_FEATURES["REVIVER_SEED"]           = f(0, 0, 0, 1, 0, 0, 0, 0, 0.50,  0,    0,   0,  1);
-MODIFIER_FEATURES["LEFTOVERS"]              = f(0, 0, 1, 0, 0, 0, 0, 0, 0.0625, 0,   1,   0,  0);
-MODIFIER_FEATURES["SOUL_DEW"]               = f(0, 1, 0, 0, 0, 0, 0, 0, 0.10,  0,    0,   0,  0);
-MODIFIER_FEATURES["LEEK"]                   = f(1, 0, 0, 0, 0, 0, 0, 0, 0.667, 0,    0,   0,  0);
-MODIFIER_FEATURES["TOXIC_ORB"]              = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    1,   0,  0);
-MODIFIER_FEATURES["FLAME_ORB"]              = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    1,   0,  0);
-MODIFIER_FEATURES["WHITE_HERB"]             = f(0, 1, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["WIDE_LENS"]              = f(0, 0, 0, 0, 0, 0, 0, 0, 0.05,  0,    0,   0,  0);
-MODIFIER_FEATURES["GOLDEN_EGG"]             = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["LUCKY_EGG"]              = f(0, 0, 0, 0, 0, 0, 1, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["SOOTHE_BELL"]            = f(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["BATON"]                  = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["FORM_CHANGE_ITEM"]       = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["RARE_FORM_CHANGE_ITEM"]  = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
+MODIFIER_FEATURES["MYSTERY_ENCOUNTER_OLD_GATEAU"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["MYSTERY_ENCOUNTER_SHUCKLE_JUICE"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0);
+MODIFIER_FEATURES["FOCUS_BAND"] = f(0, 0, 0, 1, 0, 0, 0, 0, 0.1, 0.1, 0, 0, 0);
+MODIFIER_FEATURES["SPECIES_STAT_BOOSTER"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["RARE_SPECIES_STAT_BOOSTER"] = f(1, 1, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["REVIVER_SEED"] = f(0, 0, 0, 1, 0, 0, 0, 0, 0.5, 0, 0, 0, 1);
+MODIFIER_FEATURES["LEFTOVERS"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.0625, 0, 1, 0, 0);
+MODIFIER_FEATURES["SOUL_DEW"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0);
+MODIFIER_FEATURES["LEEK"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.667, 0, 0, 0, 0);
+MODIFIER_FEATURES["TOXIC_ORB"] = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0, 0, 1, 0, 0);
+MODIFIER_FEATURES["FLAME_ORB"] = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0, 0, 1, 0, 0);
+MODIFIER_FEATURES["WHITE_HERB"] = f(0, 1, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["WIDE_LENS"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.05, 0, 0, 0, 0);
+MODIFIER_FEATURES["GOLDEN_EGG"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["LUCKY_EGG"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["SOOTHE_BELL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["BATON"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["FORM_CHANGE_ITEM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["RARE_FORM_CHANGE_ITEM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 
 // ═══════════════════════════════════════════════════════════════════════
 // PARTY-WIDE PERSISTENT MODIFIERS
 // ═══════════════════════════════════════════════════════════════════════
 
-MODIFIER_FEATURES["MAP"]                    = f(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0,   0,  0);
-MODIFIER_FEATURES["MEGA_BRACELET"]          = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["DYNAMAX_BAND"]           = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["TERA_ORB"]               = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["CANDY_JAR"]              = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["BERRY_POUCH"]            = f(0, 0, 0, 0, 0, 0, 0, 1, 0.30,  0.30, 0,   0,  0);
-MODIFIER_FEATURES["OVAL_CHARM"]             = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["HEALING_CHARM"]          = f(0, 0, 1, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["EXP_CHARM"]              = f(0, 0, 0, 0, 0, 0, 1, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["SUPER_EXP_CHARM"]        = f(0, 0, 0, 0, 0, 0, 1, 0, 0.60,  0,    0,   0,  0);
-MODIFIER_FEATURES["GOLDEN_EXP_CHARM"]       = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["EXP_SHARE"]              = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["EXP_BALANCE"]            = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["AMULET_COIN"]            = f(0, 0, 0, 0, 0, 0, 1, 0, 0.20,  0,    0,   0,  0);
-MODIFIER_FEATURES["COIN_CASE"]              = f(0, 0, 0, 0, 0, 0, 1, 0, 0.10,  0,    1,   0,  0);
-MODIFIER_FEATURES["ABILITY_CHARM"]          = f(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0,   0,  0);
-MODIFIER_FEATURES["SHINY_CHARM"]            = f(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0,   0,  0);
-MODIFIER_FEATURES["CATCHING_CHARM"]         = f(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["LOCK_CAPSULE"]           = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
+MODIFIER_FEATURES["MAP"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+MODIFIER_FEATURES["MEGA_BRACELET"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["DYNAMAX_BAND"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["TERA_ORB"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["CANDY_JAR"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["BERRY_POUCH"] = f(0, 0, 0, 0, 0, 0, 0, 1, 0.3, 0.3, 0, 0, 0);
+MODIFIER_FEATURES["OVAL_CHARM"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["HEALING_CHARM"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["EXP_CHARM"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["SUPER_EXP_CHARM"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.6, 0, 0, 0, 0);
+MODIFIER_FEATURES["GOLDEN_EXP_CHARM"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["EXP_SHARE"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["EXP_BALANCE"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["AMULET_COIN"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["COIN_CASE"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.1, 0, 1, 0, 0);
+MODIFIER_FEATURES["ABILITY_CHARM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+MODIFIER_FEATURES["SHINY_CHARM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+MODIFIER_FEATURES["CATCHING_CHARM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["LOCK_CAPSULE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 MODIFIER_FEATURES["MYSTERY_ENCOUNTER_BLACK_SLUDGE"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.25, 0, 0, 0, 0);
 MODIFIER_FEATURES["MYSTERY_ENCOUNTER_GOLDEN_BUG_NET"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-MODIFIER_FEATURES["IV_SCANNER"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0,   0,  0);
-MODIFIER_FEATURES["GOLDEN_POKEBALL"]        = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
+MODIFIER_FEATURES["IV_SCANNER"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+MODIFIER_FEATURES["GOLDEN_POKEBALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 
 // ═══════════════════════════════════════════════════════════════════════
 // LAPSING PERSISTENT MODIFIERS
 // ═══════════════════════════════════════════════════════════════════════
 
-MODIFIER_FEATURES["LURE"]                   = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["SUPER_LURE"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["MAX_LURE"]               = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["TEMP_STAT_STAGE_BOOSTER"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.20, 0,    0,   0,  0);
-MODIFIER_FEATURES["DIRE_HIT"]               = f(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0,    0,   0,  0);
-MODIFIER_FEATURES["SILVER_POKEBALL"]         = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,  0,    0,   0,  0);
+MODIFIER_FEATURES["LURE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["SUPER_LURE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["MAX_LURE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["TEMP_STAT_STAGE_BOOSTER"] = f(0, 1, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["DIRE_HIT"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0, 0, 0, 0);
+MODIFIER_FEATURES["SILVER_POKEBALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 
 // ═══════════════════════════════════════════════════════════════════════
 // ENEMY PERSISTENT MODIFIERS
 // ═══════════════════════════════════════════════════════════════════════
 
-MODIFIER_FEATURES["ENEMY_DAMAGE_BOOSTER"]   = f(1, 0, 0, 0, 0, 0, 0, 0, 0.05,  0,    0,   0,  0);
-MODIFIER_FEATURES["ENEMY_DAMAGE_REDUCTION"] = f(0, 0, 0, 1, 0, 0, 0, 0, 0.025, 0,    0,   0,  0);
-MODIFIER_FEATURES["ENEMY_HEAL"]             = f(0, 0, 1, 0, 0, 0, 0, 0, 0.02,  0,    1,   0,  0);
+MODIFIER_FEATURES["ENEMY_DAMAGE_BOOSTER"] = f(1, 0, 0, 0, 0, 0, 0, 0, 0.05, 0, 0, 0, 0);
+MODIFIER_FEATURES["ENEMY_DAMAGE_REDUCTION"] = f(0, 0, 0, 1, 0, 0, 0, 0, 0.025, 0, 0, 0, 0);
+MODIFIER_FEATURES["ENEMY_HEAL"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.02, 0, 1, 0, 0);
 MODIFIER_FEATURES["ENEMY_ATTACK_POISON_CHANCE"] = f(0, 0, 0, 0, 0, 1, 0, 0, 0.05, 0.05, 0, 1, 0);
 MODIFIER_FEATURES["ENEMY_ATTACK_PARALYZE_CHANCE"] = f(0, 0, 0, 0, 0, 1, 0, 0, 0.025, 0.025, 0, 1, 0);
 MODIFIER_FEATURES["ENEMY_ATTACK_BURN_CHANCE"] = f(0, 0, 0, 0, 0, 1, 0, 0, 0.05, 0.05, 0, 1, 0);
 MODIFIER_FEATURES["ENEMY_STATUS_EFFECT_HEAL_CHANCE"] = f(0, 0, 0, 0, 0, 1, 0, 0, 0.025, 0.025, 1, 0, 0);
-MODIFIER_FEATURES["ENEMY_ENDURE_CHANCE"]    = f(0, 0, 0, 1, 0, 0, 0, 0, 0.02,  0.02, 0,   0,  0);
-MODIFIER_FEATURES["ENEMY_FUSED_CHANCE"]     = f(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0,   0,  0);
+MODIFIER_FEATURES["ENEMY_ENDURE_CHANCE"] = f(0, 0, 0, 1, 0, 0, 0, 0, 0.02, 0.02, 0, 0, 0);
+MODIFIER_FEATURES["ENEMY_FUSED_CHANCE"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
 // ═══════════════════════════════════════════════════════════════════════
 // CONSUMABLE MODIFIERS (reward/shop encoding only)
 // ═══════════════════════════════════════════════════════════════════════
 
-MODIFIER_FEATURES["POKEBALL"]               = f(0, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0,   0,  0);
-MODIFIER_FEATURES["GREAT_BALL"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 0.40,  0,    0,   0,  0);
-MODIFIER_FEATURES["ULTRA_BALL"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 0.60,  0,    0,   0,  0);
-MODIFIER_FEATURES["ROGUE_BALL"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 0.80,  0,    0,   0,  0);
-MODIFIER_FEATURES["MASTER_BALL"]            = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["VOUCHER"]                = f(0, 0, 0, 0, 0, 0, 1, 0, 0.33,  0,    0,   0,  0);
-MODIFIER_FEATURES["VOUCHER_PLUS"]           = f(0, 0, 0, 0, 0, 0, 1, 0, 0.67,  0,    0,   0,  0);
-MODIFIER_FEATURES["VOUCHER_PREMIUM"]        = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["NUGGET"]                 = f(0, 0, 0, 0, 0, 0, 1, 0, 0.33,  0,    0,   0,  0);
-MODIFIER_FEATURES["BIG_NUGGET"]             = f(0, 0, 0, 0, 0, 0, 1, 0, 0.67,  0,    0,   0,  0);
-MODIFIER_FEATURES["RELIC_GOLD"]             = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["POTION"]                 = f(0, 0, 1, 0, 0, 0, 0, 0, 0.05,  0,    0,   0,  0);
-MODIFIER_FEATURES["SUPER_POTION"]           = f(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0,    0,   0,  0);
-MODIFIER_FEATURES["HYPER_POTION"]           = f(0, 0, 1, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["MAX_POTION"]             = f(0, 0, 1, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["FULL_RESTORE"]           = f(0, 0, 1, 0, 0, 1, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["REVIVE"]                 = f(0, 0, 1, 1, 0, 0, 0, 0, 0.50,  0,    0,   0,  1);
-MODIFIER_FEATURES["MAX_REVIVE"]             = f(0, 0, 1, 1, 0, 0, 0, 0, 1.0,   0,    0,   0,  1);
-MODIFIER_FEATURES["SACRED_ASH"]             = f(0, 0, 1, 1, 0, 0, 0, 0, 1.0,   0,    0,   0,  1);
-MODIFIER_FEATURES["FULL_HEAL"]              = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["RARE_CANDY"]             = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["RARER_CANDY"]            = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["ETHER"]                  = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["MAX_ETHER"]              = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["ELIXIR"]                 = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0,   0,  0);
-MODIFIER_FEATURES["MAX_ELIXIR"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["PP_UP"]                  = f(0, 0, 0, 0, 0, 0, 0, 0, 0.33,  0,    0,   0,  0);
-MODIFIER_FEATURES["PP_MAX"]                 = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["MINT"]                   = f(0, 1, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["TERA_SHARD"]             = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["EVOLUTION_ITEM"]         = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["RARE_EVOLUTION_ITEM"]    = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["TM_COMMON"]              = f(0, 0, 0, 0, 0, 0, 0, 0, 0.33,  0,    0,   0,  0);
-MODIFIER_FEATURES["TM_GREAT"]               = f(0, 0, 0, 0, 0, 0, 0, 0, 0.67,  0,    0,   0,  0);
-MODIFIER_FEATURES["TM_ULTRA"]               = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
-MODIFIER_FEATURES["MEMORY_MUSHROOM"]        = f(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0,   0,  0);
-MODIFIER_FEATURES["DNA_SPLICERS"]           = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0,   0,  0);
+MODIFIER_FEATURES["POKEBALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0, 0, 0);
+MODIFIER_FEATURES["GREAT_BALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.4, 0, 0, 0, 0);
+MODIFIER_FEATURES["ULTRA_BALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.6, 0, 0, 0, 0);
+MODIFIER_FEATURES["ROGUE_BALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.8, 0, 0, 0, 0);
+MODIFIER_FEATURES["MASTER_BALL"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["VOUCHER"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.33, 0, 0, 0, 0);
+MODIFIER_FEATURES["VOUCHER_PLUS"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.67, 0, 0, 0, 0);
+MODIFIER_FEATURES["VOUCHER_PREMIUM"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["NUGGET"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.33, 0, 0, 0, 0);
+MODIFIER_FEATURES["BIG_NUGGET"] = f(0, 0, 0, 0, 0, 0, 1, 0, 0.67, 0, 0, 0, 0);
+MODIFIER_FEATURES["RELIC_GOLD"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["POTION"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.05, 0, 0, 0, 0);
+MODIFIER_FEATURES["SUPER_POTION"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0, 0, 0, 0);
+MODIFIER_FEATURES["HYPER_POTION"] = f(0, 0, 1, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["MAX_POTION"] = f(0, 0, 1, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["FULL_RESTORE"] = f(0, 0, 1, 0, 0, 1, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["REVIVE"] = f(0, 0, 1, 1, 0, 0, 0, 0, 0.5, 0, 0, 0, 1);
+MODIFIER_FEATURES["MAX_REVIVE"] = f(0, 0, 1, 1, 0, 0, 0, 0, 1.0, 0, 0, 0, 1);
+MODIFIER_FEATURES["SACRED_ASH"] = f(0, 0, 1, 1, 0, 0, 0, 0, 1.0, 0, 0, 0, 1);
+MODIFIER_FEATURES["FULL_HEAL"] = f(0, 0, 0, 0, 0, 1, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["RARE_CANDY"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["RARER_CANDY"] = f(0, 0, 0, 0, 0, 0, 1, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["ETHER"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["MAX_ETHER"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["ELIXIR"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.25, 0, 0, 0, 0);
+MODIFIER_FEATURES["MAX_ELIXIR"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["PP_UP"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.33, 0, 0, 0, 0);
+MODIFIER_FEATURES["PP_MAX"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["MINT"] = f(0, 1, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["TERA_SHARD"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["EVOLUTION_ITEM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["RARE_EVOLUTION_ITEM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["TM_COMMON"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.33, 0, 0, 0, 0);
+MODIFIER_FEATURES["TM_GREAT"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.67, 0, 0, 0, 0);
+MODIFIER_FEATURES["TM_ULTRA"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
+MODIFIER_FEATURES["MEMORY_MUSHROOM"] = f(0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0, 0, 0, 0);
+MODIFIER_FEATURES["DNA_SPLICERS"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 
 // ═══════════════════════════════════════════════════════════════════════
 // Encoding Helpers
@@ -207,8 +218,8 @@ export function sortByRLPriority(items: Record<string, unknown>[]): Record<strin
       }
     }
     // Tie-break by stack_count descending
-    const aStack = (typeof a.stack_count === "number" ? a.stack_count : 0);
-    const bStack = (typeof b.stack_count === "number" ? b.stack_count : 0);
+    const aStack = typeof a.stack_count === "number" ? a.stack_count : 0;
+    const bStack = typeof b.stack_count === "number" ? b.stack_count : 0;
     return bStack - aStack;
   });
 }
@@ -221,7 +232,9 @@ function clamp(value: number, min: number, max: number): number {
 /** Safely read a number from a dict */
 function num(dict: Record<string, unknown>, key: string, fallback = 0): number {
   const v = dict[key];
-  if (typeof v === "number" && !Number.isNaN(v)) return v;
+  if (typeof v === "number" && !Number.isNaN(v)) {
+    return v;
+  }
   return fallback;
 }
 
@@ -244,7 +257,7 @@ export function encodeModifierFeatures(
   const features = MODIFIER_FEATURES[modifierId] ?? DEFAULT_MODIFIER_FEATURES;
 
   // Category flags (0-7) — static
-  buf[pos]     = features[0];
+  buf[pos] = features[0];
   buf[pos + 1] = features[1];
   buf[pos + 2] = features[2];
   buf[pos + 3] = features[3];
