@@ -983,3 +983,23 @@ Honest notes: the audit-tool mishap during implementation (a careless
 multi-line edit deleted entries from _BATTLER_TAG_VALUES instead of
 CURATED_VOLATILE_TAGS) was caught by the tag-parity check and reverted —
 the lockstep gates work. state_schema.py's stale v7 constant fixed.
+
+---
+
+## 2026-07-08 — First trained agent (milestone)
+
+MaskablePPO, 200k timesteps on protocol v9, 6 parallel envs, 53 min wall
+on an 8-core box, default 64x64 net. Held-out eval (10 episodes, 20-wave
+budget, seeds disjoint from training):
+
+| policy | mean reward | median | mean wave |
+|---|---|---|---|
+| random | 6.8 | 7.1 | 6.7 |
+| maxdamage (scripted heuristic) | 93.2 | 76.8 | 9.5 |
+| **ppo_v9_first (200k)** | **300.7** | **311.0** | **23.7** |
+
+3.2x the scripted heuristic's reward and 2.5x its depth (best episode:
+wave 34) after less than an hour of training — the observation carries
+learnable signal, the mask/reward/protocol/trainer/eval stack works end
+to end. Next: horizon-extension curriculum at scale (docs/
+TRAINING_SERVER.md).
