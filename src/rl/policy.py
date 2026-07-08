@@ -151,11 +151,14 @@ class PhaseRoutedPolicy:
 
 
 def make_builtin_policy(name: str, seed: int | str | None = None) -> Policy:
-    """Resolve a built-in policy by CLI name ('random', 'maxdamage', 'firstlegal')."""
+    """Resolve a policy by CLI name ('random', 'maxdamage', 'firstlegal',
+    or 'sb3:<path-to-model.zip>' for a trained MaskablePPO checkpoint)."""
     if name == "random":
         return RandomPolicy(seed)
     if name == "maxdamage":
         return MaxDamagePolicy()
     if name == "firstlegal":
         return FirstLegalPolicy()
-    raise ValueError(f"unknown policy {name!r} (expected random | maxdamage | firstlegal)")
+    if name.startswith("sb3:"):
+        return Sb3Policy(name[4:])
+    raise ValueError(f"unknown policy {name!r} (expected random | maxdamage | firstlegal | sb3:<model.zip>)")
