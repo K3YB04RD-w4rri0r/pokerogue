@@ -38,6 +38,9 @@ interface CliOptions {
   lean: boolean;
   /** v9: mask enemy private info to what a human could know (fog of war) */
   fogOfWar: boolean;
+  /** Self-play / enemy-AI mode: surface the enemy trainer's battle decision as
+   *  an ENEMY_COMMAND decision point (default off — enemy runs its scripted AI). */
+  enemyControlled: boolean;
   /** Partial RewardConfig overrides parsed from --reward-config */
   rewardConfig: Record<string, number> | null;
   /** Game override values from repeated --override KEY=VALUE flags */
@@ -57,6 +60,7 @@ function parseArgs(): CliOptions {
     starters: null,
     lean: false,
     fogOfWar: false,
+    enemyControlled: false,
     rewardConfig: null,
     overrides: null,
     profile: false,
@@ -107,6 +111,8 @@ Options:
       options.dumpObs = arg.slice("--dump-obs=".length);
     } else if (arg.startsWith("--starters=")) {
       options.starters = arg.slice("--starters=".length);
+    } else if (arg === "--enemy-controlled") {
+      options.enemyControlled = true;
     } else if (arg === "--fog-of-war") {
       options.fogOfWar = true;
     } else if (arg === "--lean") {
@@ -793,7 +799,11 @@ async function main(): Promise<void> {
     let episodeSeed = options.seed;
     let episodeWaves = options.maxWaves;
     let initMs = bootTime;
-    let router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
+    let router = createPhaseRouter({
+      verbose: options.verbose,
+      starterSpecies,
+      enemyControlled: options.enemyControlled,
+    });
 
     episodeLoop: for (;;) {
       sendJson({
@@ -854,7 +864,11 @@ async function main(): Promise<void> {
         sendJson({ type: "error", message: `Reset failed: ${err}` });
         break;
       }
-      router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
+      router = createPhaseRouter({
+        verbose: options.verbose,
+        starterSpecies,
+        enemyControlled: options.enemyControlled,
+      });
       initMs = Date.now() - resetStart;
 
       if (options.verbose) {
@@ -959,7 +973,11 @@ async function main(): Promise<void> {
 
     router.destroy();
   } else {
-    const router = createPhaseRouter({ verbose: options.verbose, starterSpecies });
+    const router = createPhaseRouter({
+      verbose: options.verbose,
+      starterSpecies,
+      enemyControlled: options.enemyControlled,
+    });
     // Auto mode: run with default action picker
     console.log("[cli] Starting episode...");
     const stats = await runEpisode(router, options, pickDefaultAction, DecisionPhase, dumper);

@@ -36,6 +36,7 @@ import { UiMode } from "#enums/ui-mode";
 import { getMoveTargets } from "#moves/move-utils";
 import type { CommandPhase } from "#phases/command-phase";
 import { EncounterPhase } from "#phases/encounter-phase";
+import { EnemyCommandPhase } from "#phases/enemy-command-phase";
 import { SelectStarterPhase } from "#phases/select-starter-phase";
 import type { SelectTargetPhase } from "#phases/select-target-phase";
 import {
@@ -78,6 +79,9 @@ import { canTerastallize } from "#utils/pokemon-utils";
 /** All decision phases the RL agent may encounter. */
 export enum DecisionPhase {
   COMMAND = "command",
+  /** The ENEMY trainer's battle command (self-play / enemy-AI mode). Same
+   *  positional action space as COMMAND, from the enemy's perspective. */
+  ENEMY_COMMAND = "enemy_command",
   SELECT_TARGET = "target",
   SELECT_MODIFIER = "modifier",
   MODIFIER_TARGET = "modifier_target",
@@ -360,13 +364,25 @@ export function getLegalBallTypes(): boolean[] {
   return legal;
 }
 
-export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?: SpeciesId[] }): PhaseRouter {
+export function createPhaseRouter(options?: {
+  verbose?: boolean;
+  starterSpecies?: SpeciesId[];
+  /** Self-play / enemy-AI mode: intercept EnemyCommandPhase and surface the
+   *  enemy trainer's battle decision as an ENEMY_COMMAND decision point (default
+   *  off — the enemy runs its scripted AI). */
+  enemyControlled?: boolean;
+}): PhaseRouter {
   const verbose = options?.verbose ?? false;
   const starterSpecies = options?.starterSpecies;
+  const enemyControlled = options?.enemyControlled ?? false;
 
   // ── State ──────────────────────────────────────────────────────────
   let pendingDecision: PendingDecision | null = null;
   let currentPhaseState: PhaseState | null = null;
+  // Enemy-controlled mode: the intercepted EnemyCommandPhase, deferred until the
+  // RL action arrives (its start() is patched to resolve the decision instead of
+  // running the scripted AI + ending synchronously).
+  let pendingEnemyPhase: { phase: EnemyCommandPhase; fieldIndex: number } | null = null;
   let decisionCallbacks: Array<(state: PhaseState) => void> = [];
   let gameOverFlag = false;
   let victoryFlag = false;
@@ -415,6 +431,7 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   // ── Prototype Hooks ────────────────────────────────────────────────
   const originalSetMode = UI.prototype.setMode;
   const originalPhaseEnd = Phase.prototype.end;
+  const originalEnemyCommandStart = EnemyCommandPhase.prototype.start;
 
   /**
    * Hooked setMode: when a decision phase calls setMode with a decision UiMode,
@@ -553,6 +570,33 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     originalPhaseEnd.apply(this);
   }
 
+  /**
+   * Hooked EnemyCommandPhase.start (enemy-controlled mode only): instead of
+   * running the scripted AI (getNextMove + matchup-score switching) and ending
+   * synchronously, present the enemy's decision as an ENEMY_COMMAND decision
+   * point and DEFER the phase — executeEnemyCommandAction writes turnCommands and
+   * calls this.end() once the RL action arrives. Falls back to the original AI
+   * if there's no live enemy for this slot (fainted / absent) or on teardown.
+   */
+  function hookedEnemyCommandStart(this: EnemyCommandPhase): void {
+    const fieldIndex = this.getFieldIndex();
+    const enemy = globalScene.getEnemyField?.()?.[fieldIndex];
+    if (destroyed || !enemy || enemy.isFainted?.()) {
+      originalEnemyCommandStart.call(this);
+      return;
+    }
+    // Defer: the phase stays current (we never call end() here), so the game
+    // pauses at it exactly like a UI-driven player CommandPhase waiting for input.
+    // Resolve on a fresh microtask (setTimeout 0), mirroring hookedSetMode, so the
+    // decision survives executeActionInternal's post-execute currentPhaseState=null.
+    pendingEnemyPhase = { phase: this, fieldIndex };
+    setTimeout(() => {
+      if (!destroyed) {
+        resolveDecisionPoint(DecisionPhase.ENEMY_COMMAND, "EnemyCommandPhase", UiMode.COMMAND);
+      }
+    }, 0);
+  }
+
   // Install hooks
   UI.prototype.setMode = function (mode: UiMode, ...args: unknown[]): Promise<void> {
     return hookedSetMode.call(this, mode, ...args);
@@ -560,6 +604,11 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
   Phase.prototype.end = function (): void {
     hookedPhaseEnd.call(this);
   };
+  if (enemyControlled) {
+    EnemyCommandPhase.prototype.start = function (): void {
+      hookedEnemyCommandStart.call(this);
+    };
+  }
 
   // Trampoline the phase pump to prevent a headless stack overflow. The game's
   // pump is recursive: Phase.end() -> shiftPhase() -> startCurrentPhase() ->
@@ -690,6 +739,9 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     switch (decision) {
       case DecisionPhase.COMMAND:
         actionMask = buildCommandActionMask(metadata);
+        break;
+      case DecisionPhase.ENEMY_COMMAND:
+        actionMask = buildEnemyCommandActionMask(metadata);
         break;
       case DecisionPhase.SELECT_TARGET:
         actionMask = buildSelectTargetActionMask(metadata);
@@ -932,6 +984,123 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       }
     }
 
+    return mask;
+  }
+
+  // ── Enemy Command Phase Mask (self-play / enemy-AI mode) ───────────
+  // Mirror of buildCommandActionMask from the ENEMY's perspective: the enemy's
+  // active mon uses moves against the PLAYER's field, targets its own ally in
+  // doubles, and switches to its bench. Same POSITIONAL action ids as the player
+  // (0-3 vs opponent 0, 4-7 vs opponent 1, 8-11 vs ally, 12-16 switch). Balls,
+  // run, and tera are omitted (the enemy has none / no arena.enemyTerasUsed
+  // mirror — tera is a documented follow-up).
+  function buildEnemyCommandActionMask(metadata: Record<string, unknown>): boolean[] {
+    const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
+    const fieldIndex = pendingEnemyPhase?.fieldIndex ?? 0;
+    const enemyField = globalScene.getEnemyField?.() ?? [];
+    const pokemon = enemyField[fieldIndex];
+    if (!pokemon) {
+      return mask;
+    }
+
+    const moveset = pokemon.getMoveset(false);
+    const battle = globalScene.currentBattle;
+    const isDouble = battle?.double ?? false;
+    // The enemy's "opponents" are the PLAYER's field slots.
+    const playerFieldAll = globalScene.getPlayerField?.() ?? [];
+    const opp0Active = !!playerFieldAll[0]?.isActive();
+    const opp1Active = playerFieldAll.length > 1 && !!playerFieldAll[1]?.isActive();
+    const enemyParty = globalScene.getEnemyParty?.() ?? [];
+    const enemyFieldActive = enemyField.filter(p => p?.isActive());
+
+    metadata.side = "enemy";
+    metadata.fieldIndex = fieldIndex;
+    metadata.pokemonSpecies = pokemon.species?.name;
+    metadata.isDouble = isDouble;
+
+    const trappedMessages: string[] = [];
+    const isTrapped = pokemon.isTrapped(trappedMessages);
+    const SINGLE_TARGET_ENEMY = new Set([MoveTarget.NEAR_ENEMY, MoveTarget.NEAR_OTHER, MoveTarget.OTHER]);
+    const anyOppActive = opp0Active || opp1Active;
+
+    // Moves vs opponent 0 / opponent 1 / ally, then switch — same structure as
+    // the player mask with player↔enemy swapped.
+    if (anyOppActive) {
+      for (let i = 0; i < MAX_MOVES && i < moveset.length; i++) {
+        const move = moveset[i];
+        if (!move) {
+          continue;
+        }
+        const [usable] = move.isUsable(pokemon);
+        if (!usable) {
+          continue;
+        }
+        const moveData = move.getMove();
+        if (SINGLE_TARGET_ENEMY.has(moveData.moveTarget)) {
+          if (opp0Active) {
+            mask[ACTION_FIGHT_ENEMY_START + i] = true;
+          }
+        } else {
+          mask[ACTION_FIGHT_ENEMY_START + i] = true;
+        }
+      }
+    }
+    if (isDouble && opp1Active) {
+      for (let i = 0; i < MAX_MOVES && i < moveset.length; i++) {
+        const move = moveset[i];
+        if (move) {
+          const [usable] = move.isUsable(pokemon);
+          if (usable && SINGLE_TARGET_ENEMY.has(move.getMove().moveTarget)) {
+            mask[ACTION_FIGHT_ENEMY2_START + i] = true;
+          }
+        }
+      }
+    }
+    const allyActive = isDouble && !!enemyField[fieldIndex === 0 ? 1 : 0]?.isActive();
+    if (allyActive) {
+      for (let i = 0; i < MAX_MOVES && i < moveset.length; i++) {
+        const move = moveset[i];
+        if (move) {
+          const [usable] = move.isUsable(pokemon);
+          const t = move.getMove().moveTarget;
+          const canTargetAlly =
+            t === MoveTarget.NEAR_ALLY || t === MoveTarget.ALLY || t === MoveTarget.USER_OR_NEAR_ALLY;
+          if (usable && canTargetAlly) {
+            mask[ACTION_FIGHT_ALLY_START + i] = true;
+          }
+        }
+      }
+    }
+    // Struggle fallback (an opponent is up but no move is usable).
+    if (anyOppActive) {
+      let anyFight = false;
+      for (let i = 0; i < MAX_MOVES; i++) {
+        if (
+          mask[ACTION_FIGHT_ENEMY_START + i]
+          || mask[ACTION_FIGHT_ENEMY2_START + i]
+          || mask[ACTION_FIGHT_ALLY_START + i]
+        ) {
+          anyFight = true;
+          break;
+        }
+      }
+      if (!anyFight) {
+        mask[ACTION_FIGHT_ENEMY_START] = true;
+        metadata.struggle = true;
+      }
+    }
+    // Switch to a healthy enemy bench member (12-16) — trainer battles only.
+    if (!isTrapped && battle?.trainer) {
+      const activeIds = new Set(enemyFieldActive.map(p => p!.id));
+      let slotIdx = 0;
+      for (let i = 1; i < enemyParty.length && slotIdx < 5; i++) {
+        const p = enemyParty[i];
+        if (p && !p.isFainted() && !activeIds.has(p.id)) {
+          mask[ACTION_SWITCH_START + slotIdx] = true;
+        }
+        slotIdx++;
+      }
+    }
     return mask;
   }
 
@@ -1279,6 +1448,9 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       case DecisionPhase.COMMAND:
         executeCommandAction(action);
         break;
+      case DecisionPhase.ENEMY_COMMAND:
+        executeEnemyCommandAction(action);
+        break;
       case DecisionPhase.SELECT_TARGET:
         executeSelectTargetAction(action);
         break;
@@ -1472,6 +1644,67 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       });
       return;
     }
+  }
+
+  // ── Enemy Command Action Execution (self-play / enemy-AI mode) ──────
+  // Translate the enemy's positional action into a turnCommands write for its
+  // battler slot (fieldIndex + ENEMY), then complete the deferred phase. Unlike
+  // the player (who goes through CommandPhase.handleCommand), EnemyCommandPhase
+  // has no handler — turnStartPhase consumes turnCommands directly, so we write
+  // the same {command, move|cursor} shape the scripted AI would.
+  function executeEnemyCommandAction(action: number): void {
+    const pending = pendingEnemyPhase;
+    pendingEnemyPhase = null;
+    if (!pending) {
+      return;
+    }
+    const { phase, fieldIndex } = pending;
+    const battle = globalScene.currentBattle;
+    const enemy = globalScene.getEnemyField?.()?.[fieldIndex];
+    const enemyBattlerIndex = fieldIndex + BattlerIndex.ENEMY;
+
+    const writeFight = (moveIndex: number, targetOverride?: BattlerIndex): void => {
+      const moveset = enemy?.getMoveset(false) ?? [];
+      const moveId = moveset[moveIndex]?.moveId ?? 0;
+      let targets: BattlerIndex[];
+      if (targetOverride !== undefined) {
+        targets = [targetOverride];
+      } else {
+        targets = moveId > 0 && enemy ? getMoveTargets(enemy, moveId).targets : [];
+      }
+      battle.turnCommands[enemyBattlerIndex] = {
+        command: Command.FIGHT,
+        move: { move: moveId, targets, useMode: MoveUseMode.NORMAL },
+        skip: false,
+      };
+    };
+
+    if (action >= ACTION_FIGHT_ENEMY_START && action < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
+      // Move vs opponent 0 (player slot 0). Single-target → PLAYER; else let the
+      // game compute (multi/self/field), matching the player executor.
+      const moveIndex = action - ACTION_FIGHT_ENEMY_START;
+      const moveId = enemy?.getMoveset(false)?.[moveIndex]?.moveId ?? 0;
+      const t = moveId > 0 ? allMoves[moveId]?.moveTarget : undefined;
+      const single = t === MoveTarget.NEAR_ENEMY || t === MoveTarget.NEAR_OTHER || t === MoveTarget.OTHER;
+      writeFight(moveIndex, single ? BattlerIndex.PLAYER : undefined);
+    } else if (action >= ACTION_FIGHT_ENEMY2_START && action < ACTION_FIGHT_ENEMY2_START + MAX_MOVES) {
+      writeFight(action - ACTION_FIGHT_ENEMY2_START, BattlerIndex.PLAYER_2);
+    } else if (action >= ACTION_FIGHT_ALLY_START && action < ACTION_FIGHT_ALLY_START + MAX_MOVES) {
+      writeFight(action - ACTION_FIGHT_ALLY_START, fieldIndex === 0 ? BattlerIndex.ENEMY_2 : BattlerIndex.ENEMY);
+    } else if (action >= ACTION_SWITCH_START && action < ACTION_SWITCH_START + 5) {
+      battle.turnCommands[enemyBattlerIndex] = {
+        command: Command.POKEMON,
+        cursor: action - ACTION_SWITCH_START + 1,
+        args: [false],
+        skip: false,
+      };
+    } else {
+      // Fallback (e.g. struggle): plain move slot 0.
+      writeFight(0);
+    }
+
+    // Complete the deferred phase → turnStartPhase resolves both sides.
+    phase.end();
   }
 
   // ── Select Target Action Execution ─────────────────────────────────
@@ -2681,6 +2914,10 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       // Restore original prototypes
       UI.prototype.setMode = originalSetMode;
       Phase.prototype.end = originalPhaseEnd;
+      if (enemyControlled) {
+        EnemyCommandPhase.prototype.start = originalEnemyCommandStart;
+      }
+      pendingEnemyPhase = null;
 
       // Clean up
       if (advanceTimeoutId !== null) {
@@ -2714,7 +2951,9 @@ export function pickDefaultAction(state: PhaseState): number {
 
   switch (state.phase) {
     case DecisionPhase.COMMAND:
-      // Prefer the first available fight action
+    case DecisionPhase.ENEMY_COMMAND:
+      // Prefer the first available fight action (both sides use the same
+      // positional fight-action ids).
       for (const a of state.validActions) {
         if (a >= ACTION_FIGHT_ENEMY_START && a < ACTION_FIGHT_ENEMY_START + MAX_MOVES) {
           return a;
