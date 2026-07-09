@@ -22,6 +22,12 @@ on:
       - "vite.rl.config.ts"
       - "requirements-rl.txt"
       - ".github/workflows/rl-verify.yml"
+  # Nightly full run so the deep regression guards (coverage corpus, mask
+  # gating, dim-exercise gate, determinism, soak) are exercised even on days
+  # with no RL changes — those live only in `full`, and a PR gate that runs
+  # only `quick` is how the round-6 corpus regression sat unnoticed.
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch:
 
 concurrency:
@@ -29,10 +35,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rl-quick:
-    name: RL quick gate (tests + bitwise parity + smoke anchor)
+  rl-verify:
+    # PRs run the fast `quick` gate for tight feedback; everything else
+    # (push to the shared branches, the nightly schedule, manual dispatch)
+    # runs the FULL suite so merges and the daily run are gated on the deep
+    # checks, not just tests + parity + smoke.
+    name: RL verify (quick on PRs, full on push/nightly)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout (with game-data submodules)
         uses: actions/checkout@v6
@@ -61,4 +71,9 @@ jobs:
         run: pip install -r requirements-rl.txt
 
       - name: Run the RL quick verification gate
+        if: github.event_name == 'pull_request'
         run: bash scripts/rl-verify.sh quick
+
+      - name: Run the RL full verification suite
+        if: github.event_name != 'pull_request'
+        run: bash scripts/rl-verify.sh full
