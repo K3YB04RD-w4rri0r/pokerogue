@@ -13,8 +13,8 @@
     },
     "learn_move/": {
       "status": "unexercised",
-      "reason": "v9 block: offered-move feature scalars vary with WHICH move is offered; a single corpus learn-move scenario lights only that move's features. Block liveness gated separately (nonzero at learn_move decisions).",
-      "scenario": "learn-move"
+      "reason": "v9 block: offered-move feature scalars vary with WHICH move is offered. No corpus scenario reliably forces move-learning (needs a full-moveset mon to level into a new move), so there is no canary scenario here; block liveness is gated separately (nonzero at learn_move decisions). Add a real corpus scenario name only when one exists.",
+      "scenario": ""
     },
     "active-slot/move_effectiveness": {
       "status": "structurally-constant",

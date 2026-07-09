@@ -50,6 +50,15 @@ import numpy as np
 from common import REPO_ROOT, decode_obs_b64  # noqa: E402
 from rl.feature_names import FEATURE_NAMES, dim_to_name  # noqa: E402
 
+# Authoritative corpus-scenario names (module-level dict, no import side effects)
+# so we can validate the ledger's suspected-bug canary references.
+try:
+    from gen_coverage_corpus import SCENARIOS as _CORPUS_SCENARIOS
+
+    KNOWN_SCENARIOS: set[str] | None = set(_CORPUS_SCENARIOS)
+except Exception:
+    KNOWN_SCENARIOS = None
+
 LEDGER_PATH = Path(__file__).resolve().parent / "coverage-manifests" / "dim-exercise-ledger.json"
 
 
@@ -94,6 +103,21 @@ def main() -> int:
 
     ledger = json.loads(LEDGER_PATH.read_text()).get("groups", {}) if LEDGER_PATH.exists() else {}
 
+    # Ledger self-consistency: an "unexercised" entry may name the corpus
+    # scenario that SHOULD light its dims up — that is the suspected-bug canary
+    # (a scenario runs, the dim still stays flat => encoding bug). If the named
+    # scenario is not a real corpus scenario, the canary is DEAD: it can never
+    # run, so it can never fire, and a genuine regression in those dims would
+    # pass silently. Catch stale / typo'd references (this is what made the
+    # auto-gate toothless — learn_move named a "learn-move" scenario that never
+    # existed).
+    dead_canaries: list[tuple[str, str]] = []
+    if KNOWN_SCENARIOS is not None:
+        for k, v in ledger.items():
+            s = v.get("scenario") or ""
+            if v.get("status") == "unexercised" and s and s not in KNOWN_SCENARIOS:
+                dead_canaries.append((k, s))
+
     groups: dict[str, int] = defaultdict(int)
     for i in never_varied:
         groups[group_key(dim_to_name(int(i)))] += 1
@@ -132,8 +156,14 @@ def main() -> int:
         print(f"\nSUSPECTED BUGS ({len(suspected)}):")
         for s in suspected:
             print(f"  {s}")
+    if dead_canaries:
+        print(f"\nDEAD CANARIES ({len(dead_canaries)}) — ledger names a scenario the corpus never generates:")
+        for k, s in dead_canaries:
+            print(f"  {k}: scenario '{s}' is not a corpus scenario {sorted(KNOWN_SCENARIOS)}")
 
-    failed = bool(suspected) or (args.gate and bool(unreviewed))
+    # A dead canary is a static ledger bug (independent of the corpus present in
+    # this glob), so it fails regardless of --gate — same as a suspected bug.
+    failed = bool(suspected) or bool(dead_canaries) or (args.gate and bool(unreviewed))
     print(f"\nDIM EXERCISE: {'FAIL' if failed else 'OK'}")
     return 1 if failed else 0
 

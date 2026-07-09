@@ -1334,3 +1334,33 @@ both deferred ME bugs unreachable by construction.
 Verify: build green; `scripts/rl-verify.sh full` re-run (unchanged observation
 representation → goldens/parity unaffected: `has_mystery_encounters` is a
 game-mode flag, not the spawn-rate override).
+
+---
+
+## 2026-07-09 — Verify/CI hardening: run FULL in CI, give the dim-exercise gate teeth
+
+Closing the two "the gate never runs / can't fire" gaps the round-6 audit
+surfaced (these are how the round-6 corpus regression hid in the first place).
+
+- **CI now runs the FULL verify suite (`.github/workflows/rl-verify.yml`).** It
+  previously ran only `scripts/rl-verify.sh quick` on every trigger, so the deep
+  guards that live only in `full` — the coverage corpus, mask-gating, the
+  dim-exercise gate, determinism, and the in-process soak — never ran
+  automatically. Restructured: `pull_request` → `quick` (fast feedback), while
+  push to the shared branches, a nightly `schedule` (06:00 UTC), and manual
+  `workflow_dispatch` → `full`. `full` needs no browser (rendered E2E stays
+  behind `RL_VERIFY_RENDERED`), so no new CI deps; timeout raised to 60m.
+
+- **The dim-exercise "suspected-bug" auto-gate was dead
+  (`check_dim_exercise.py` + ledger).** That gate flags an encoding bug when a
+  never-varying dim group has a ledger entry naming the corpus scenario that
+  should light it up AND that scenario ran. But the only entry naming a scenario
+  (`learn_move/` → `learn-move`) referenced a scenario that does not exist in the
+  corpus, so the canary could never fire. Added a ledger self-consistency guard:
+  every `unexercised` entry's named `scenario` must be a real corpus scenario
+  (validated against `gen_coverage_corpus.SCENARIOS`); a stale/typo'd reference
+  is a DEAD CANARY and fails the check regardless of `--gate` — so this class of
+  toothless gate can't recur. Made the `learn_move/` entry honest (no scenario
+  reliably forces move-learning yet; blank the canary, keep the reason).
+  Verified the guard passes the real ledger and catches a bad `learn-move`
+  reference while allowing a real one.
