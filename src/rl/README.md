@@ -150,8 +150,14 @@ full-legendary bug-hunting run.
 ## Bring your own algorithm
 
 A policy is anything with `act(obs, mask, info) -> int` — see `rl.policy`
-(`RandomPolicy`, `MaxDamagePolicy`, `Sb3Policy`, ...). **Phase routing** mixes
-learned and scripted behavior per decision phase:
+(`RandomPolicy`, `MaxDamagePolicy`, `Sb3Policy`, ...).
+
+> **New here? Start with [`docs/WRITING_AN_AGENT.md`](docs/WRITING_AN_AGENT.md)** —
+> a from-scratch walkthrough (the contract, the mask, the phases, obs vs
+> game_state, the run loop, and growing a heuristic into a learned policy),
+> with a runnable `examples/rl/custom_agent.py` that beats the random baseline.
+
+**Phase routing** mixes learned and scripted behavior per decision phase:
 
 ```python
 from rl.policy import PhaseRoutedPolicy, Sb3Policy, ScriptedSkipPolicy
