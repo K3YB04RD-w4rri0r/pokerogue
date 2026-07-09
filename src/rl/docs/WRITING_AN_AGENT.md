@@ -71,40 +71,54 @@ where random stalls or dies around wave 5-7. The shape:
 
 ```python
 class GreedyAttacker:
-    SKIP_PHASES = frozenset({"modifier", "check_switch", "learn_move"})
+    SKIP_PHASES = frozenset({"check_switch", "learn_move"})  # id 39 = decline
 
     def act(self, obs, mask, info):
         phase = info.get("phase")
 
-        if phase == "command":                      # in battle
+        if phase == "command":                              # in battle
             move = self._best_damaging_move(mask, info)
             return move if move is not None else self._first_legal(mask)
 
-        if phase in self.SKIP_PHASES and mask[39]:  # shop / optional switch / learn-move
-            return 39                               # id 39 = "skip / decline"
+        if phase == "modifier":                             # the shop: grab a free reward
+            return self._first_in(mask, range(35, 38)) or (39 if mask[39] else ...)
+        if phase == "modifier_target":                      # apply it to a party member
+            return self._first_in(mask, range(52, 58)) or ...   # 52-57, NOT the cancel (39)
 
-        return self._first_legal(mask)              # forced switch, target, ... stay legal
+        if phase in self.SKIP_PHASES and mask[39]:          # optional switch / learn-move
+            return 39
+
+        return self._first_legal(mask)                      # forced switch, target, ... stay legal
 ```
 
-Three ideas do all the work:
+(The real file adds a small counter so an un-applyable reward can't loop — see
+below. `_first_in` returns the lowest legal id within a range, or None.)
+
+Four ideas do all the work:
 
 1. **In `command`**, pick the highest-base-power *damaging* move against enemy 0
    (ids 0-3), reading move power from `info["game_state"]` (see §4). Fall back
    to the first legal id if nothing damaging is usable (out of PP, all-status
    moveset → the game substitutes Struggle for you).
-2. **Skip the optional stuff.** `modifier` (the shop), `check_switch` (the
-   pre-battle "want to switch?" prompt), and `learn_move` all accept id `39` =
-   *decline*. A battle-focused baseline skips them and stays alive.
-3. **Never get stuck.** For anything unhandled (a forced switch after a faint, a
-   target select, a biome choice), take the first legal id. It's not clever, but
-   it always progresses and never violates the mask.
+2. **Take the free shop reward.** A free reward each wave is how you get
+   stronger, so engage the shop, don't skip it: pick a reward (`35-37`) in
+   `modifier`, then — this is the subtle part — apply it to a **party-target id
+   (`52-57`)** in the follow-up `modifier_target` phase.
+3. **Decline the optional prompts.** `check_switch` (pre-battle "want to
+   switch?") and `learn_move` (new move, full moveset) both accept id `39` =
+   *decline*.
+4. **Never get stuck.** For anything unhandled (a forced switch after a faint, a
+   target select, a biome choice), take the first legal id — always progresses,
+   never violates the mask.
 
-> **Why not grab the free shop rewards?** A reward that targets a party member
-> (a TM, a vitamin) opens a *second* decision — the `modifier_target` phase —
-> and picking rewards *and* their targets well is its own sub-problem (a naive
-> "take reward → apply to slot 0" can loop). The battle-tested pattern is to
-> nail the battle first and route the shop to a skip; add reward-taking later
-> using the ids in §5.
+> **The one shop trap.** In `modifier_target` the legal ids are e.g.
+> `[39, 54]`: `54` = *apply the reward to party slot 2*, `39` = *cancel/back*.
+> The naive "first legal action" picks the **lowest** id — `39` — which cancels
+> the reward and bounces you back to the shop, where you pick it again... a
+> silent infinite loop until the step cap. Always pick a real party-target id
+> (`52-57`) there, not the cancel. (A few rewards can't be applied at all —
+> DNA Splicers is a no-op — so the real agent also caps reward attempts per shop
+> and then skips; an agent must always make progress.)
 
 Run it:
 
@@ -260,7 +274,62 @@ accessor list and `RewardFn` protocol live in `src/rl/reward.py`.
 
 ---
 
-## 8. From hand-written to learned
+## 8. Multiple agents: routing by state
+
+Want a different agent in different situations — a learned battle net but a
+scripted shop, an aggressive attacker but a defensive switcher when low on HP, a
+specialist on boss waves? You don't need any new machinery: **a router is just an
+agent that delegates.** It reads the state and calls a sub-agent's `act`. Because
+sub-agents and routers share the one `act(obs, mask, info) -> int` contract, they
+compose freely — you can even nest routers inside routers.
+
+**Route by phase — the built-in.** `rl.policy.PhaseRoutedPolicy` dispatches on
+`info["phase"]`: a learned policy for the battle, a scripted skipper for the rest.
+
+```python
+from rl.policy import PhaseRoutedPolicy, Sb3Policy, ScriptedSkipPolicy
+policy = PhaseRoutedPolicy(
+    routes={"command": Sb3Policy("battle.zip"), "target": Sb3Policy("battle.zip")},
+    default=ScriptedSkipPolicy(),          # shop / switches / learn-move
+)
+```
+
+**Route by anything — a general router.** Phase is just one condition. To route
+on HP, boss waves, which Pokémon is active, wave number — anything in the state —
+write a tiny router with a list of `(name, predicate, policy)` rules, first match
+wins. `examples/rl/routed_agents.py` is the runnable version; the core is:
+
+```python
+class StateRouter:
+    def __init__(self, rules, default):   # rules: [(name, predicate, policy), ...]
+        self.rules, self.default = rules, default
+
+    def act(self, obs, mask, info):
+        for name, predicate, policy in self.rules:
+            if predicate(obs, mask, info):        # first matching rule wins
+                return policy.act(obs, mask, info)
+        return self.default.act(obs, mask, info)
+
+def in_trouble(obs, mask, info):                  # a predicate is just (obs,mask,info)->bool
+    hp = ((info.get("game_state") or {}).get("player_0") or {}).get("hp_ratio", 1.0)
+    return info.get("phase") == "command" and hp < 0.35 and any(mask[a] for a in range(12, 17))
+
+router = StateRouter(
+    rules=[("retreat", in_trouble, RetreatPolicy())],   # low HP + can switch → pull out
+    default=GreedyAttacker(),                            # everything else
+)
+```
+
+Running `routed_agents.py` prints which sub-agent handled each decision, e.g.
+`routing={'default': 45, 'retreat': 7}` — proof the router is dispatching by
+state. Rule order is priority; keep a catch-all `default` so every state is
+handled. This is also how you grow a learned agent incrementally: start with
+`GreedyAttacker` as the default, then peel off states (`command`, then boss
+waves, then …) to a trained policy as it earns its keep.
+
+---
+
+## 9. From hand-written to learned
 
 The same interface hosts a trained network — a policy is still
 `act(obs, mask, info) -> int`. The env exposes `action_masks()` specifically so
@@ -287,27 +356,32 @@ A checkpoint trained this way drops straight into `run_policy.py --model run.zip
 
 ---
 
-## 9. Pitfalls checklist
+## 10. Pitfalls checklist
 
 - **Illegal action → silent corruption.** Always `if mask[i]`. Watch
   `info["invalid_action_count"]` — it must stay 0.
 - **`game_state` empty?** You're running `lean=True` (the default). A heuristic
   or custom reward that reads `game_state` needs `lean=False`.
-- **Stuck in a phase loop?** Some decisions chain (`modifier` →
-  `modifier_target`). If you take a reward, you must handle its target; if in
-  doubt, skip the shop (`39`) until your battle loop is solid.
+- **"First legal action" can pick a cancel/back and loop.** The lowest legal id
+  isn't always a safe default: in `modifier_target` id `39` = *cancel*, so
+  `first_legal` cancels your reward and re-enters the shop forever. Pick the
+  *right* id for the phase (a party target `52-57` here), not just any legal one.
 - **Non-determinism.** Seed everything: `PokeRogueEnv(seed=...)` fixes the game;
   seed your own RNG from a stable integer (string `hash()` is salted per
   process — use `zlib.crc32`, as `RandomPolicy` does).
 - **Forced vs optional.** `switch` (forced, active fainted) has no skip — you
   must pick a replacement; `check_switch` (optional) accepts `39`.
+- **A router needs a catch-all.** In a `StateRouter`, keep a `default` so every
+  unmatched state is still handled — otherwise a state with no matching rule
+  has no action.
 
 ---
 
 ## See also
 
 - [`examples/rl/custom_agent.py`](../../../examples/rl/custom_agent.py) — the runnable agent from §3
-- [`examples/rl/phase_routed_policy.py`](../../../examples/rl/phase_routed_policy.py) — routing + a custom reward wrapper
+- [`examples/rl/routed_agents.py`](../../../examples/rl/routed_agents.py) — the state router from §8
+- [`examples/rl/phase_routed_policy.py`](../../../examples/rl/phase_routed_policy.py) — phase routing + a custom reward wrapper
 - [`src/rl/policy.py`](../policy.py) — the built-in policies to copy from
 - [README](../README.md) — modes, the action space, "what lean does"
 - [`OBS_V9_LAYOUT.md`](OBS_V9_LAYOUT.md) — the observation vector, dim by dim

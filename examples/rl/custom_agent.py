@@ -36,7 +36,9 @@ from rl.pokerogue_env import PokeRogueEnv  # noqa: E402
 
 # ── Action-space anchors (src/rl/spaces.ts / README action table) ──────────
 FIGHT_ENEMY0 = range(0, 4)      # ids 0-3: use move slot 0-3 against enemy 0
-SKIP = 39                       # id 39:    skip the shop / decline the switch
+REWARD_PICKS = range(35, 38)    # ids 35-37: take free reward 0-2
+PARTY_TARGETS = range(52, 58)   # ids 52-57: apply a reward to party slot 0-5
+SKIP = 39                       # id 39:    skip the shop / decline / cancel
 MAX_MOVES = 4
 STATUS_CATEGORY = 2             # MoveCategory.STATUS — deals no damage
 
@@ -45,40 +47,58 @@ class GreedyAttacker:
     """A hand-written baseline that beats random by a wide margin.
 
     In a battle it fires its highest-base-power *damaging* move at enemy 0; it
-    SKIPS the shop and optional switches, and otherwise takes the first legal
-    action. It reads move power from ``info["game_state"]`` (so construct the
-    env with ``lean=False``); an obs-only variant is described in the docs.
+    grabs the free shop reward, declines optional switches, and otherwise takes
+    the first legal action. It reads move power from ``info["game_state"]`` (so
+    construct the env with ``lean=False``); an obs-only variant is in the docs.
 
-    Why skip the shop? A free reward that targets a party member (a TM, a
-    vitamin) opens a follow-up ``modifier_target`` decision, and choosing
-    rewards+targets well is its own problem. The common, robust pattern is to
-    LEARN or hand-tune the battle and route the shop to a skip — so this
-    baseline stays focused on the part that matters most. Taking rewards is a
-    good exercise once the battle loop works (see the action table for the
-    reward-pick / apply-to-slot ids).
+    The shop is worth engaging — a free reward each wave is how you get stronger.
+    The one trap: in the ``modifier_target`` phase (apply the reward to a party
+    member) the *lowest* legal id is ``39`` = cancel/back, so a plain
+    "first legal action" would cancel the reward and bounce back to the shop
+    forever. Always pick a real party-target id (52-57) there. Some rewards
+    can't be applied at all (e.g. DNA Splicers is a no-op), so we also give up
+    on a shop after a few attempts and skip it — an agent must always progress.
     """
 
-    # Phases where the right move is "decline / don't engage" (id 39 = skip):
-    #   modifier       — the shop (skip the free pick and the buys)
-    #   check_switch   — the optional pre-battle switch prompt
-    #   learn_move     — offered a new move with a full moveset (skip = keep old)
-    SKIP_PHASES = frozenset({"modifier", "check_switch", "learn_move"})
+    # Optional phases where id 39 = "decline": the pre-battle switch prompt and
+    # the move-learn offer (skip = keep the current moveset).
+    SKIP_PHASES = frozenset({"check_switch", "learn_move"})
+
+    def __init__(self) -> None:
+        # How many rewards we've tried to take at the CURRENT shop — bounds the
+        # rare un-targetable-reward loop; reset when a battle starts.
+        self._reward_tries = 0
 
     def act(self, obs: np.ndarray, mask: np.ndarray, info: dict) -> int:
         phase = info.get("phase")
 
         if phase == "command":
+            self._reward_tries = 0                     # a battle -> a fresh shop next
             move_id = self._best_damaging_move(mask, info)
             if move_id is not None:
                 return move_id
             # no damaging move usable (out of PP / all status) → first legal
             return self._first_legal(mask)
 
+        if phase == "modifier":                        # the shop
+            if self._reward_tries < len(REWARD_PICKS):
+                pick = self._first_in(mask, REWARD_PICKS)
+                if pick is not None:
+                    self._reward_tries += 1
+                    return pick                        # take a free reward
+            return SKIP if mask[SKIP] else self._first_legal(mask)
+
+        if phase == "modifier_target":                 # apply the reward to a mon
+            target = self._first_in(mask, PARTY_TARGETS)   # 52-57, NOT the cancel (39)
+            if target is not None:
+                return target
+            return SKIP if mask[SKIP] else self._first_legal(mask)
+
         if phase in self.SKIP_PHASES and mask[SKIP]:
             return SKIP
 
-        # switch (forced), revival_blessing, select_biome, target,
-        # modifier_target, game_over, ... — no special handling, stay legal.
+        # forced switch, revival_blessing, select_biome, target, game_over,
+        # ... — no special handling, stay legal.
         return self._first_legal(mask)
 
     # ── helpers ────────────────────────────────────────────────────────────
@@ -101,6 +121,11 @@ class GreedyAttacker:
             if move.get("category") != STATUS_CATEGORY and power > best_power:
                 best_id, best_power = a, power
         return best_id
+
+    @staticmethod
+    def _first_in(mask: np.ndarray, ids) -> int | None:
+        """Lowest legal id within a specific range (or None)."""
+        return next((a for a in ids if mask[a]), None)
 
     @staticmethod
     def _first_legal(mask: np.ndarray) -> int:
