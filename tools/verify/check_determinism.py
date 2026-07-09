@@ -169,6 +169,9 @@ def compare(a: list[dict], b: list[dict]) -> int:
 
     if len(a) != len(b):
         return 1
+    if not a:
+        print("FAIL: 0 steps compared — determinism check would pass vacuously on an empty dump")
+        return 1
     print(f"OK: {len(a)} steps identical (state hash, observation bytes, action, phase)")
     return 0
 

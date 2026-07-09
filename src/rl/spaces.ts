@@ -1550,20 +1550,30 @@ function normalizeEffectiveness(eff: number): number {
 function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Record<string, unknown>): number {
   let pos = offset;
 
+  // In SINGLES the v9 slot remap fills player_1/enemy_1 with the first BENCH
+  // member (state-builder.ts) — a Pokemon NOT on the field. This block is an
+  // ACTIVE-matchup / active-speed summary, so those slots must be excluded in
+  // singles: otherwise the benched enemy acts as a phantom second target and
+  // the benched mons pollute the speed ranking. Only slot 0 is active per side
+  // in singles; in doubles both slots are genuinely on the field.
+  const isDouble = bool(sub(gameState, "field"), "is_double_battle");
+  const slotOf = (key: string): Record<string, unknown> =>
+    !isDouble && (key === "player_1" || key === "enemy_1") ? {} : sub(gameState, key);
+
   const playerSlots = ["player_0", "player_1"];
   const enemySlots = ["enemy_0", "enemy_1"];
 
   // Pre-extract enemy types
   const enemyTypes: number[][] = [];
   for (const eKey of enemySlots) {
-    const enemy = sub(gameState, eKey);
+    const enemy = slotOf(eKey);
     const types = arr(enemy, "types").map(t => Number(t) || 0);
     enemyTypes.push(bool(enemy, "valid") ? types : []);
   }
 
   // ── Type effectiveness: 2 players × 4 moves × 2 enemies = 16 dims ──
   for (const pKey of playerSlots) {
-    const player = sub(gameState, pKey);
+    const player = slotOf(pKey);
     const moves = arr(player, "moves");
     for (let m = 0; m < MAX_MOVES; m++) {
       const moveDict =
@@ -1584,7 +1594,7 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
 
   // ── STAB indicators: 2 players × 4 moves = 8 dims ──
   for (const pKey of playerSlots) {
-    const player = sub(gameState, pKey);
+    const player = slotOf(pKey);
     const playerTypes = arr(player, "types").map(t => Number(t));
     const moves = arr(player, "moves");
     for (let m = 0; m < MAX_MOVES; m++) {
@@ -1605,7 +1615,7 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
   const speedSlots = ["player_0", "player_1", "enemy_0", "enemy_1"];
   const speeds: { index: number; speed: number; valid: boolean }[] = [];
   for (let i = 0; i < speedSlots.length; i++) {
-    const poke = sub(gameState, speedSlots[i]);
+    const poke = slotOf(speedSlots[i]);
     const isValid = bool(poke, "valid") && !bool(poke, "is_fainted");
     let speed = 0;
     if (isValid) {

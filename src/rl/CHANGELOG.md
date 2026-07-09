@@ -1140,3 +1140,135 @@ same class as the deferred obs items; NOT silent corruption, all bounded):
 Reward-DESIGN choices (money scale, farmable modifier/self-heal, HP+KO
 double-weighting) are the researcher's modeling call — surfaced
 separately, not changed unilaterally.
+
+---
+
+## 2026-07-09 — Whole-framework audit (round 6): singles derived-field corruption, Python-reward guard, eval baseline, verify blind spots
+
+Full-framework audit (10 subsystem finders + 3-lens adversarial verification;
+every finding re-checked against the game source before fixing). CONFIRMED
+bugs fixed, each verified empirically:
+
+- **Derived-field block treated BENCH Pokemon as active in SINGLES
+  (spaces.ts + observation.py)** — the biggest live corruption, in the
+  dominant battle mode. The v9 slot remap stuffs the first bench member into
+  `player_1`/`enemy_1` in singles (so the 6th party member is visible), but
+  `encodeDerivedFields` / `_encode_derived_fields` were never gated on
+  `is_double`: the 28-dim active-matchup+speed block ranked benched mons as if
+  on the field. Effect in singles: a PHANTOM second enemy target (type
+  effectiveness of the player's moves vs a benched enemy), the benched mon's
+  STAB dims, and benched Pokemon polluting the 4-slot speed ranking (a fast
+  reserve displaced the active mons' turn-order signal). This is exactly the
+  corruption deferred at 2026-06-13/"v8" (derived features "cannot be fixed by
+  stuffing bench[4] into player_1 … needs the obs-v9 slot redesign"); v9 did
+  the stuffing but never gated the derived block. Fixed BOTH encoders (a
+  `slotOf`/`_slot` that returns an empty slot for player_1/enemy_1 when not a
+  double). Verified: in a real singles state the enemy_1-effectiveness dims,
+  player_1 STAB dims, and bench speed ranks are now 0, speed ranks only the two
+  active slots, and TS↔Python stays bitwise-identical. Goldens unchanged (the 3
+  fixtures are doubles/empty, where the fix is a no-op); the singles parity
+  dumps exercise it.
+
+- **CustomReward silently trained on ZERO reward when lean=False was
+  forgotten (reward.py)** — the headline feature of the previous commit. The
+  env ALWAYS sets `info["game_state"]`, but in lean mode (the default) it is an
+  empty dict `{}`, never `None`. The guard `if gs is None` therefore never
+  fired, so `CustomReward(PokeRogueEnv(...))` (lean defaulting True) produced no
+  error and every accessor read 0 off `{}` → all-zero reward, silently. Fixed
+  to `if not gs` (fires on the empty dict); verified it now raises a clear
+  "construct the env with lean=False" and correct (lean=False) usage scores
+  real reward (+30 over 3 waves). Two sibling fixes in the same wrapper:
+  `keep_terminal` added `env_reward` on `terminated OR truncated`, double-
+  counting the final shaped step on a wave-cap truncation (its docstring is the
+  ±win/lose terminal bonus, which exists only on a true termination) → gated on
+  `terminated`; and the step-timeout truncation path (no post-state) fed
+  `reward_fn(prev, {})`, fabricating a spurious HP penalty → now returns 0 for
+  a stateless transition.
+
+- **eval_policy.py mis-measured the maxdamage baseline** — it ran the env with
+  `lean=True` for ALL policies, but `MaxDamagePolicy` reads move power from
+  `info["game_state"]`; under lean that dict is empty, so it silently degraded
+  to first-legal-action (run_policy.py already forces lean=False for maxdamage;
+  eval did not). Proven: with the fix, maxdamage reaches wave 4 (16 steps,
+  KO'ing with its strongest move) vs the buggy path's wave 1 (148 steps
+  spamming move slot 0). Any "Nx maxdamage" comparison measured through eval
+  was against a first-legal baseline. Fixed to `lean=(name != "maxdamage")`.
+
+- **nature_multipliers ignored an applied Mint (state-builder.ts)** — built
+  from the raw `pokemon.nature`, but the game (and the sibling `nature` scalar)
+  compute from `pokemon.getNature()`, which returns the Mint-overridden nature.
+  After a Mint the 5 nature-multiplier dims (the only nature signal) contradicted
+  the computed_stats. Fixed to `pokemon.getNature()`.
+
+- **Doubles ally-target action executed an empty slot (phase-router.ts)** —
+  for a `USER_OR_NEAR_ALLY` move with no living ally, actions 8-11 were masked
+  legal (kept "self-targetable") but the executor targets the other player slot
+  (empty) → the move fizzles, a masked action that doesn't do what the mask
+  promises. The self-target is already reachable via actions 0-3 (plain FIGHT,
+  game computes [USER]), so 8-11 is now gated strictly on a living ally.
+
+- **fog was_seen default asymmetry (observation.py)** — Python defaulted
+  `was_seen=True`, TS defaults false; under fog a valid enemy whose serialized
+  dict lacked a boolean `was_seen` would be LEAKED by Python but hidden by TS.
+  Latent (state-builder always emits the field) but a real divergence in the
+  one path with no test coverage; fixed the default to False to match TS.
+
+### Verify-suite fixes (checks that were blind or vacuous)
+
+- **Coverage corpus rejected wave-cap episodes (gen_coverage_corpus.py)** — a
+  round-2 regression: `run_scenario` accepted only `game_over`/`step_cap` as a
+  completed episode, but round-2 made a wave-budget episode end as `wave_cap`.
+  Any scenario that played through its whole wave budget was marked "failed"
+  and its records DROPPED, so its asserts ran on an empty list and failed. This
+  sat unnoticed because CI runs only `quick` (which skips the corpus). Fixed to
+  accept `wave_cap`; longrun/fullparty/status now pass their asserts.
+- **Status scenario used a non-existent override key
+  (gen_coverage_corpus.py)** — `OPP_MOVESET_OVERRIDE` (should be
+  `ENEMY_MOVESET_OVERRIDE`); unknown keys are silently skipped, so the enemy
+  never spammed TOXIC/SLEEP_POWDER and the "player was statused" assert only
+  passed by luck. Fixed; the status coverage is now actually forced.
+- **Fog encoder was never parity-checked** — no corpus set `--fog-of-war`, so
+  both fog encoders (TS and Python) were unexercised by the gate despite the
+  CHANGELOG claiming otherwise. Added a `--fog-of-war` parity dump to
+  rl-verify.sh; check_parity re-encodes it with fog and cross-checks both
+  branches. (Fog parity confirmed OK today — this closes the blind spot.)
+- **Vacuous-pass guards** — check_parity now FAILS on 0 step records (a broken
+  dump pipeline read as full parity); check_determinism now FAILS on an empty
+  comparison instead of "OK: 0 steps identical".
+
+- **play.py `o`/`obs` inspection command crashed the session** — bare `from
+  enums import` / `from observation import` (every other import uses the `rl.`
+  prefix) raised ImportError, killing the whole play session on a documented
+  command. Fixed to `rl.enums` / `rl.observation`.
+
+### Documented, not changed (rationale)
+
+- Mystery-Encounter mask edges — RUN offered in a no-flee ME → CommandPhase
+  soft-lock (router timeout), and a false game-over when an ME's `onGameOver`
+  returns false (breeder encounter) → episode ends early as a loss. Both
+  require Mystery Encounters, which this env DISABLES by default
+  (`MYSTERY_ENCOUNTER_RATE_OVERRIDE=0`) and are outside the 58-action scope;
+  same class as the existing ME limitation note. Only reachable if a user
+  deliberately re-enables MEs.
+- The dim-exercise "suspected-bug" auto-gate is effectively dead (its scenario
+  regex can't match hyphenated names and no `learn-move` corpus exists) — a
+  secondary safety net; the primary parity/mask/coverage checks are unaffected.
+  Recommend a follow-up to wire real corpus scenarios to ledger entries.
+- CI runs only `quick`, so the corpus / mask-gating / dim-gate never gate a PR
+  (this is how the two corpus regressions above hid). Recommend a nightly
+  `full` job.
+- Rendered `game_over` omits obsB64/mask that headless includes — no consumer
+  today (rendered is watch-only), latent if a gym-style rendered client is added.
+
+Audit confirmed OK (no change): config parity headless↔rendered (every
+`to_url_query` field is parsed and applied by the bridge), WS relay
+handshake/session-replacement, action-id↔label mapping, tera gate + execution,
+ball gating, switch mapping, enum cardinalities, ability/modifier feature
+tables (40/20-wide), feature_names offsets, modifier-id round-trip,
+zero-fill/stale-leak paths, override persistence across in-process reset, the
+CLI reset lifecycle, and check_parity's core comparison.
+
+Verify: `scripts/rl-verify.sh full` green — vitest 99/99, parity 2039 records /
+23 files (incl. the new fog dump) 0 bitwise & 0 mask diffs, fixture parity OK,
+corpus 6/6, dim-exercise OK, mask-gating OK, determinism OK (auto/interactive/
+in-process), in-process soak OK.

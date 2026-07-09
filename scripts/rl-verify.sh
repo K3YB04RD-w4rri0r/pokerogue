@@ -49,6 +49,12 @@ else
     node dist/rl/cli.js --seed="parity-a$i" --waves=8 --dump-obs="$ART/parity/auto-$i.jsonl" \
       >/dev/null 2>&1
   done
+  # Fog-of-war parity: the fog encoder (TS AND Python) is otherwise UNEXERCISED
+  # — no other corpus sets --fog-of-war, so a drift between the two fog paths
+  # would pass silently. This dump carries fogOfWar=true so check_parity
+  # re-encodes with fog and cross-checks both branches.
+  node dist/rl/cli.js --seed="parity-fog" --waves=8 --fog-of-war --dump-obs="$ART/parity/fog.jsonl" \
+    >/dev/null 2>&1
   python3 tools/verify/run_episodes.py --seed-list parity-r1,parity-r2,parity-r3,parity-r4 \
     --waves 12 --dump-dir "$ART/parity"
 

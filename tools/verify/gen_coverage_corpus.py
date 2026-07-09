@@ -98,7 +98,7 @@ SCENARIOS: dict[str, dict] = {
     },
     "status": {
         "description": "Status-heavy battles -> status one-hots, toxic/sleep counters",
-        "overrides": {"OPP_MOVESET_OVERRIDE": [92, 79]},  # TOXIC, SLEEP_POWDER
+        "overrides": {"ENEMY_MOVESET_OVERRIDE": [92, 79]},  # TOXIC, SLEEP_POWDER
         "waves": 6,
         "seeds": ["corpus-sts-1"],
         "asserts": {
@@ -131,7 +131,13 @@ def run_scenario(name: str, spec: dict, out_dir: Path) -> tuple[bool, list[str]]
             run_weight=spec.get("run_weight", 0.1),
             extra_args=extra_args,
         )
-        if r["result"] not in ("game_over", "step_cap") or r["errors"]:
+        # "wave_cap" is a COMPLETE episode (played through the whole wave
+        # budget), same as game_over/step_cap — it was added by the round-2 real
+        # wave-cap fix but never allowed here, so any scenario reaching its wave
+        # budget was wrongly marked failed and its records dropped (asserts then
+        # ran on an empty list and failed). Only router_timeout/hang/incomplete
+        # are genuine failures.
+        if r["result"] not in ("game_over", "step_cap", "wave_cap") or r["errors"]:
             ok = False
             notes.append(f"{seed}: episode failed ({r['result']}, errors={r['errors'][:2]})")
             continue

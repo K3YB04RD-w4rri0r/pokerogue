@@ -62,7 +62,11 @@ def main() -> int:
     results: dict[str, list[dict]] = {}
     for name in args.policies:
         policy = make_builtin_policy(name, seed=args.seed_prefix)
-        env = PokeRogueEnv(waves=args.waves, seed=f"{args.seed_prefix}-0", lean=True)
+        # maxdamage reads move power/category from info["game_state"] (same as
+        # run_policy.py). Under lean=True that dict is empty, so the policy
+        # silently degrades to first-legal-action — mis-measuring the baseline.
+        # sb3/random/firstlegal only need obs+mask, so they keep the faster lean.
+        env = PokeRogueEnv(waves=args.waves, seed=f"{args.seed_prefix}-0", lean=(name != "maxdamage"))
         runs = []
         t0 = time.time()
         for i in range(args.episodes):

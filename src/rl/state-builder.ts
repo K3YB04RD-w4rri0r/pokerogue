@@ -1084,7 +1084,11 @@ function buildPokemonState(
 
     // Nature multipliers for the 5 effective stats
     const natureMults = safe(
-      () => EFFECTIVE_STATS.map(s => getNatureStatMultiplier(pokemon.nature, s)),
+      // getNature() (not the raw .nature) so an applied Mint is reflected —
+      // the game computes stats from getNature(), and the scalar `nature`
+      // field below already uses it; the raw nature would contradict the
+      // computed_stats after a Mint.
+      () => EFFECTIVE_STATS.map(s => getNatureStatMultiplier(pokemon.getNature(), s)),
       [1.0, 1.0, 1.0, 1.0, 1.0],
     );
 

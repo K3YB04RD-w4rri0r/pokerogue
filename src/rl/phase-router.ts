@@ -807,22 +807,26 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     }
 
     // Moves targeting ally (8-11) - doubles only, single-target ally moves.
-    // Gate on a LIVING ally: NEAR_ALLY/ALLY moves strictly require one, and
-    // offering them at an empty ally slot (fainted / lone survivor) would be
-    // rejected by the game → invalid-action fallback. Mirrors the
-    // enemy1Active gate on the enemy2 branch. USER_OR_NEAR_ALLY can target
-    // self, so it stays available even without an ally.
+    // Gate strictly on a LIVING ally: actions 8-11 EXECUTE against the other
+    // player slot (executeCommandAction sets targets:[allyTarget]). With no
+    // living ally that slot is empty, so the move fizzles — a masked-legal
+    // action that does not do what the mask promises. USER_OR_NEAR_ALLY moves
+    // are still reachable when they should self-target: that path is covered by
+    // actions 0-3 (executeCommandAction issues a plain FIGHT and the game
+    // computes [USER]). So an empty ally slot must never offer 8-11 at all.
     const ally = globalScene.getPlayerField?.()?.[1];
     const allyActive = !!ally?.isActive();
-    if (isDouble) {
+    if (isDouble && allyActive) {
       for (let i = 0; i < MAX_MOVES && i < moveset.length; i++) {
         const move = moveset[i];
         if (move) {
           const [usable] = move.isUsable(pokemon);
           const moveData = move.getMove();
-          const strictAlly = moveData.moveTarget === MoveTarget.NEAR_ALLY || moveData.moveTarget === MoveTarget.ALLY;
-          const canTargetAlly = strictAlly || moveData.moveTarget === MoveTarget.USER_OR_NEAR_ALLY;
-          if (usable && canTargetAlly && (allyActive || !strictAlly)) {
+          const canTargetAlly =
+            moveData.moveTarget === MoveTarget.NEAR_ALLY
+            || moveData.moveTarget === MoveTarget.ALLY
+            || moveData.moveTarget === MoveTarget.USER_OR_NEAR_ALLY;
+          if (usable && canTargetAlly) {
             mask[ACTION_FIGHT_ALLY_START + i] = true;
           }
         }

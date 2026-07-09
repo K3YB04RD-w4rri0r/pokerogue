@@ -148,6 +148,12 @@ def main() -> int:
         for i, c in sorted(mask_offenders.items(), key=lambda kv: -kv[1])[:10]:
             print(f"  action {i} ({ACTION_NAMES[i]}): {c}x")
 
+    # A dump with files but zero step records must not pass vacuously — a broken
+    # dump pipeline (renamed "kind":"step" sentinel, empty --dump-obs) would
+    # otherwise read as full parity.
+    if n_records == 0:
+        print("\nPARITY: FAIL (0 step records found across all files — dump pipeline broken?)")
+        return 1
     failed = n_tolerance_bad or n_mask_bad or n_invariant_bad or (args.strict and n_bitwise_bad)
     print("\nPARITY: " + ("FAIL" if failed else "OK"))
     return 1 if failed else 0

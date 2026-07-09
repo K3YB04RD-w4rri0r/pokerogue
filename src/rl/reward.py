@@ -177,9 +177,15 @@ class CustomReward(gym.Wrapper):
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
         gs = info.get("game_state")
-        if gs is None:
+        # The env ALWAYS puts a "game_state" key in info, but in lean mode
+        # (the default) it is an empty dict, not None — so `is None` never
+        # catches the "you forgot lean=False" mistake and the user would
+        # silently train on all-zero reward (every accessor reads 0 off {}).
+        # Guard on falsiness so lean mode fails loud and early.
+        if not gs:
             raise RuntimeError(
-                "CustomReward needs info['game_state'] — construct the env with lean=False"
+                "CustomReward needs a populated info['game_state'] — construct the "
+                "env with lean=False (lean=True omits game_state, giving zero reward)"
             )
         self._prev_state = gs
         reset = getattr(self._reward_fn, "reset", None)
@@ -190,9 +196,19 @@ class CustomReward(gym.Wrapper):
     def step(self, action):
         obs, env_reward, terminated, truncated, info = self.env.step(action)
         cur = info.get("game_state") or {}
-        reward = self._reward_fn(self._prev_state, cur, info)
-        if self._keep_terminal and (terminated or truncated):
-            reward += float(env_reward)  # env_reward already carries the terminal bonus
+        # A truncation with no post-state (the env's step-timeout path returns
+        # info without game_state) has no valid s' to diff against — scoring
+        # reward_fn(prev, {}) fabricates deltas (every accessor reads 0 off the
+        # empty dict, e.g. a full-HP prev vs 0 "now" → spurious HP penalty).
+        # Skip the transition reward on that path; keep_terminal still applies.
+        reward = self._reward_fn(self._prev_state, cur, info) if cur else 0.0
+        # keep_terminal ADDS the env's ±win/lose bonus, which only exists on a
+        # true termination (game over). A truncation (wave/step cap, timeout)
+        # carries NO terminal bonus — its env_reward is the final transition's
+        # shaped reward, and adding it would double-count that step against the
+        # user's own reward_fn for the same transition.
+        if self._keep_terminal and terminated:
+            reward += float(env_reward)  # env_reward carries the terminal bonus
         self._prev_state = cur
         return obs, reward, terminated, truncated, info
 

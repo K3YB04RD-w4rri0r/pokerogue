@@ -1067,8 +1067,8 @@ def print_tags_summary(game_state: dict):
 
 def print_obs_layout(game_state: dict):
     """Print observation vector segment summary (layout from observation.py)."""
-    from enums import POKEMON_SLOT_KEYS
-    from observation import (
+    from rl.enums import POKEMON_SLOT_KEYS
+    from rl.observation import (
         BATTLE_META_DIM,
         DERIVED_FIELDS_DIM,
         FIELD_STATE_DIM,

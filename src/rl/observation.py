@@ -930,7 +930,11 @@ def _parse_pokemon(d: dict) -> ObsPokemon:
         has_passive=_gb(d, "has_passive"),
         ability_suppressed=_gb(d, "ability_suppressed"),
         ability_revealed=_gb(d, "ability_revealed"),
-        was_seen=_gb(d, "was_seen", True),
+        # Default False to match the TS encoder (spaces.ts `bool()` defaults
+        # false, then zeroes the whole enemy block under fog). Defaulting True
+        # here made a fog run LEAK a valid enemy's block whenever its serialized
+        # dict lacked a boolean was_seen, where TS would have hidden it.
+        was_seen=_gb(d, "was_seen", False),
         move_known=[bool(x) for x in (d.get("move_known") or [])],
         nature=_g(d, "nature"),
         nature_multipliers=_gl(d, "nature_multipliers") or [1.0] * 5,
@@ -2815,13 +2819,24 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
     """Encode derived fields (28 dims). Matches spaces.ts encodeDerivedFields()."""
     pos = offset
 
+    # In SINGLES the v9 slot remap fills slot indices 1 (player_1) and 3
+    # (enemy_1) with the first BENCH member — not an active combatant. This
+    # block is an active-matchup / active-speed summary, so those slots are
+    # excluded in singles (mirrors spaces.ts): only slot 0 is active per side.
+    is_double = state.field.is_double_battle
+
+    def _slot(idx: int) -> ObsPokemon:
+        if not is_double and idx in (1, 3):
+            return ObsPokemon()
+        return state.pokemon[idx] if idx < len(state.pokemon) else ObsPokemon()
+
     player_slots = [0, 1]  # player_0, player_1
     enemy_slots = [2, 3]   # enemy_0, enemy_1
 
     # Pre-extract enemy types
     enemy_types_list = []
     for e_idx in enemy_slots:
-        poke = state.pokemon[e_idx] if e_idx < len(state.pokemon) else ObsPokemon()
+        poke = _slot(e_idx)
         if poke.valid:
             enemy_types_list.append(poke.types)
         else:
@@ -2829,7 +2844,7 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
 
     # ── Type effectiveness: 2 players x 4 moves x 2 enemies = 16 dims ──
     for p_idx in player_slots:
-        poke = state.pokemon[p_idx] if p_idx < len(state.pokemon) else ObsPokemon()
+        poke = _slot(p_idx)
         for m_i in range(MAX_MOVES):
             m = poke.moves[m_i] if m_i < len(poke.moves) else ObsMove()
             for e_i in range(2):
@@ -2840,7 +2855,7 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
 
     # ── STAB indicators: 2 players x 4 moves = 8 dims ──
     for p_idx in player_slots:
-        poke = state.pokemon[p_idx] if p_idx < len(state.pokemon) else ObsPokemon()
+        poke = _slot(p_idx)
         ptypes = set(poke.types)
         for m_i in range(MAX_MOVES):
             m = poke.moves[m_i] if m_i < len(poke.moves) else ObsMove()
@@ -2852,7 +2867,7 @@ def _encode_derived_fields(buf: np.ndarray, offset: int, state: CleanGameState) 
     speed_slot_indices = [0, 1, 2, 3]  # player_0, player_1, enemy_0, enemy_1
     speeds = []
     for s_idx in speed_slot_indices:
-        poke = state.pokemon[s_idx] if s_idx < len(state.pokemon) else ObsPokemon()
+        poke = _slot(s_idx)
         is_valid = poke.valid and not poke.is_fainted
         speed = 0.0
         if is_valid:
