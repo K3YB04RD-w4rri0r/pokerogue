@@ -379,6 +379,19 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     cost: number;
   } | null = null;
 
+  // Shop no-progress livelock guard (env robustness only — no reward/policy
+  // logic). A "no-op" modifier action leaves the shop byte-identical — buying a
+  // heal for a full-HP party (the game refuses to waste it, money unchanged),
+  // a PP item at full PP, or picking a reward then cancelling — so a
+  // deterministic policy re-selects it forever until the step cap. We track a
+  // progress signature across modifier decisions; after a few no-progress
+  // cycles the modifier mask collapses to "skip" so ANY policy is forced out of
+  // the shop and the episode continues (the universal auto-proceed flagged as
+  // the proper fix in the 2026-07-08 round-3 livelock note).
+  const MODIFIER_LIVELOCK_LIMIT = 4;
+  let shopProgressSig: string | null = null;
+  let shopStuckCount = 0;
+
   // Timeout handle for the advance loop
   let advanceTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -658,6 +671,12 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     // between identical runs, breaking determinism.
     if (decision === DecisionPhase.TITLE && titleActionExecuted) {
       return null;
+    }
+
+    // Leaving the shop resets the no-progress livelock tracker.
+    if (decision !== DecisionPhase.SELECT_MODIFIER && decision !== DecisionPhase.MODIFIER_TARGET) {
+      shopProgressSig = null;
+      shopStuckCount = 0;
     }
 
     const metadata: Record<string, unknown> = {
@@ -1000,6 +1019,30 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
       if (money >= modifiers.shop[i].cost) {
         mask[ACTION_BUY_SHOP_START + i] = true;
       }
+    }
+
+    // No-progress livelock guard: a signature of everything a legitimate shop
+    // action moves — money (any buy/reroll), party HP (a heal), and the number
+    // of remaining reward picks (taking the free reward). A no-op action leaves
+    // all three unchanged; if that persists for MODIFIER_LIVELOCK_LIMIT
+    // consecutive modifier decisions, collapse the mask to "skip" so the agent
+    // is forced out of the shop instead of re-selecting the no-op forever.
+    let hpSum = 0;
+    for (const p of globalScene.getPlayerParty?.() ?? []) {
+      hpSum += p?.hp ?? 0;
+    }
+    const sig = `${money}|${modifiers.rewards.length}|${hpSum}`;
+    if (sig === shopProgressSig) {
+      shopStuckCount++;
+    } else {
+      shopProgressSig = sig;
+      shopStuckCount = 0;
+    }
+    if (shopStuckCount >= MODIFIER_LIVELOCK_LIMIT) {
+      const skipOnly = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
+      skipOnly[ACTION_SKIP] = true;
+      metadata.shopLivelockBreak = true;
+      return skipOnly;
     }
 
     return mask;

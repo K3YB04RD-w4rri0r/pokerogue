@@ -1364,3 +1364,48 @@ surfaced (these are how the round-6 corpus regression hid in the first place).
   reliably forces move-learning yet; blank the canary, keep the reason).
   Verified the guard passes the real ledger and catches a bad `learn-move`
   reference while allowing a real one.
+
+---
+
+## 2026-07-09 — Shop no-progress livelock guard (found by a trained agent)
+
+Retrained a MaskablePPO agent on the corrected v9 observation (200k steps,
+`first_train.yaml`) to validate that round-6/7 didn't break learning. It didn't
+— but the eval surfaced a real framework robustness bug the agent had learned to
+fall into.
+
+**The bug (framework, env robustness).** A *no-op* modifier action leaves the
+shop byte-identical, so a deterministic policy re-selects it forever until the
+step cap: e.g. buying a Potion for a full-HP party (the game refuses to waste
+the heal, so money is unchanged and the item stays), a PP item at full PP, or
+picking a reward then cancelling. The trained agent played battles well (wave 11
+in ~24 command decisions) but then spent 964 of 998 steps oscillating
+`modifier ↔ modifier_target`, re-buying the same Potion ~480 times with money
+frozen at 1210 and the party at full HP. `invalid_action_count` was 0 and the
+observation faithfully reflected the (unchanged) state — so this is not a
+mask-illegal / stale-obs / reward-computation bug. It is the same livelock class
+the round-3 note flagged ("a universal auto-proceed is the proper fix").
+
+**The fix (`phase-router.ts`).** A no-progress guard in `buildModifierActionMask`:
+track a signature of everything a legitimate shop action moves — money (any
+buy/reroll), remaining reward picks (taking the free reward), and party HP (a
+heal). If it stays identical for `MODIFIER_LIVELOCK_LIMIT` (4) consecutive
+modifier decisions, collapse the mask to "skip" so ANY policy is forced out of
+the shop and the episode continues. Parity-safe: the router mask is serialized
+into `gameState.phase.action_mask` and Python reads that exact field
+(`extract_action_mask`), so both transports agree; the guard is per-episode
+router state, reset on any non-shop decision, and deterministic. No reward
+weights, hyperparameters, or policy code touched — pure env robustness.
+
+**Result.** Same seed that had burned all 998 steps at wave 11 now plays to wave
+15 and dies a real death in 130 steps (4 skip-only interventions). Over 8
+held-out `eval-v9` seeds the trained agent went from mean_reward 63 / mean_wave
+4.6 / budget% 100% (all livelocked) to **mean_reward 285 / mean_wave 19.1 /
+budget% 62%** — i.e. it clears nearly the full 20-wave budget and beats the
+maxdamage heuristic **3.8×** (75.3). The agent was strong all along; the shop
+livelock had been masking it entirely. The reward-DESIGN and hyperparameters
+remain the researcher's call — only the env-robustness livelock was fixed.
+
+Verify: `scripts/rl-verify.sh full` green (obs unchanged — the guard only
+affects the action mask, which both transports read from the same serialized
+field; determinism/parity/corpus/mask-gating/soak all hold).
