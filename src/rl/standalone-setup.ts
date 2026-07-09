@@ -104,20 +104,18 @@ export async function initStandalone(overrides?: Record<string, unknown>): Promi
   // Reset overrides to defaults (replaces vi.mock for overrides module)
   await resetOverrides();
 
-  // Mystery Encounters are REMOVED from the RL environment by decision:
-  // their option phases are not part of the 58-action interface (each ME
-  // would burn a router timeout), so the env's game scope is classic mode
-  // without MEs. An explicit MYSTERY_ENCOUNTER_RATE_OVERRIDE in the caller's
-  // overrides wins (deliberate re-enable for manual play/experiments).
-  const effectiveOverrides: Record<string, unknown> = {
-    MYSTERY_ENCOUNTER_RATE_OVERRIDE: 0,
-    ...(overrides ?? {}),
-  };
-
-  // Apply override values on top of the defaults (e.g. BATTLE_STYLE_OVERRIDE /
-  // STARTING_WAVE_OVERRIDE from the CLI's --override flags, used by the
+  // Mystery Encounters are PERMANENTLY disabled in the RL environment: their
+  // option phases are not part of the 58-action interface (each ME would burn a
+  // router timeout), so the env's game scope is classic mode without MEs. The
+  // hard-disable is enforced in applyOverrideValues (apply-overrides.ts) — it
+  // forces MYSTERY_ENCOUNTER_RATE_OVERRIDE=0 and refuses
+  // BATTLE_TYPE_OVERRIDE=MYSTERY_ENCOUNTER regardless of caller overrides, so it
+  // cannot be re-enabled. No ME seed is needed here.
+  //
+  // Apply caller override values on top of the defaults (e.g. BATTLE_STYLE_OVERRIDE
+  // / STARTING_WAVE_OVERRIDE from the CLI's --override flags, used by the
   // coverage-corpus generator to force rare situations).
-  await applyOverrides(effectiveOverrides);
+  await applyOverrides(overrides ?? {});
 
   // Run the standard test stubs (localStorage, Canvas, matchMedia, etc.)
   // and initialize game data (abilities, species, moves, etc.).

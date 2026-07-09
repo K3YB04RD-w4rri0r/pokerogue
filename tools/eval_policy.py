@@ -47,6 +47,10 @@ def run_episode(env: PokeRogueEnv, policy, seed: str) -> dict:
         "victory": bool(info.get("victory")),
         "terminated": terminated,
         "truncated": truncated,
+        # A protocol error (step timeout / CLI died) surfaces as truncated with
+        # info["protocol_error"] and a partial reward — NOT a real budget stop.
+        # Flag it so the stats can exclude it instead of folding it into budget%.
+        "error": bool(info.get("protocol_error")),
     }
 
 
@@ -72,7 +76,12 @@ def main() -> int:
         for i in range(args.episodes):
             r = run_episode(env, policy, seed=f"{args.seed_prefix}-{i}")
             runs.append(r)
-            outcome = "win" if r["victory"] else ("loss" if r["terminated"] else "budget")
+            outcome = (
+                "error" if r["error"]
+                else "win" if r["victory"]
+                else "loss" if r["terminated"]
+                else "budget"
+            )
             print(
                 f"  [{name}] ep {i}: reward={r['reward']:.2f} steps={r['steps']} wave={r['wave']} ({outcome})",
                 flush=True,
@@ -81,15 +90,24 @@ def main() -> int:
         results[name] = runs
         print(f"[{name}] {args.episodes} eps in {time.time() - t0:.0f}s", flush=True)
 
-    print(f"\n{'policy':<40} {'mean_reward':>12} {'median':>9} {'mean_wave':>10} {'win%':>6} {'budget%':>8}")
+    print(f"\n{'policy':<40} {'mean_reward':>12} {'median':>9} {'mean_wave':>10} {'win%':>6} {'budget%':>8} {'err':>4}")
     for name, runs in results.items():
-        rewards = [r["reward"] for r in runs]
-        waves = [r["wave"] for r in runs if r["wave"] is not None]
-        wins = sum(1 for r in runs if r["victory"]) / len(runs)
-        budget = sum(1 for r in runs if r["truncated"]) / len(runs)
+        # Exclude protocol-error episodes from every statistic — their partial
+        # reward and spurious `truncated` flag are not a real outcome. Report
+        # the error count separately so a flaky run is visible, not hidden.
+        valid = [r for r in runs if not r["error"]]
+        errors = len(runs) - len(valid)
+        rewards = [r["reward"] for r in valid]
+        waves = [r["wave"] for r in valid if r["wave"] is not None]
+        denom = len(valid)
+        wins = (sum(1 for r in valid if r["victory"]) / denom) if denom else float("nan")
+        budget = (sum(1 for r in valid if r["truncated"]) / denom) if denom else float("nan")
+        mean_reward = statistics.mean(rewards) if rewards else float("nan")
+        median_reward = statistics.median(rewards) if rewards else float("nan")
+        mean_wave = statistics.mean(waves) if waves else float("nan")
         print(
-            f"{name:<40} {statistics.mean(rewards):>12.2f} {statistics.median(rewards):>9.2f} "
-            f"{(statistics.mean(waves) if waves else float('nan')):>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}%"
+            f"{name:<40} {mean_reward:>12.2f} {median_reward:>9.2f} "
+            f"{mean_wave:>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}% {errors:>4}"
         )
     return 0
 

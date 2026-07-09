@@ -1272,3 +1272,65 @@ Verify: `scripts/rl-verify.sh full` green — vitest 99/99, parity 2039 records 
 23 files (incl. the new fog dump) 0 bitwise & 0 mask diffs, fixture parity OK,
 corpus 6/6, dim-exercise OK, mask-gating OK, determinism OK (auto/interactive/
 in-process), in-process soak OK.
+
+---
+
+## 2026-07-09 — Round 7: hard-disable Mystery Encounters + finish deferred fixes
+
+Finishing the round-6 deferred items. Decision: **Mystery Encounters are always
+disabled** in the RL env. Rather than write delicate mask/game-over-hook fixes
+for a mode that is out of scope, MEs are made impossible to enable — which makes
+both deferred ME bugs unreachable by construction.
+
+- **Hard-disable MEs, non-overridably, in every transport
+  (`apply-overrides.ts`).** MEs were only a *default* off
+  (`MYSTERY_ENCOUNTER_RATE_OVERRIDE=0`) that a user override could win back on,
+  and the env even documented that as an escape hatch. Enforcement now lives in
+  the single shared `applyOverrideValues` choke point both transports funnel
+  through. TWO independent re-enable vectors are closed: (i) the rate override
+  is forced to 0 last, so no caller value can win (rate 0 ⇒
+  `isWaveMysteryEncounter` always false, `battle-scene.ts:3559`); (ii)
+  `BATTLE_TYPE_OVERRIDE=MYSTERY_ENCOUNTER` — which forces an ME wave *directly*,
+  bypassing the rate gate (`battle-scene.ts:1306-1309/1349`) — is refused.
+  `standalone-setup.ts` drops its redundant rate-0 seed; `browser-bridge.ts`
+  now calls `applyOverrideValues` unconditionally so the rendered transport is
+  covered even with no user overrides (it previously relied only on the
+  committed `overrides.ts` default). Verified E2E: `MYSTERY_ENCOUNTER_RATE_
+  OVERRIDE=256` and `BATTLE_TYPE_OVERRIDE=3` both produce ZERO mystery
+  encounters across the ME-legal wave band (only Wild/Trainer battles).
+  CONSEQUENCE — both round-6 deferred ME items are now DEAD paths, no per-case
+  fix needed: RUN offered in a no-flee ME → soft-lock (needs an ME), and the
+  false game-over on a non-terminal `GameOverPhase.end()` (the only such path is
+  the ME `onGameOver()` early-return; and `checkGameOver()`'s all-fainted latch
+  is correct without MEs — all fainted = a real defeat, only the breeder ME
+  restored the party mid-game-over).
+
+- **End-biome RUN soft-lock (`phase-router.ts`, LIVE bug found while
+  planning).** The RUN-action gate read `globalScene.arena?.biomeType`, but
+  `Arena` exposes only `biomeId` — so `isEndBiome` was `undefined === BiomeId.END`,
+  i.e. ALWAYS false, and RUN (action 22) was offered in the End biome, where the
+  game's `handleRunCommand` rejects it (`arena.biomeId === BiomeId.END` →
+  "noEscapeForce", CommandPhase never ends) → router-timeout soft-lock if the
+  agent runs. Fixed `biomeType` → `biomeId` (the file already used `biomeId`
+  correctly in the ball gate). Verified: RUN masked off in all 193 End-biome
+  command phases, still offered in all 7 control wild-battle phases.
+
+- **eval_policy: protocol-error episodes polluted the stats
+  (`tools/eval_policy.py`).** A step-timeout / CLI-death episode surfaces as
+  `truncated=True` with a partial reward and `info["protocol_error"]`, and was
+  silently counted as a "budget" outcome — folding its partial reward into
+  mean_reward and its spurious `truncated` into budget%. Now flagged (`error`)
+  and EXCLUDED from mean_reward / mean_wave / win% / budget%, with a separate
+  `err` count column. Verified the exclusion arithmetic (an error episode no
+  longer shifts the means or budget%).
+
+- **Rendered game_over field parity (`browser-bridge.ts`).** The bridge's
+  `game_over` message omitted the `obsB64`/`mask` the headless CLI includes.
+  Now mirrors `cli.ts:554-567` (encode the terminal obs, send the all-false
+  terminal mask) reusing helpers already imported in the file. Latent today
+  (rendered is watch-only) but restores transport parity for a future
+  gym-style rendered client.
+
+Verify: build green; `scripts/rl-verify.sh full` re-run (unchanged observation
+representation → goldens/parity unaffected: `has_mystery_encounters` is a
+game-mode flag, not the spawn-rate override).

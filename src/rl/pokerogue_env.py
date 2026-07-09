@@ -142,11 +142,11 @@ class PokeRogueEnv(gym.Env):
         # Partial RewardConfig overrides (see src/rl/rewards.ts for fields)
         self._reward_config = reward_config
         # Game overrides (DefaultOverrides keys, e.g. BATTLE_STYLE_OVERRIDE).
-        # NOTE: Mystery Encounters are removed from this environment by
-        # decision — the CLI disables them at boot (their option phases are
-        # outside the 58-action interface). The env's game scope is classic
-        # mode without MEs; passing MYSTERY_ENCOUNTER_RATE_OVERRIDE here
-        # re-enables them deliberately (expect step-timeout truncations).
+        # NOTE: Mystery Encounters are PERMANENTLY disabled in this environment
+        # (their option phases are outside the 58-action interface). The
+        # hard-disable is enforced in apply-overrides.ts and CANNOT be
+        # re-enabled: MYSTERY_ENCOUNTER_RATE_OVERRIDE is forced to 0 and
+        # BATTLE_TYPE_OVERRIDE=MYSTERY_ENCOUNTER is refused, whatever you pass.
         self._overrides = dict(overrides or {})
         # Comma-separated SpeciesId names for a custom starting party (e.g. a
         # legendary team), forwarded to the CLI as --starters. None -> default.

@@ -759,7 +759,10 @@ export function createPhaseRouter(options?: { verbose?: boolean; starterSpecies?
     metadata.isDouble = isDouble;
 
     const isTrainerBattle = battle?.battleType === BattleType.TRAINER;
-    const isEndBiome = globalScene.arena?.biomeType === BiomeId.END;
+    // Arena exposes `biomeId`, not `biomeType` — the old `biomeType` read was
+    // always undefined, so RUN was wrongly offered in the End biome (where
+    // handleRunCommand rejects it → soft-lock). Matches the ball-gate at L320.
+    const isEndBiome = globalScene.arena?.biomeId === BiomeId.END;
     const trappedMessages: string[] = [];
     const isTrapped = pokemon.isTrapped(trappedMessages);
 

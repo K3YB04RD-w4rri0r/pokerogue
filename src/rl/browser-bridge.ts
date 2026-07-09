@@ -631,11 +631,14 @@ async function startBridge(): Promise<void> {
   // Step 1b: Apply game overrides from &override=KEY=VALUE (same config
   // surface as the headless CLI's --override). Must run before the battle is
   // created so battle-creation reads (STARTING_WAVE_OVERRIDE, movesets, ...)
-  // see the overridden values.
+  // see the overridden values. Called UNCONDITIONALLY (even with no user
+  // overrides) so applyOverrideValues also enforces the Mystery-Encounter
+  // hard-disable in the rendered transport — otherwise a plain session would
+  // rely only on the committed overrides.ts default.
   if (urlParams.overrides) {
     console.log("[RL Bridge] Applying overrides:", urlParams.overrides);
-    await applyOverrideValues(urlParams.overrides);
   }
+  await applyOverrideValues(urlParams.overrides ?? {});
 
   // Step 2: Create PhaseRouter ASAP — must be before TitlePhase fires
   // so the setMode hook catches it. TitlePhase waits indefinitely for input,
@@ -825,12 +828,19 @@ async function startBridge(): Promise<void> {
         const reward = tracker.rewardOnArrival(step, true, router.isVictory());
         const base = tracker.getLastGameState() ?? buildFullGameState(state, step);
         const gameState = buildTerminalGameState(base, router.isVictory());
+        // Mirror the headless CLI's terminal message (cli.ts:554-567): carry the
+        // encoded terminal obs + all-false mask so a rendered episode reports the
+        // same fields headless training/eval does.
+        const terminalMask = (gameState.phase as Record<string, unknown>).action_mask as boolean[];
+        const obs = encodeObservation(gameState, { fogOfWar: urlParams.fogOfWar });
         sendWS(ws, {
           type: "game_over",
           step,
           victory: router.isVictory(),
           gameState,
           reward,
+          obsB64: obsToBase64(obs),
+          mask: terminalMask,
           wave: (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0,
         });
         updateIndicator(

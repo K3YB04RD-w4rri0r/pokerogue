@@ -107,7 +107,7 @@
     },
     "phase_onehot[mystery": {
       "status": "structurally-constant",
-      "reason": "Mystery Encounters are REMOVED from the env by decision: the CLI forces MYSTERY_ENCOUNTER_RATE_OVERRIDE=0 at boot (standalone-setup.ts); the mystery phase one-hot can never fire"
+      "reason": "Mystery Encounters are PERMANENTLY disabled: applyOverrideValues (apply-overrides.ts) forces MYSTERY_ENCOUNTER_RATE_OVERRIDE=0 and refuses BATTLE_TYPE_OVERRIDE=MYSTERY_ENCOUNTER on every transport, so no override can re-enable them; the mystery phase one-hot can never fire"
     },
     "phase_onehot[": {
       "status": "unexercised",
