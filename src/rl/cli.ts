@@ -293,7 +293,7 @@ async function runEpisode(
 
   // Parity-dump dependencies (only loaded when --dump-obs is active)
   let dumpDeps: {
-    buildGameState: (s: PhaseState | null, step: number) => Record<string, unknown>;
+    buildGameState: (s: PhaseState | null, step: number, perspective?: "player" | "enemy") => Record<string, unknown>;
     encodeObservation: (gs: Record<string, unknown>, opts?: { fogOfWar?: boolean }) => Float32Array;
   } | null = null;
   if (dumper) {
@@ -362,7 +362,11 @@ async function runEpisode(
 
       // Parity dump: record the exact encoder input/output for this decision
       if (dumper && dumpDeps) {
-        const gameState = dumpDeps.buildGameState(state, stats.totalSteps);
+        const gameState = dumpDeps.buildGameState(
+          state,
+          stats.totalSteps,
+          state.phase === DecisionPhase.ENEMY_COMMAND ? "enemy" : "player",
+        );
         const obs = dumpDeps.encodeObservation(gameState, { fogOfWar: options.fogOfWar });
         dumper.write({
           v: 1,
@@ -598,7 +602,7 @@ async function runInteractiveEpisode(
       const actions = options.lean ? state.validActions.map(i => ({ index: i, label: "" })) : buildActionLabels(state);
       prof.labels += now() - tLabels;
       const tBuild = now();
-      const gameState = buildGameState(state, step);
+      const gameState = buildGameState(state, step, state.phase === DecisionPhase.ENEMY_COMMAND ? "enemy" : "player");
       prof.buildState += now() - tBuild;
       tracker.noteDecisionState(gameState);
       const tEncode = now();

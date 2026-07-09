@@ -1910,13 +1910,28 @@ function buildShopState(): Record<string, unknown> | null {
  * @param step - Decision step counter
  * @returns GameState dict matching state_schema.py
  */
-export function buildGameState(phaseState: PhaseState | null, step: number): Record<string, unknown> {
+export function buildGameState(
+  phaseState: PhaseState | null,
+  step: number,
+  perspective: "player" | "enemy" = "player",
+): Record<string, unknown> {
   // ── Gather parties ──
   // IMPORTANT: Do NOT .filter() on getPlayerField/getEnemyField — it shifts indices.
-  const playerField = safe(() => globalScene.getPlayerField() ?? [], []);
-  const enemyField = safe(() => globalScene.getEnemyField() ?? [], []);
-  const playerParty = safe(() => globalScene.getPlayerParty() ?? [], []);
-  const enemyParty = safe(() => globalScene.getEnemyParty?.() ?? [], []);
+  // Perspective swap (self-play / enemy-AI mode): the encoder and every consumer
+  // are keyed by slot ("player_*" = SELF, "enemy_*" = OPPONENT), and the per-mon
+  // `isPlayer` flag means "self side" (fully-known), not the literal game side.
+  // So an enemy-perspective observation is produced by filling the SELF slots
+  // from the enemy team and the OPPONENT slots from the player team — no encoder
+  // change, parity automatic. Field hazards are swapped to match below.
+  const isEnemyView = perspective === "enemy";
+  const rawPlayerField = safe(() => globalScene.getPlayerField() ?? [], []);
+  const rawEnemyField = safe(() => globalScene.getEnemyField() ?? [], []);
+  const rawPlayerParty = safe(() => globalScene.getPlayerParty() ?? [], []);
+  const rawEnemyParty = safe(() => globalScene.getEnemyParty?.() ?? [], []);
+  const playerField = isEnemyView ? rawEnemyField : rawPlayerField;
+  const enemyField = isEnemyView ? rawPlayerField : rawEnemyField;
+  const playerParty = isEnemyView ? rawEnemyParty : rawPlayerParty;
+  const enemyParty = isEnemyView ? rawPlayerParty : rawEnemyParty;
 
   // ── Build active field pokemon IDs for bench exclusion ──
   const playerFieldIds = new Set<number>();
@@ -1972,6 +1987,29 @@ export function buildGameState(phaseState: PhaseState | null, step: number): Rec
   const enemy4 = buildPokemonState(enemyBench[benchBase + 2] ?? null, false, 4);
   const enemy5 = buildPokemonState(enemyBench[benchBase + 3] ?? null, false, 5);
 
+  const field = buildFieldState();
+  const battle = buildBattleState();
+  if (isEnemyView) {
+    // Swap the remaining paired per-side signals so "player_*"/"self" reflects
+    // the enemy. The Pokémon slots + slot-keyed held-items already swapped via
+    // the getter swap above; shop/learn-move are null during a battle decision.
+    // (Deferred, low battle-tactics impact: the player-only run meta — money,
+    // pokeballs, run/reward flags, party/lapsing modifiers — is not swapped.)
+    const swap = (o: Record<string, unknown>, a: string, b: string): void => {
+      if (a in o && b in o) {
+        const t = o[a];
+        o[a] = o[b];
+        o[b] = t;
+      }
+    };
+    swap(field, "player_spikes_layers", "enemy_spikes_layers");
+    swap(field, "player_toxic_spikes_layers", "enemy_toxic_spikes_layers");
+    swap(field, "player_stealth_rock", "enemy_stealth_rock");
+    swap(field, "player_sticky_web", "enemy_sticky_web");
+    swap(battle, "player_alive_count", "enemy_alive_count");
+    swap(battle, "player_faints_battle", "enemy_faints_battle");
+  }
+
   return {
     // Pokemon slots
     player_0: player0,
@@ -1988,10 +2026,10 @@ export function buildGameState(phaseState: PhaseState | null, step: number): Rec
     enemy_5: enemy5,
 
     // Field state
-    field: buildFieldState(),
+    field,
 
     // Battle / run state
-    battle: buildBattleState(),
+    battle,
 
     // Modifier inventory
     modifiers: buildModifierInventory(),
