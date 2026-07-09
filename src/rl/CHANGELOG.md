@@ -1409,3 +1409,25 @@ remain the researcher's call — only the env-robustness livelock was fixed.
 Verify: `scripts/rl-verify.sh full` green (obs unchanged — the guard only
 affects the action mask, which both transports read from the same serialized
 field; determinism/parity/corpus/mask-gating/soak all hold).
+
+### Follow-up: phase-agnostic no-progress backstop (`pokerogue_env.py`)
+
+The shop guard above is a POINT fix — it only covers the `modifier` phase. It
+does not prove "no livelock in any state": a no-op self-loop in some other phase
+would still be bounded only by the step cap (`waves*50`, i.e. thousands of steps
+on a deep run). Added a general last-resort floor in the gym env: track the
+observations seen this episode; if `NO_PROGRESS_LIMIT` (40) consecutive
+decisions produce NO new observation — the game is cycling among already-seen
+states, in ANY phase and at any period — truncate gracefully (reap + respawn on
+the next reset, like the step-timeout path; `info["livelock_truncation"]`
+surfaces it). Legitimate play never trips it (HP, turn counters, stat stages,
+PP, and wave keep producing new states); verified a normal episode is untouched
+at the default limit while a lowered limit fires on the shop cycle.
+
+Layered defense now: (1) the TS shop guard auto-proceeds the common shop case
+early (both transports), (2) this Python backstop truncates any other revisiting
+no-op cycle in headless training/eval, (3) the step cap bounds everything.
+Honest remaining gaps: the backstop is headless-only (the rendered watch path
+relies on the step cap — it is not a training path), and it catches cycles that
+REVISIT observations (a hypothetical loop emitting a new obs every step is not a
+no-op and would hit the step cap). Not touched: reward or policy — env only.

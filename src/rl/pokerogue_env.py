@@ -62,6 +62,16 @@ SETUP_PHASES = {"title", "select_gender", "starter"}
 
 PROTOCOL_VERSION = 5  # v9 observation: 69 curated tags, 60-dim moves, 6991 dims
 
+# Phase-agnostic no-progress backstop. A no-op self-loop (in ANY decision phase)
+# revisits already-seen observations without producing new ones; the step cap
+# only bounds it after waves*50 steps, which is thousands on a deep run. If the
+# game yields NO new observation for this many consecutive decisions it is
+# livelocked — truncate gracefully. Set high enough that legitimate play (which
+# keeps producing new states: HP, turn counters, stat stages, PP, wave all move)
+# never trips it, and above the TS-side shop guard so that guard resolves the
+# common case first. This is a last-resort floor, not the primary mechanism.
+NO_PROGRESS_LIMIT = 40
+
 
 class ProtocolError(RuntimeError):
     """The CLI subprocess violated the expected protocol."""
@@ -167,6 +177,10 @@ class PokeRogueEnv(gym.Env):
         # own features).
         self.last_info: dict = {}
         self._last_wave = 0
+        # No-progress livelock backstop (see NO_PROGRESS_LIMIT): observations
+        # seen this episode, and consecutive decisions that produced no new one.
+        self._seen_obs: set[int] = set()
+        self._no_progress = 0
 
         if not self._cli_path.exists():
             raise FileNotFoundError(
@@ -240,6 +254,8 @@ class PokeRogueEnv(gym.Env):
         self._needs_reset = False
         self._invalid_action_count = 0
         self._last_warning = None
+        self._seen_obs = set()
+        self._no_progress = 0
         obs = self._obs_from(msg)
         self.last_info = self._info_from(msg)
         return obs, self.last_info
@@ -283,8 +299,31 @@ class PokeRogueEnv(gym.Env):
 
         if mtype != "state":
             raise ProtocolError(f"unexpected message type {mtype!r}")
+        obs = self._obs_from(msg)
+
+        # Phase-agnostic no-progress backstop: a no-op self-loop (in ANY phase)
+        # revisits already-seen observations without producing new ones. If that
+        # persists for NO_PROGRESS_LIMIT consecutive decisions the episode is
+        # livelocked — truncate gracefully rather than burn to the step cap.
+        obs_key = hash(obs.tobytes())
+        if obs_key in self._seen_obs:
+            self._no_progress += 1
+        else:
+            self._seen_obs.add(obs_key)
+            self._no_progress = 0
+        if self._no_progress >= NO_PROGRESS_LIMIT:
+            # Mid-episode truncation: the CLI is still waiting for an action (no
+            # `done` was sent), so reap + respawn on the next reset — exactly
+            # like the step-timeout path — rather than desync the reset protocol.
+            self._reap()
+            self._needs_reset = True
+            info = self._info_from(msg)
+            info["livelock_truncation"] = self._no_progress
+            self.last_info = info
+            return obs, reward, False, True, info
+
         self.last_info = self._info_from(msg)
-        return self._obs_from(msg), reward, False, False, self.last_info
+        return obs, reward, False, False, self.last_info
 
     def action_masks(self) -> np.ndarray:
         """Valid-action mask for the current state (sb3-contrib MaskablePPO hook)."""
