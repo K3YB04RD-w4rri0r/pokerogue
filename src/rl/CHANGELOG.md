@@ -1425,9 +1425,10 @@ PP, and wave keep producing new states); verified a normal episode is untouched
 at the default limit while a lowered limit fires on the shop cycle.
 
 Layered defense now: (1) the TS shop guard auto-proceeds the common shop case
-early (both transports), (2) this Python backstop truncates any other revisiting
-no-op cycle in headless training/eval, (3) the step cap bounds everything.
-Honest remaining gaps: the backstop is headless-only (the rendered watch path
-relies on the step cap — it is not a training path), and it catches cycles that
-REVISIT observations (a hypothetical loop emitting a new obs every step is not a
-no-op and would hit the step cap). Not touched: reward or policy — env only.
+early (both transports), (2) this backstop truncates any other revisiting no-op
+cycle, (3) the step cap bounds everything. The backstop is mirrored on BOTH
+transports: `pokerogue_env.py` for headless training/eval, and `browser-bridge.ts`
+(same NO_PROGRESS_LIMIT, via the existing `capPayload` truncation) for the
+rendered watch path. Honest remaining gap: it catches cycles that REVISIT
+observations (a hypothetical loop emitting a new obs every step is not a no-op
+and would hit the step cap). Not touched: reward or policy — env only.

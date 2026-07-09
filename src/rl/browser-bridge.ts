@@ -732,6 +732,15 @@ async function startBridge(): Promise<void> {
   // Set when the episode ends by a cap — the final done message then carries
   // the true final observation/reward (mirrors the headless CLI).
   let capPayload: Record<string, unknown> | null = null;
+  // Phase-agnostic no-progress livelock backstop, mirroring the gym env's
+  // NO_PROGRESS_LIMIT (pokerogue_env.py) so the RENDERED transport is covered
+  // too (headless training/eval goes through the Python env). If the game
+  // produces no new observation for this many consecutive decisions — a no-op
+  // cycle the TS shop guard didn't resolve — truncate instead of watching it
+  // spin to the step cap.
+  const NO_PROGRESS_LIMIT = 40;
+  const seenObs = new Set<string>();
+  let noProgress = 0;
   // Evolutions: run the logic, skip the cinematic entirely
   installInstantEvolution();
   // Compress remaining cinematics (form change, egg hatch) — logic intact
@@ -864,6 +873,29 @@ async function startBridge(): Promise<void> {
       // (the Python tools may keep encoding locally — the two encoders are
       // bitwise parity-verified, so either source is valid).
       const obs = encodeObservation(gameState, { fogOfWar: urlParams.fogOfWar });
+      const obsB64 = obsToBase64(obs);
+
+      // No-progress backstop: a no-op self-loop (any phase) revisits already-seen
+      // observations. If no new one appears for NO_PROGRESS_LIMIT consecutive
+      // decisions, truncate gracefully via the existing cap path.
+      if (seenObs.has(obsB64)) {
+        noProgress++;
+      } else {
+        seenObs.add(obsB64);
+        noProgress = 0;
+      }
+      if (noProgress >= NO_PROGRESS_LIMIT) {
+        capPayload = {
+          reason: "livelock",
+          livelockTruncation: noProgress,
+          reward,
+          obsB64,
+          mask: state.actionMask,
+          wave,
+          gameState,
+        };
+        break;
+      }
 
       // REAL wave cap (+ N*50 step backstop), matching the headless CLI: end
       // as truncated at a genuine decision state so the final observation is
