@@ -71,6 +71,15 @@ export interface StateSnapshot {
   playerHpRatios: number[];
   /** HP ratios of enemy party [0-1] indexed by position */
   enemyHpRatios: number[];
+  /** Pokemon ids parallel to playerHpRatios — HP deltas match by id, not
+   *  slot (switches reorder slots and fabricated deltas [RD3]); optional so
+   *  hand-built test snapshots keep index semantics. */
+  playerIds?: number[];
+  /** Pokemon ids parallel to enemyHpRatios (see playerIds). */
+  enemyIds?: number[];
+  /** Remaining free-reward picks at snapshot time; -1 = shop not open.
+   *  Gates the modifier bonus on the pick actually APPLYING [RD10]. */
+  rewardsLeft?: number;
   /** Total enemy faints so far */
   enemyFaints: number;
   /** Total player faints so far */
@@ -88,6 +97,39 @@ export interface StateSnapshot {
 }
 
 // ─── Reward Calculator ────────────────────────────────────────────────
+
+/** Sum of positive per-mon HP-ratio drops from pre to post, id-matched when
+ *  both sides provide ids (falls back to index alignment otherwise). */
+function positiveHpDelta(preRatios: number[], postRatios: number[], preIds?: number[], postIds?: number[]): number {
+  let sum = 0;
+  const canMatchById = preIds && postIds && preIds.length === preRatios.length && postIds.length === postRatios.length;
+  if (canMatchById) {
+    const preById = new Map<number, number>();
+    for (let i = 0; i < preIds.length; i++) {
+      if (preIds[i] !== -1) {
+        preById.set(preIds[i], preRatios[i]);
+      }
+    }
+    for (let i = 0; i < postIds.length; i++) {
+      const preRatio = preById.get(postIds[i]);
+      if (preRatio !== undefined) {
+        const delta = preRatio - postRatios[i];
+        if (delta > 0) {
+          sum += delta;
+        }
+      }
+    }
+    return sum;
+  }
+  const n = Math.min(preRatios.length, postRatios.length);
+  for (let i = 0; i < n; i++) {
+    const delta = preRatios[i] - postRatios[i];
+    if (delta > 0) {
+      sum += delta;
+    }
+  }
+  return sum;
+}
 
 export class RewardCalculator {
   private config: RewardConfig;
@@ -138,6 +180,12 @@ export class RewardCalculator {
         const max = p.getMaxHp();
         return max > 0 ? p.hp / max : 0;
       }),
+      // Pokemon ids parallel to the ratio arrays: HP deltas are matched by id,
+      // not slot — switches physically reorder party slots (SwitchSummonPhase
+      // swaps party[slot] and party[fieldIndex]), and slot-indexed diffs
+      // fabricated damage-dealt/taken reward on every unequal-HP switch [RD3].
+      playerIds: playerParty.map(p => p.id ?? -1),
+      enemyIds: enemyParty.map(p => p.id ?? -1),
       enemyFaints,
       playerFaints,
       waveIndex,
@@ -184,23 +232,15 @@ export class RewardCalculator {
     const sameWave = postSnap.waveIndex === pre.waveIndex;
 
     if (sameWave) {
-      // HP damage dealt to enemies
-      const minEnemyLen = Math.min(pre.enemyHpRatios.length, postSnap.enemyHpRatios.length);
-      for (let i = 0; i < minEnemyLen; i++) {
-        const delta = pre.enemyHpRatios[i] - postSnap.enemyHpRatios[i];
-        if (delta > 0) {
-          reward += this.config.hpDamageDealt * delta;
-        }
-      }
-
-      // HP damage taken by player
-      const minPlayerLen = Math.min(pre.playerHpRatios.length, postSnap.playerHpRatios.length);
-      for (let i = 0; i < minPlayerLen; i++) {
-        const delta = pre.playerHpRatios[i] - postSnap.playerHpRatios[i];
-        if (delta > 0) {
-          reward += this.config.hpDamageTaken * delta;
-        }
-      }
+      // HP deltas matched BY POKEMON ID when both snapshots carry ids (live
+      // path); index-matched otherwise (hand-built test snapshots). Slot
+      // matching fabricated deltas whenever a switch reordered the party [RD3].
+      reward +=
+        this.config.hpDamageDealt
+        * positiveHpDelta(pre.enemyHpRatios, postSnap.enemyHpRatios, pre.enemyIds, postSnap.enemyIds);
+      reward +=
+        this.config.hpDamageTaken
+        * positiveHpDelta(pre.playerHpRatios, postSnap.playerHpRatios, pre.playerIds, postSnap.playerIds);
     }
 
     // Enemy KOs
@@ -221,8 +261,13 @@ export class RewardCalculator {
       reward += this.config.playerKo * playerKoDelta;
     }
 
-    // [RB4] Wave cleared — reward per wave advanced, not just once
-    if (postSnap.waveIndex > pre.waveIndex) {
+    // [RB4] Wave cleared — reward per wave advanced, not just once.
+    // GATED ON NOT-FLED [RD1]: a successful RUN also advances waveIndex
+    // (AttemptRunPhase pushes NewBattlePhase), and paying waveCleared (+10)
+    // against ranAway (-2) made flee-spam a risk-free +7.99/wave exploit —
+    // a trained agent's most discoverable local optimum. Fleeing PAST a wave
+    // is not clearing it.
+    if (!fled && postSnap.waveIndex > pre.waveIndex) {
       const wavesAdvanced = postSnap.waveIndex - pre.waveIndex;
       // Boss wave check on the wave that was CLEARED, not the one arrived at.
       // postSnap.waveIndex is the new wave; the boss lives AT waves %10==0, so
@@ -263,9 +308,26 @@ export class RewardCalculator {
       reward += this.config.pokemonCaught * newCatches;
     }
 
-    // Modifier selection
+    // Modifier selection — paid only when the pick APPLIED [RD10]: a pick
+    // that enters the two-step target flow and gets CANCELLED leaves the
+    // reward inventory and money untouched, and paying on selection made
+    // pick-cancel loops farm +modifierSelected per bounce (reproduced
+    // empirically with a first-legal policy). Applied means: a free pick was
+    // consumed, money was spent (shop buy), or the shop closed with the pick
+    // (targetless picks that end the phase). Snapshots without rewardsLeft
+    // (hand-built tests) keep the old semantics.
     if (modifierTier >= 0) {
-      reward += this.config.modifierSelected + this.config.modifierTierBonus * modifierTier;
+      const preRewards = pre.rewardsLeft;
+      const postRewards = postSnap.rewardsLeft;
+      const applied =
+        preRewards === undefined
+        || postRewards === undefined
+        || postRewards === -1
+        || (postRewards >= 0 && preRewards > postRewards)
+        || postSnap.money < pre.money;
+      if (applied) {
+        reward += this.config.modifierSelected + this.config.modifierTierBonus * modifierTier;
+      }
     }
 
     // Shaped reward: stat boosts gained by player

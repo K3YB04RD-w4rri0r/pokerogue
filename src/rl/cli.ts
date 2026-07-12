@@ -279,6 +279,10 @@ async function readAction(reader: LineReader): Promise<number> {
   }
 }
 
+/** The episode's live reward tracker — the router's GameOverPhase hook
+ *  snapshots the true final state through this before the scene resets. */
+let currentTracker: { noteTerminalSnapshot(): void } | null = null;
+
 // ─── Game State Helpers ─────────────────────────────────────────────
 
 // Action labels are built by the shared #rl/action-labels module (also used
@@ -546,6 +550,7 @@ async function runInteractiveEpisode(
   // episode-runtime module (also used by the rendered browser bridge) so both
   // transports report identical rewards for the same trajectory.
   const tracker = new EpisodeRewardTracker(options.rewardConfig ?? undefined);
+  currentTracker = tracker; // router's onGameOver hook targets this episode
 
   // Set when the episode ends by a cap (wave or step backstop): the final
   // done message then carries the true final observation/reward so the
@@ -851,6 +856,7 @@ async function main(): Promise<void> {
       verbose: options.verbose,
       ...(starterSpecies !== undefined ? { starterSpecies } : {}),
       enemyControlled: options.enemyControlled,
+      onGameOver: () => currentTracker?.noteTerminalSnapshot(),
     });
 
     episodeLoop: for (;;) {
@@ -918,6 +924,7 @@ async function main(): Promise<void> {
         verbose: options.verbose,
         ...(starterSpecies !== undefined ? { starterSpecies } : {}),
         enemyControlled: options.enemyControlled,
+        onGameOver: () => currentTracker?.noteTerminalSnapshot(),
       });
       initMs = Date.now() - resetStart;
 

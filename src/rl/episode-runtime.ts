@@ -116,11 +116,20 @@ export class EpisodeRewardTracker {
   private lastFled = false;
   private lastTier = -1;
   /**
-   * Pre-action snapshot of the final step, kept for the terminal reward: at
-   * game over the live scene is already post-reset (cleared party, starting
-   * money), so snapshotting it would inject spurious deltas.
+   * Pre-action snapshot of the final step — the terminal FALLBACK: at game
+   * over the live scene is already post-reset (cleared party, starting
+   * money), so snapshotting it then would inject spurious deltas.
    */
   private lastSnapshot: StateSnapshot | null = null;
+  /**
+   * True final-state snapshot, captured by the router's GameOverPhase.start
+   * hook BEFORE the scene resets. Without it the terminal transition's
+   * shaping was identically zero (pre === post), so the killing blow that
+   * won a run earned no damage/KO/wave shaping and the losing hit was never
+   * charged — and terminal semantics diverged from wave-cap truncation
+   * semantics [MDP-1].
+   */
+  private terminalSnapshot: StateSnapshot | null = null;
   /** Last decision-point gameState — reused as the terminal state's base. */
   private lastGameState: Record<string, unknown> | null = null;
 
@@ -132,7 +141,7 @@ export class EpisodeRewardTracker {
     const scene = globalScene;
     const playerParty = scene?.getPlayerParty?.() ?? [];
     const enemyParty = scene?.getEnemyParty?.() ?? [];
-    return this.calc.snapshot(
+    const snap = this.calc.snapshot(
       playerParty,
       enemyParty,
       scene?.currentBattle?.enemyFaints ?? 0,
@@ -144,6 +153,10 @@ export class EpisodeRewardTracker {
       scene?.currentBattle?.waveIndex ?? 0,
       scene?.money ?? 0,
     );
+    // Remaining free-reward picks (-1 = shop closed): gates the modifier
+    // bonus on picks that actually apply [RD10].
+    snap.rewardsLeft = getAvailableModifiers()?.rewards.length ?? -1;
+    return snap;
   }
 
   /**
@@ -152,8 +165,15 @@ export class EpisodeRewardTracker {
    * all deltas zero, only terminal/fled/tier components apply.
    */
   rewardOnArrival(step: number, terminal: boolean, victory: boolean): number {
-    const postSnap = terminal && this.lastSnapshot ? this.lastSnapshot : this.takeSnapshot();
+    const postSnap = terminal
+      ? (this.terminalSnapshot ?? this.lastSnapshot ?? this.takeSnapshot())
+      : this.takeSnapshot();
     return step > 0 ? this.calc.computeReward(postSnap, terminal, victory, this.lastFled, this.lastTier) : 0;
+  }
+
+  /** Capture the true final state — call from a pre-reset game-over hook. */
+  noteTerminalSnapshot(): void {
+    this.terminalSnapshot = this.takeSnapshot();
   }
 
   /** Remember the gameState sent for this decision (terminal base). */

@@ -40,6 +40,7 @@ import { getMoveTargets } from "#moves/move-utils";
 import type { CommandPhase } from "#phases/command-phase";
 import { EncounterPhase } from "#phases/encounter-phase";
 import { EnemyCommandPhase } from "#phases/enemy-command-phase";
+import { GameOverPhase } from "#phases/game-over-phase";
 import { SelectStarterPhase } from "#phases/select-starter-phase";
 import type { SelectTargetPhase } from "#phases/select-target-phase";
 import {
@@ -369,6 +370,10 @@ export function getLegalBallTypes(): boolean[] {
 }
 
 export function createPhaseRouter(options?: {
+  /** Fired ONCE at GameOverPhase.start, BEFORE handleGameOver resets the
+   *  scene — the only moment the true final party/money state is observable
+   *  (the reward tracker snapshots it here [MDP-1]). */
+  onGameOver?: () => void;
   verbose?: boolean;
   starterSpecies?: SpeciesId[];
   /** Self-play / enemy-AI mode: intercept EnemyCommandPhase and surface the
@@ -646,6 +651,23 @@ export function createPhaseRouter(options?: {
   const installedEnemyStart = function (this: EnemyCommandPhase): void {
     hookedEnemyCommandStart.call(this);
   };
+  // GameOverPhase.start runs BEFORE handleGameOver -> globalScene.reset():
+  // the only pre-reset moment to observe the final state. Fire the callback
+  // once, then always defer to the original start.
+  const originalGameOverStart = GameOverPhase.prototype.start;
+  let gameOverNotified = false;
+  const installedGameOverStart = function (this: GameOverPhase): void {
+    if (!gameOverNotified && !destroyed) {
+      gameOverNotified = true;
+      try {
+        options?.onGameOver?.();
+      } catch (e) {
+        console.error("[PhaseRouter] onGameOver callback error:", e);
+      }
+    }
+    originalGameOverStart.call(this);
+  };
+  GameOverPhase.prototype.start = installedGameOverStart;
   UI.prototype.setMode = installedSetMode;
   Phase.prototype.end = installedPhaseEnd;
   if (enemyControlled) {
@@ -3110,6 +3132,9 @@ export function createPhaseRouter(options?: {
       }
       if (enemyControlled && EnemyCommandPhase.prototype.start === installedEnemyStart) {
         EnemyCommandPhase.prototype.start = originalEnemyCommandStart;
+      }
+      if (GameOverPhase.prototype.start === installedGameOverStart) {
+        GameOverPhase.prototype.start = originalGameOverStart;
       }
       pendingEnemyPhase = null;
 

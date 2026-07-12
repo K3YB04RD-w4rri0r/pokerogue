@@ -32,6 +32,7 @@
 
 import { EVOLVE_MOVE } from "#app/constants";
 import { globalScene } from "#app/global-scene";
+import Overrides, { defaultOverrides } from "#app/overrides";
 import { Button } from "#enums/buttons";
 import { LearnMoveSituation } from "#enums/learn-move-situation";
 import { PlayerGender } from "#enums/player-gender";
@@ -204,6 +205,9 @@ async function waitForGameReady(indicator: HTMLDivElement): Promise<void> {
 
   updateIndicator(indicator, "Game ready. Auto-starting...", "rgba(0,80,0,0.8)");
 }
+
+/** The session's reward tracker — targeted by the router's game-over hook. */
+let bridgeTracker: { noteTerminalSnapshot(): void } | null = null;
 
 // ── WebSocket Helpers ─────────────────────────────────────────────────
 
@@ -648,7 +652,15 @@ async function startBridge(): Promise<void> {
   if (urlParams.overrides) {
     console.log("[RL Bridge] Applying overrides:", urlParams.overrides);
   }
-  await applyOverrideValues(urlParams.overrides ?? {});
+  await applyOverrideValues(urlParams.overrides ?? {}, {
+    default: Overrides as unknown as Record<string, unknown>,
+    defaultOverrides: defaultOverrides as unknown as Record<string, unknown>,
+  });
+  console.log(
+    "[RL Bridge] Override readback (game instance):",
+    (Overrides as unknown as Record<string, unknown>).ENEMY_SPECIES_OVERRIDE,
+    (Overrides as unknown as Record<string, unknown>).XP_MULTIPLIER_OVERRIDE,
+  );
 
   // Step 2: Create PhaseRouter ASAP — must be before TitlePhase fires
   // so the setMode hook catches it. TitlePhase waits indefinitely for input,
@@ -656,6 +668,7 @@ async function startBridge(): Promise<void> {
   const router: PhaseRouter = createPhaseRouter({
     verbose: true,
     ...(urlParams.starters !== undefined ? { starterSpecies: urlParams.starters } : {}),
+    onGameOver: () => bridgeTracker?.noteTerminalSnapshot(),
   });
 
   // Debug handle for bug hunting (browser devtools / automated probes):
@@ -742,6 +755,7 @@ async function startBridge(): Promise<void> {
   // Reward bookkeeping shared with the headless CLI (episode-runtime.ts) so a
   // rendered episode reports the same rewards headless training would.
   const tracker = new EpisodeRewardTracker(urlParams.rewardConfig ?? undefined);
+  bridgeTracker = tracker;
   // Set when the episode ends by a cap — the final done message then carries
   // the true final observation/reward (mirrors the headless CLI).
   let capPayload: Record<string, unknown> | null = null;
