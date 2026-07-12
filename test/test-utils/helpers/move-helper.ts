@@ -1,4 +1,6 @@
 import Overrides from "#app/overrides";
+import { expectValue, standaloneExpect } from "#app/rl/mocks/assert";
+import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
 import { allMoves } from "#data/data-lists";
 import { BattlerIndex } from "#enums/battler-index";
 import { Command } from "#enums/command";
@@ -14,8 +16,6 @@ import type { MoveEffectPhase } from "#phases/move-effect-phase";
 import { GameManagerHelper } from "#test/test-utils/helpers/game-manager-helper";
 import { coerceArray } from "#utils/array";
 import { toTitleCase } from "#utils/strings";
-import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
-import { standaloneExpect, expectValue } from "#app/rl/mocks/assert";
 
 /**
  * Helper to handle using a Pokemon's moves.

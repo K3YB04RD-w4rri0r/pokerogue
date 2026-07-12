@@ -108,12 +108,16 @@ async function installJsdomGlobals(): Promise<void> {
     Blob: win.Blob,
     requestAnimationFrame:
       typeof win.requestAnimationFrame === "function"
-        ? (win.requestAnimationFrame as Function).bind(win)
-        : (cb: Function) => setTimeout(cb, 16),
+        ? (win.requestAnimationFrame as (cb: FrameRequestCallback) => number).bind(win)
+        : (cb: () => void) => setTimeout(cb, 16),
     cancelAnimationFrame:
-      typeof win.cancelAnimationFrame === "function" ? (win.cancelAnimationFrame as Function).bind(win) : clearTimeout,
+      typeof win.cancelAnimationFrame === "function"
+        ? (win.cancelAnimationFrame as (handle: number) => void).bind(win)
+        : clearTimeout,
     getComputedStyle:
-      typeof win.getComputedStyle === "function" ? (win.getComputedStyle as Function).bind(win) : () => ({}),
+      typeof win.getComputedStyle === "function"
+        ? (win.getComputedStyle as (el: Element) => CSSStyleDeclaration).bind(win)
+        : () => ({}),
     matchMedia: () => ({
       matches: false,
       addListener: () => {},
@@ -259,7 +263,7 @@ async function installJsdomGlobals(): Promise<void> {
   };
 
   // Override getContext on the jsdom HTMLCanvasElement prototype
-  const htmlCanvas = win.HTMLCanvasElement as { prototype: { getContext: Function } };
+  const htmlCanvas = win.HTMLCanvasElement as { prototype: { getContext: (type: string) => unknown } };
   htmlCanvas.prototype.getContext = function (type: string) {
     if (type === "2d") {
       return { ...mockContext, canvas: this };
@@ -544,10 +548,10 @@ async function createScene(
     // retained-heap growth). The baseline is captured at the FIRST reset —
     // by then every scene-lifetime child provably exists; the one episode of
     // debris it includes is a harmless constant.
-    if (!displayBaseline) {
-      captureDisplayBaseline(scene);
-    } else {
+    if (displayBaseline) {
       purgeEphemeralDisplayChildren(scene);
+    } else {
+      captureDisplayBaseline(scene);
     }
     await purgeHandlerEphemera(scene);
     sweepDestroyedDisplayChildren(scene);

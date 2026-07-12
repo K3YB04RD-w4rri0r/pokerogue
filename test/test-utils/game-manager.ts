@@ -3,6 +3,8 @@ import { BattleScene } from "#app/battle-scene";
 import { getGameMode } from "#app/game-mode";
 import { globalScene } from "#app/global-scene";
 import overrides from "#app/overrides";
+import { expectValue, standaloneExpect } from "#app/rl/mocks/assert";
+import { mockFn, spyOn, waitUntil } from "#app/rl/mocks/spy";
 import { modifierTypes } from "#data/data-lists";
 import { BattlerIndex } from "#enums/battler-index";
 import { Button } from "#enums/buttons";
@@ -49,8 +51,6 @@ import type { TargetSelectUiHandler } from "#ui/target-select-ui-handler";
 import fs from "node:fs";
 import { AES, enc } from "crypto-js";
 import type { NonEmptyTuple } from "type-fest";
-import { mockFn, spyOn, waitUntil } from "#app/rl/mocks/spy";
-import { expectValue, standaloneExpect } from "#app/rl/mocks/assert";
 
 /**
  * Class to manage the game state and transitions between phases.

@@ -2,6 +2,7 @@ import { OVERRIDES_COLOR } from "#app/constants/colors";
 import { TerrainType } from "#app/data/terrain";
 import type { BattleStyle, RandomTrainerOverride } from "#app/overrides";
 import Overrides from "#app/overrides";
+import { spyOn } from "#app/rl/mocks/spy";
 import { AbilityId } from "#enums/ability-id";
 import { BattleType } from "#enums/battle-type";
 import { BiomeId } from "#enums/biome-id";
@@ -26,7 +27,6 @@ import { getEnumStr, stringifyEnumArray } from "#test/test-utils/string-utils";
 import { coerceArray } from "#utils/array";
 import { shiftCharCodes } from "#utils/common";
 import chalk from "chalk";
-import { spyOn } from "#app/rl/mocks/spy";
 
 /**
  * Helper to handle overrides in tests

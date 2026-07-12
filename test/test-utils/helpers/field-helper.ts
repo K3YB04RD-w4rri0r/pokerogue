@@ -1,4 +1,6 @@
 import type { globalScene } from "#app/global-scene";
+import { expectValue } from "#app/rl/mocks/assert";
+import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
 import { allAbilities } from "#data/data-lists";
 import type { AbilityId } from "#enums/ability-id";
 import type { BattlerIndex } from "#enums/battler-index";
@@ -7,8 +9,6 @@ import { Stat } from "#enums/stat";
 import type { EnemyPokemon, PlayerPokemon, Pokemon } from "#field/pokemon";
 import { GameManagerHelper } from "#test/test-utils/helpers/game-manager-helper";
 import type { MoveHelper } from "#test/test-utils/helpers/move-helper";
-import { type MockInstance, spyOn } from "#app/rl/mocks/spy";
-import { expectValue } from "#app/rl/mocks/assert";
 
 /** Helper to manage pokemon */
 export class FieldHelper extends GameManagerHelper {

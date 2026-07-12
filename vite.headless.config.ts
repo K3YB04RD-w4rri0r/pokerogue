@@ -20,9 +20,9 @@
  * - Produces source maps for debugging
  */
 
+import path from "node:path";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
-import path from "node:path";
 
 /**
  * Custom Vite plugin to handle GLSL shader imports (.frag, .vert, .glsl).
@@ -34,7 +34,7 @@ import path from "node:path";
 function glslShaderPlugin() {
   return {
     name: "headless-glsl-shader",
-    transform(code: string, id: string) {
+    transform(_code: string, id: string) {
       const shaderExtensions = [".frag", ".vert", ".glsl"];
       const cleanId = id.split("?")[0]; // Strip ?raw query
       if (shaderExtensions.some(ext => cleanId.endsWith(ext))) {
@@ -206,22 +206,30 @@ export default defineConfig({
       // External dependencies: do not bundle these
       external: (id: string) => {
         // Exact matches (bare specifiers like "phaser", "jsdom", etc.)
-        if (EXTERNAL_DEPS.includes(id)) return true;
+        if (EXTERNAL_DEPS.includes(id)) {
+          return true;
+        }
 
         // Prefix matches (e.g., "phaser/src/..." or "jsdom/lib/...")
         for (const dep of EXTERNAL_DEPS) {
-          if (id.startsWith(dep + "/")) return true;
+          if (id.startsWith(dep + "/")) {
+            return true;
+          }
         }
 
         // Node.js built-in modules (handles bare "fs" and "node:fs" patterns)
-        if (id.startsWith("node:")) return true;
+        if (id.startsWith("node:")) {
+          return true;
+        }
 
         // Resolved absolute paths into node_modules should also be external.
         // Vite may resolve some imports to absolute paths before calling this function.
         if (id.includes("/node_modules/")) {
           // Check if the resolved path is for one of our external deps
           for (const dep of EXTERNAL_DEPS) {
-            if (id.includes(`/node_modules/${dep}/`)) return true;
+            if (id.includes(`/node_modules/${dep}/`)) {
+              return true;
+            }
           }
         }
 
@@ -233,9 +241,13 @@ export default defineConfig({
       // (the game codebase has many circular imports that work fine at runtime)
       onwarn(warning, defaultHandler) {
         // Suppress circular dependency warnings (game codebase has many)
-        if (warning.code === "CIRCULAR_DEPENDENCY") return;
+        if (warning.code === "CIRCULAR_DEPENDENCY") {
+          return;
+        }
         // Suppress "Module level directives cause errors when bundled"
-        if (warning.code === "MODULE_LEVEL_DIRECTIVE") return;
+        if (warning.code === "MODULE_LEVEL_DIRECTIVE") {
+          return;
+        }
         defaultHandler(warning);
       },
     },

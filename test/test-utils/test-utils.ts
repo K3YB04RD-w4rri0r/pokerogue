@@ -1,7 +1,7 @@
-import { Pokemon } from "#field/pokemon";
-import { GameManager } from "#test/test-utils/game-manager";
-import i18next, { type ParseKeys } from "i18next";
 import { spyOn } from "#app/rl/mocks/spy";
+import { Pokemon } from "#field/pokemon";
+import type { GameManager } from "#test/test-utils/game-manager";
+import i18next, { type ParseKeys } from "i18next";
 
 /**
  * Sets up the i18next mock.
