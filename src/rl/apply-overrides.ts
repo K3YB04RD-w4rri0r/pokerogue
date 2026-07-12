@@ -26,10 +26,20 @@ import { BattleType } from "#enums/battle-type";
  * Values persist for the lifetime of the module graph (headless in-process
  * resets keep them; the browser keeps them until a reload).
  */
-export async function applyOverrideValues(overrides: Record<string, unknown>): Promise<void> {
-  const overridesModule = await import("#app/overrides");
+export async function applyOverrideValues(
+  overrides: Record<string, unknown>,
+  /** The overrides module AS SEEN BY THE CALLER's import graph. Under the
+   *  Vite dev server a dynamic import here can resolve a DIFFERENT module
+   *  instance than the one game code reads (observed in rendered mode:
+   *  overrides "applied" on one instance, game reading pristine defaults
+   *  from another — the reason the committed MYSTERY_ENCOUNTER_RATE_OVERRIDE
+   *  belt-and-suspenders exists). Callers inside the game graph (the browser
+   *  bridge) MUST pass their statically-imported module. */
+  targetModule?: { default?: Record<string, unknown>; defaultOverrides: Record<string, unknown> },
+): Promise<void> {
+  const overridesModule = targetModule ?? (await import("#app/overrides"));
   const { defaultOverrides } = overridesModule;
-  const target = (overridesModule as any).default ?? overridesModule;
+  const target = ((overridesModule as any).default ?? overridesModule) as Record<string, unknown>;
 
   const install = (key: string, value: unknown): void => {
     Object.defineProperty(target, key, {
