@@ -38,7 +38,7 @@ import { PlayerGender } from "#enums/player-gender";
 import { UiMode } from "#enums/ui-mode";
 import { EvolutionPhase } from "#phases/evolution-phase";
 import { buildActionLabels } from "#rl/action-labels";
-import { applyOverrideValues } from "#rl/apply-overrides";
+import { applyOverrideValues, deriveTrainerIds } from "#rl/apply-overrides";
 import { buildTerminalGameState, EpisodeRewardTracker, resolveExecutedAction, SETUP_PHASES } from "#rl/episode-runtime";
 import type { PhaseRouter, PhaseState } from "#rl/phase-router";
 import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
@@ -614,6 +614,11 @@ function applySeed(seed: string): void {
     Phaser.Math.RND.sow([seed]);
     globalScene.setSeed(seed);
     globalScene.resetSeed();
+    // Mirror headless-boot: seed-derived trainerId/secretId so shiny rolls
+    // (and headless-vs-rendered equivalence) are deterministic per seed.
+    const ids = deriveTrainerIds(seed);
+    globalScene.gameData.trainerId = ids.trainerId;
+    globalScene.gameData.secretId = ids.secretId;
     console.log(`[RL Bridge] Seed applied: ${seed}`);
   } catch (err) {
     console.warn("[RL Bridge] Failed to apply seed:", err);

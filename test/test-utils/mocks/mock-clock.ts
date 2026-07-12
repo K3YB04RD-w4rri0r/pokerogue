@@ -4,9 +4,18 @@ const Clock = Phaser.Time.Clock;
 
 export class MockClock extends Clock {
   public overrideDelay: number | null = 1;
-  private readonly tickInterval: ReturnType<typeof setInterval>;
+  private readonly tickInterval: ReturnType<typeof setInterval> | null;
   constructor(scene) {
     super(scene);
+    // RL headless runs set __rlDeterministicClock and pump the clock
+    // explicitly at decision boundaries (phase-router.drainMockTimers): a
+    // REAL 1ms interval makes timer-driven transitions race the decision
+    // loop under machine load, breaking same-seed bitwise determinism.
+    // Vitest keeps the interval (tests await real time).
+    if ((globalThis as { __rlDeterministicClock?: boolean }).__rlDeterministicClock) {
+      this.tickInterval = null;
+      return;
+    }
     this.tickInterval = setInterval(() => {
       /*
         To simulate frame update
@@ -26,7 +35,9 @@ export class MockClock extends Clock {
    * drift (observed: -22% steps/s and +170MB over 42 in-process episodes).
    */
   destroy(): void {
-    clearInterval(this.tickInterval);
+    if (this.tickInterval !== null) {
+      clearInterval(this.tickInterval);
+    }
   }
 
   addEvent(config: Phaser.Time.TimerEvent | Phaser.Types.Time.TimerEventConfig): Phaser.Time.TimerEvent {

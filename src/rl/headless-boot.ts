@@ -524,6 +524,9 @@ async function createScene(
   // Clear localStorage between sessions (same as GameManager constructor)
   localStorage.clear();
 
+  // Deterministic clock mode: MockClock skips its real 1ms interval; the
+  // phase-router pumps timers at decision boundaries instead (drainMockTimers).
+  (globalThis as { __rlDeterministicClock?: boolean }).__rlDeterministicClock = true;
   // Create GameWrapper (applies prototype stubs: MoveAnim, Pokemon, BattleScene)
   const gameWrapper = new GameWrapper(game, bypassLogin);
 
@@ -626,6 +629,13 @@ async function createScene(
     Phaser.Math.RND.sow([config.seed]);
     scene.setSeed(config.seed);
     scene.resetSeed();
+    // GameData's trainerId/secretId come from Math.random and gate every
+    // shiny roll (and thus luck -> shop tiers) — derive them from the seed
+    // so same-seed episodes are bitwise-reproducible (see deriveTrainerIds).
+    const { deriveTrainerIds } = await import("#rl/apply-overrides");
+    const ids = deriveTrainerIds(config.seed);
+    scene.gameData.trainerId = ids.trainerId;
+    scene.gameData.secretId = ids.secretId;
   }
 
   return scene;

@@ -58,3 +58,30 @@ export async function applyOverrideValues(overrides: Record<string, unknown>): P
   // (rate 0 ⇒ isWaveMysteryEncounter always returns false, battle-scene.ts:3559).
   install("MYSTERY_ENCOUNTER_RATE_OVERRIDE", 0);
 }
+
+/**
+ * Derive deterministic 16-bit trainerId/secretId from the episode seed.
+ *
+ * `new GameData()` (constructed on every scene.reset(clearData) and on every
+ * fresh browser session) draws both ids from Math.random. They XOR into `E`
+ * of the shiny formula (`(E ^ F) < threshold`, pokemon.ts) — so with unseeded
+ * ids, the shiny verdict of every generated mon is nondeterministic across
+ * same-seed runs (~1/2048 per mon), a shiny consumes an extra seeded RNG draw
+ * (shifting the whole downstream stream), and party luck feeds shop tiers.
+ *
+ * FNV-1a over the seed string: no game-RNG stream consumption, identical in
+ * both transports, stable across processes.
+ */
+export function deriveTrainerIds(seed: string): { trainerId: number; secretId: number } {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const trainerId = h & 0xffff;
+  // Second round with a domain separator so the two ids are independent.
+  h ^= 0x5f;
+  h = Math.imul(h, 0x01000193) >>> 0;
+  const secretId = h & 0xffff;
+  return { trainerId, secretId };
+}

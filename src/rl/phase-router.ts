@@ -702,6 +702,9 @@ export function createPhaseRouter(options?: {
   // ── Decision Resolution ────────────────────────────────────────────
 
   function resolveDecisionPoint(decision: DecisionPhase, phaseName: string, uiMode: UiMode): void {
+    // Complete pending timer-driven transitions before snapshotting the
+    // decision (same reasoning as in detectCurrentDecision).
+    drainMockTimers();
     // If a modifier target is pending and the hook fires for SelectModifierPhase,
     // present MODIFIER_TARGET instead of SELECT_MODIFIER
     if (pendingModifierAction && decision === DecisionPhase.SELECT_MODIFIER) {
@@ -762,12 +765,6 @@ export function createPhaseRouter(options?: {
     // between identical runs, breaking determinism.
     if (decision === DecisionPhase.TITLE && titleActionExecuted) {
       return null;
-    }
-
-    // Leaving the shop resets the no-progress livelock tracker.
-    if (decision !== DecisionPhase.SELECT_MODIFIER && decision !== DecisionPhase.MODIFIER_TARGET) {
-      shopProgressSig = null;
-      shopStuckCount = 0;
     }
 
     const metadata: Record<string, unknown> = {
@@ -1246,11 +1243,18 @@ export function createPhaseRouter(options?: {
     // all three unchanged; if that persists for MODIFIER_LIVELOCK_LIMIT
     // consecutive modifier decisions, collapse the mask to "skip" so the agent
     // is forced out of the shop instead of re-selecting the no-op forever.
-    const sig = shopProgressSignature();
-    // The counter ticks in executeModifierAction (once per EXECUTED decision);
-    // building a mask must stay side-effect-free — the hook + poll + status
-    // probes can build the same decision several times, and build-time ticks
-    // made the collapse trip after a timing-dependent number of agent steps.
+    let hpSum = 0;
+    for (const p of globalScene.getPlayerParty?.() ?? []) {
+      hpSum += p?.hp ?? 0;
+    }
+    const sig = `${money}|${modifiers.rewards.length}|${hpSum}`;
+    // The counter ticks in executeModifierAction (once per EXECUTED decision,
+    // reading THIS build-time signature via metadata): mask building stays
+    // side-effect-free (hook + poll + status probes double-build the same
+    // decision), and the executor never re-samples getAvailableModifiers()
+    // mid-transition, which returned a different snapshot on loaded machines
+    // and made the collapse fire non-deterministically.
+    metadata.shopSig = sig;
     if (sig === shopProgressSig && shopStuckCount >= MODIFIER_LIVELOCK_LIMIT) {
       const skipOnly = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
       skipOnly[ACTION_SKIP] = true;
@@ -1495,6 +1499,15 @@ export function createPhaseRouter(options?: {
       return;
     }
     const stateAtEntry = currentPhaseState;
+    // Livelock tracker lifecycle is tied to EXECUTED decisions only: builds
+    // are timing-dependent (hook timeout, 50ms poll, status probes can build
+    // transient non-shop states between two delivered shop decisions), and a
+    // build-time reset made the collapse fire non-deterministically across
+    // same-seed runs. Acting outside the shop = the agent left it.
+    if (stateAtEntry.phase !== DecisionPhase.SELECT_MODIFIER && stateAtEntry.phase !== DecisionPhase.MODIFIER_TARGET) {
+      shopProgressSig = null;
+      shopStuckCount = 0;
+    }
 
     // Validate action against mask
     if (!currentPhaseState.actionMask[action]) {
@@ -2127,27 +2140,17 @@ export function createPhaseRouter(options?: {
     }
   }
 
-  /** Signature of everything a legitimate shop action moves: money (buy/
-   *  reroll), remaining reward picks, and party HP (a heal). */
-  function shopProgressSignature(): string {
-    let hpSum = 0;
-    for (const p of globalScene.getPlayerParty?.() ?? []) {
-      hpSum += p?.hp ?? 0;
-    }
-    const money = globalScene.money ?? 0;
-    const rewards = getAvailableModifiers()?.rewards.length ?? 0;
-    return `${money}|${rewards}|${hpSum}`;
-  }
-
   function executeModifierAction(action: number): void {
-    // Livelock accounting: one tick per executed modifier decision whose
-    // pre-action signature hasn't moved since the previous one.
-    const sigNow = shopProgressSignature();
-    if (sigNow === shopProgressSig) {
-      shopStuckCount++;
-    } else {
-      shopProgressSig = sigNow;
-      shopStuckCount = 0;
+    // Livelock accounting: one tick per executed modifier decision, using the
+    // signature captured when ITS mask was built (a coherent snapshot).
+    const sigNow = currentPhaseState?.metadata?.shopSig;
+    if (typeof sigNow === "string") {
+      if (sigNow === shopProgressSig) {
+        shopStuckCount++;
+      } else {
+        shopProgressSig = sigNow;
+        shopStuckCount = 0;
+      }
     }
     // Select reward (35-37)
     if (action >= ACTION_SELECT_REWARD_START && action < ACTION_SELECT_REWARD_START + MAX_REWARD_OPTIONS) {
@@ -2915,7 +2918,51 @@ export function createPhaseRouter(options?: {
    * Try to detect if we're currently at a decision point by inspecting
    * the current phase and UI mode.
    */
+
+  /**
+   * Deterministically drain due mock-clock timers (headless only).
+   *
+   * Headless time is a MockClock: a REAL 1ms setInterval drives
+   * preUpdate/update, so delayedCall-driven transitions (shop dismissal,
+   * reveal chains) complete on wall-clock cadence — under machine load the
+   * decision poll could catch a phase mid-transition in one run and
+   * post-transition in another, producing same-seed divergence (extra
+   * skip-only shop decisions; the in-process determinism gate flaked).
+   * Pumping a fixed number of virtual ticks at every decision boundary makes
+   * the observable state a pure function of the trajectory. The browser
+   * transport has a real Phaser clock without `overrideDelay` — no-op there.
+   */
+  let drainingTimers = false;
+  function drainMockTimers(rounds = 20): void {
+    if (drainingTimers) {
+      return;
+    }
+    const t = globalScene?.time as unknown as
+      | {
+          overrideDelay?: unknown;
+          preUpdate?: (time: number, delta: number) => void;
+          update?: (time: number, delta: number) => void;
+        }
+      | undefined;
+    if (!t || !("overrideDelay" in t) || typeof t.preUpdate !== "function" || typeof t.update !== "function") {
+      return;
+    }
+    const loopTime = (globalScene as unknown as { game?: { loop?: { time?: number } } }).game?.loop?.time ?? Date.now();
+    drainingTimers = true;
+    try {
+      for (let i = 0; i < rounds; i++) {
+        t.preUpdate(loopTime + i, 1);
+        t.update(loopTime + i, 1);
+      }
+    } catch {
+      // a throwing timer callback must not break the decision loop
+    } finally {
+      drainingTimers = false;
+    }
+  }
+
   function detectCurrentDecision(): PhaseState | null {
+    drainMockTimers();
     // If a modifier target selection is pending, present MODIFIER_TARGET instead
     // of re-detecting the underlying SelectModifierPhase as SELECT_MODIFIER
     if (pendingModifierAction) {
@@ -3005,6 +3052,9 @@ export function createPhaseRouter(options?: {
       await executeActionInternal(action);
       // Flush microtask queue to allow phase transitions
       await new Promise<void>(r => setTimeout(r, 0));
+      // Complete any timer-driven transition deterministically before the
+      // driver asks for the next decision (see drainMockTimers).
+      drainMockTimers();
     },
 
     async advanceToNextDecision(timeoutMs?: number): Promise<PhaseState> {

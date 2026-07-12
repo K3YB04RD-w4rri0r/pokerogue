@@ -25,7 +25,6 @@ import type { TurnMove } from "#types/turn-move";
 import {
   isBetween,
   NumberHolder,
-  randInt,
   randomString,
   randSeedFloat,
   randSeedInt,
@@ -576,7 +575,20 @@ export function getRandomTrainerFunc(
 
     let trainerGender = TrainerVariant.DEFAULT;
     if (randomGender) {
-      trainerGender = randInt(2) === 0 ? TrainerVariant.FEMALE : TrainerVariant.DEFAULT;
+      /* Seeded for the same reason as the grunt double roll below: the gender
+         variant reaches getTitle() -> trainer_name in the serialized game
+         state, so a Math.random draw diverges same-seed runs at every random-
+         gender trainer wave (grunt waves 35/62/64/112 in Classic). The
+         isolated offset (choice<<8 ^ 0x47) leaves the party-generation
+         stream untouched. */
+      let genderRoll = 1;
+      globalScene.executeWithSeedOffset(
+        () => {
+          genderRoll = randSeedInt(2);
+        },
+        (choice << 8) ^ 0x47,
+      );
+      trainerGender = genderRoll === 0 ? TrainerVariant.FEMALE : TrainerVariant.DEFAULT;
     }
 
     /* 1/3 chance for evil team grunts to be double battles */
