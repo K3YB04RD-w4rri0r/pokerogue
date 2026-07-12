@@ -38,6 +38,7 @@ import argparse
 import base64
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -58,27 +59,42 @@ def check(name: str, cond: bool, detail: str = "") -> None:
 
 
 def start_vite(port: int) -> subprocess.Popen:
+    # Invoke the vite binary directly (npx/npm-exec indirection can swallow or
+    # re-buffer the banner) and detect readiness by POLLING THE PORT, never by
+    # parsing stdout: the old "Local:" scan blocked forever on readline when
+    # the banner did not arrive, because its deadline only ticked between
+    # lines. Port readiness is format-proof.
+    vite_bin = REPO_ROOT / "node_modules" / ".bin" / "vite"
+    cmd = [str(vite_bin)] if vite_bin.exists() else ["npx", "vite"]
     proc = subprocess.Popen(
-        ["npx", "vite", "--config", "vite.interactive.config.ts", "--port", str(port), "--strictPort"],
+        [*cmd, "--config", "vite.interactive.config.ts", "--port", str(port), "--strictPort"],
         cwd=REPO_ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
+    # Drain output from the start so the pipe can never fill and block vite —
+    # but KEEP it: the WS relay logs to this stream, and it is the only
+    # evidence when a rendered session wedges.
+    vite_log = open(REPO_ROOT / ".rl-verify" / "vite-relay.log", "a", buffering=1)  # noqa: SIM115
+
+    def _drain() -> None:
+        for line in proc.stdout:
+            vite_log.write(line)
+
+    threading.Thread(target=_drain, daemon=True).start()
     deadline = time.time() + 90
     ready = False
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        if "Local:" in line:
-            ready = True
-            break
-        if time.time() > deadline or proc.poll() is not None:
-            break
+    while time.time() < deadline and proc.poll() is None:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                ready = True
+                break
+        except OSError:
+            time.sleep(0.5)
     if not ready:
         proc.terminate()
         sys.exit(f"vite dev server failed to start on :{port} (is the port free? is Node >= 20 on PATH?)")
-    # Drain further output so the pipe can't fill and block vite
-    threading.Thread(target=lambda: [None for _ in proc.stdout], daemon=True).start()
     print(f"vite dev server ready on :{port}", flush=True)
     return proc
 
@@ -151,6 +167,8 @@ def run_session(pw, port: int, query: str, policy, max_steps: int, tag: str, tim
     page = browser.new_page(viewport={"width": 640, "height": 400})
     errors: list[str] = []
     page.on("pageerror", lambda e: errors.append(str(e)))
+    console_log = open(REPO_ROOT / ".rl-verify" / f"browser-{tag}.log", "a", buffering=1)  # noqa: SIM115
+    page.on("console", lambda m: console_log.write(f"[{m.type}] {m.text}\n"))
     page.goto(f"http://localhost:{port}/?rl=true&delay=0&timeout={timeout_s}{query}")
     th = threading.Thread(target=drive, daemon=True)
     th.start()
@@ -178,7 +196,16 @@ def scenario_determinism(pw, port: int) -> None:
 
 def scenario_evolution(pw, port: int) -> None:
     print("evolution) Caterpie lv6 must evolve without a decision timeout", flush=True)
-    q = "&seed=verify-rendered-evo&starters=CATERPIE&override=STARTING_LEVEL_OVERRIDE%3D6"
+    # Force a harmless wave-1 opponent: the scenario's premise (lv6 Caterpie
+    # SURVIVES wave 1 and levels into Metapod) must not depend on the seed's
+    # wild-encounter rolls — the trainer-id determinism fix legitimately
+    # shifted trajectories and the old fixed seed now rolled a losing matchup.
+    q = (
+        "&seed=verify-rendered-evo&starters=CATERPIE&override=STARTING_LEVEL_OVERRIDE%3D6"
+        "&override=ENEMY_SPECIES_OVERRIDE%3D129&override=ENEMY_LEVEL_OVERRIDE%3D1"  # 129 = SpeciesId.MAGIKARP (raw enum value)
+        "&override=XP_MULTIPLIER_OVERRIDE%3D100"  # a lv-1 kill alone would never level Caterpie to 7
+        "&override=MOVESET_OVERRIDE%3D33"  # 33 = MoveId.TACKLE: pins slot 0 so first-legal = attack (starter moveset ORDER diverges headless-vs-rendered — see campaign report)
+    )
     trace, gs, errors = run_session(pw, port, q, FirstLegalPolicy(), 10, "C")
     timed_out = any(x[0] == "terminal" and x[1] == "error" for x in trace)
     party = [((gs.get(f"player_{i}") or {}).get("species_name") or "") for i in range(6)]
