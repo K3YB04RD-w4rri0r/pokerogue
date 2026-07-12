@@ -3,6 +3,19 @@
  *
  * These use the same `Object.defineProperty` mechanism as Vitest under the hood,
  * allowing the test harness to run without a Vitest dependency.
+ *
+ * Vitest interop contract (load-bearing — the shared test harness hands these
+ * spies to ordinary vitest tests):
+ * - Spies are stamped with `_isMockFunction`, `getMockName()` and a live `.mock`
+ *   object, which is exactly what `@vitest/expect`'s call matchers read, so
+ *   `expect(spy).toHaveBeenCalledWith(...)` works on shim spies.
+ * - Because of the stamp, a later `vi.spyOn(obj, prop)` on a shim-spied member
+ *   returns the shim spy itself (vitest early-returns recognized mocks) — so the
+ *   full `MockInstance` method surface used across the suite must exist here,
+ *   or tests die with "x is not a function" at runtime with no compile error.
+ * - Getter spies install the (stamped, recording) spy function itself as the
+ *   getter. Installing a raw closure instead would poison the property for the
+ *   whole worker when mixed with `vi.spyOn(obj, prop, "get")` + `restoreMocks`.
  */
 
 /** Tracked spy entry for restoration */
@@ -15,18 +28,45 @@ interface SpyEntry {
 /** Global registry of active spies for bulk restoration */
 const activeSpies: SpyEntry[] = [];
 
+/** One recorded call result, matching vitest's `MockResult` shape. */
+interface MockResult {
+  type: "return" | "throw";
+  value: any;
+}
+
+/** The vitest-compatible `.mock` metadata object. */
+export interface MockContext<T extends (...args: any[]) => any = (...args: any[]) => any> {
+  calls: Parameters<T>[];
+  results: MockResult[];
+  instances: any[];
+  invocationCallOrder: number[];
+  lastCall: Parameters<T> | undefined;
+  contexts: any[];
+  settledResults: any[];
+}
+
 /**
- * A mock function instance compatible with the subset of Vitest's `MockInstance` that the
- * test harness actually uses: `.mockReturnValue()`, `.mockReturnValueOnce()`,
- * `.mockImplementation()`, `.mockRestore()`, and `.calls`.
+ * A mock function instance compatible with the subset of Vitest's `MockInstance` the
+ * shared test harness (and any test re-acquiring a shim spy via `vi.spyOn`) uses.
  */
 export interface MockInstance<T extends (...args: any[]) => any = (...args: any[]) => any> {
   (...args: Parameters<T>): ReturnType<T>;
   mockReturnValue(val: ReturnType<T>): this;
   mockReturnValueOnce(val: ReturnType<T>): this;
+  mockReturnThis(): this;
+  mockResolvedValue(val: Awaited<ReturnType<T>>): this;
+  mockResolvedValueOnce(val: Awaited<ReturnType<T>>): this;
+  mockRejectedValue(err: unknown): this;
+  mockRejectedValueOnce(err: unknown): this;
   mockImplementation(fn: (...args: Parameters<T>) => ReturnType<T>): this;
+  mockImplementationOnce(fn: (...args: Parameters<T>) => ReturnType<T>): this;
+  mockClear(): this;
+  mockReset(): this;
   mockRestore(): void;
   calls: Parameters<T>[];
+  mock: MockContext<T>;
+  _isMockFunction: true;
+  getMockName(): string;
 }
 
 /** Global invocation counter for ordering spy calls */
@@ -43,7 +83,7 @@ function stampVitestCompat(fn: any, calls: any[][], mockName = "spy"): void {
   // The `.mock` object must reflect the same `calls` array
   fn.mock = {
     calls,
-    results: [] as any[],
+    results: [] as MockResult[],
     instances: [] as any[],
     invocationCallOrder: [] as number[],
     lastCall: undefined as any[] | undefined,
@@ -55,11 +95,107 @@ function stampVitestCompat(fn: any, calls: any[][], mockName = "spy"): void {
 /**
  * Record a call result in the Vitest-compatible `.mock` metadata.
  */
-function recordResult(fn: any, result: any, thisArg: any): void {
-  fn.mock.results.push({ type: "return", value: result });
+function recordResult(fn: any, result: MockResult, thisArg: any): void {
+  fn.mock.results.push(result);
   fn.mock.instances.push(thisArg);
+  fn.mock.contexts.push(thisArg);
   fn.mock.invocationCallOrder.push(++invocationCounter);
   fn.mock.lastCall = fn.mock.calls.at(-1);
+}
+
+/** Mutable behavior state shared by the call body and the mock* methods. */
+interface SpyState {
+  /** The implementation restored by mockReset() (the original fn/method). */
+  baseImpl: ((...args: any[]) => any) | undefined;
+  currentImpl: ((...args: any[]) => any) | undefined;
+  onceQueue: ((...args: any[]) => any)[];
+  calls: any[][];
+}
+
+/** The shared call body: consume once-queue, invoke impl, record result/throw. */
+function invokeSpy(spy: any, state: SpyState, thisArg: any, args: any[]): any {
+  state.calls.push(args);
+  const impl = state.onceQueue.length > 0 ? state.onceQueue.shift() : state.currentImpl;
+  let result: any;
+  try {
+    result = impl ? impl.apply(thisArg, args) : undefined;
+  } catch (err) {
+    recordResult(spy, { type: "throw", value: err }, thisArg);
+    throw err;
+  }
+  recordResult(spy, { type: "return", value: result }, thisArg);
+  return result;
+}
+
+/**
+ * Attach the full mock-method surface to a spy.
+ *
+ * @param onBehaviorChange - called whenever a mock* method changes behavior;
+ *   method spies use this to (re-)install themselves on the target object.
+ */
+function attachMockMethods(spy: any, state: SpyState, onBehaviorChange: () => void = () => {}): void {
+  spy.mockReturnValue = (val: any) => {
+    state.currentImpl = () => val;
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockReturnValueOnce = (val: any) => {
+    state.onceQueue.push(() => val);
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockReturnThis = () => {
+    state.currentImpl = function (this: any) {
+      return this;
+    };
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockResolvedValue = (val: any) => {
+    state.currentImpl = () => Promise.resolve(val);
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockResolvedValueOnce = (val: any) => {
+    state.onceQueue.push(() => Promise.resolve(val));
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockRejectedValue = (err: unknown) => {
+    state.currentImpl = () => Promise.reject(err);
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockRejectedValueOnce = (err: unknown) => {
+    state.onceQueue.push(() => Promise.reject(err));
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockImplementation = (fn: (...args: any[]) => any) => {
+    state.currentImpl = fn;
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockImplementationOnce = (fn: (...args: any[]) => any) => {
+    state.onceQueue.push(fn);
+    onBehaviorChange();
+    return spy;
+  };
+  spy.mockClear = () => {
+    state.calls.length = 0;
+    spy.mock.results.length = 0;
+    spy.mock.instances.length = 0;
+    spy.mock.contexts.length = 0;
+    spy.mock.invocationCallOrder.length = 0;
+    spy.mock.lastCall = undefined;
+    return spy;
+  };
+  spy.mockReset = () => {
+    spy.mockClear();
+    state.onceQueue.length = 0;
+    state.currentImpl = state.baseImpl;
+    return spy;
+  };
 }
 
 /**
@@ -67,48 +203,18 @@ function recordResult(fn: any, result: any, thisArg: any): void {
  * Replaces `vi.fn()` and `vi.fn(impl)`.
  */
 export function mockFn<T extends (...args: any[]) => any>(impl?: T): MockInstance<T> {
-  let currentImpl: ((...args: any[]) => any) | undefined = impl;
-  const onceQueue: any[] = [];
-  const calls: any[][] = [];
+  const state: SpyState = { baseImpl: impl, currentImpl: impl, onceQueue: [], calls: [] };
 
   const fn = function (this: any, ...args: any[]): any {
-    calls.push(args);
-    let result: any;
-    if (onceQueue.length > 0) {
-      result = onceQueue.shift();
-    } else if (currentImpl) {
-      result = currentImpl.apply(this, args);
-    }
-    recordResult(fn, result, this);
-    return result;
-  } as MockInstance<T>;
+    return invokeSpy(fn, state, this, args);
+  } as unknown as MockInstance<T>;
 
-  fn.calls = calls;
-  stampVitestCompat(fn, calls);
-
-  fn.mockReturnValue = (val: any) => {
-    currentImpl = () => val;
-    return fn;
-  };
-
-  fn.mockReturnValueOnce = (val: any) => {
-    onceQueue.push(val);
-    return fn;
-  };
-
-  fn.mockImplementation = (newImpl: (...args: any[]) => any) => {
-    currentImpl = newImpl;
-    return fn;
-  };
+  fn.calls = state.calls as Parameters<T>[];
+  stampVitestCompat(fn, state.calls);
+  attachMockMethods(fn, state);
 
   fn.mockRestore = () => {
-    currentImpl = impl;
-    onceQueue.length = 0;
-    calls.length = 0;
-    fn.mock.results.length = 0;
-    fn.mock.instances.length = 0;
-    fn.mock.invocationCallOrder.length = 0;
-    fn.mock.lastCall = undefined;
+    (fn as any).mockReset();
   };
 
   return fn;
@@ -134,40 +240,32 @@ export function spyOn<T extends object>(obj: T, prop: string & keyof T, accessTy
   return createMethodSpy(obj, prop);
 }
 
-/** Create a spy that intercepts a getter property */
+/**
+ * Create a spy that intercepts a getter property.
+ *
+ * The spy function ITSELF is installed as the getter (stamped + recording):
+ * reads land in `.mock.calls`, and a later `vi.spyOn(obj, prop, "get")` sees a
+ * recognized mock instead of capturing an anonymous closure as the "original"
+ * getter (which would survive restoration and poison the worker-global default).
+ */
 function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDescriptor | undefined): MockInstance {
-  const spy = mockFn();
+  const originalGet = originalDescriptor?.get ?? (() => originalDescriptor?.value);
+  const state: SpyState = { baseImpl: originalGet, currentImpl: originalGet, onceQueue: [], calls: [] };
 
-  spy.mockReturnValue = (val: any) => {
-    Object.defineProperty(obj, prop, {
-      get: () => val,
-      configurable: true,
-    });
-    return spy;
+  const spy = function (this: any, ...args: any[]): any {
+    return invokeSpy(spy, state, this, args);
+  } as MockInstance;
+
+  spy.calls = state.calls;
+  stampVitestCompat(spy, state.calls, prop);
+
+  const install = () => {
+    const current = Object.getOwnPropertyDescriptor(obj, prop);
+    if (current?.get !== spy) {
+      Object.defineProperty(obj, prop, { get: spy, configurable: true });
+    }
   };
-
-  spy.mockReturnValueOnce = (val: any) => {
-    const previousGetter =
-      Object.getOwnPropertyDescriptor(obj, prop)?.get ?? originalDescriptor?.get ?? (() => originalDescriptor?.value);
-
-    let consumed = false;
-    Object.defineProperty(obj, prop, {
-      get: () => {
-        if (!consumed) {
-          consumed = true;
-          // Restore previous getter after one read
-          Object.defineProperty(obj, prop, {
-            get: previousGetter,
-            configurable: true,
-          });
-          return val;
-        }
-        return previousGetter();
-      },
-      configurable: true,
-    });
-    return spy;
-  };
+  attachMockMethods(spy, state, install);
 
   spy.mockRestore = () => {
     if (originalDescriptor) {
@@ -175,6 +273,7 @@ function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDes
     } else {
       delete obj[prop];
     }
+    (spy as any).mockReset();
   };
 
   return spy;
@@ -183,62 +282,30 @@ function createGetterSpy(obj: any, prop: string, originalDescriptor: PropertyDes
 /** Create a spy that intercepts a method call */
 function createMethodSpy(obj: any, prop: string): MockInstance {
   const originalMethod = obj[prop];
-  let currentImpl: ((...args: any[]) => any) | undefined =
-    typeof originalMethod === "function" ? originalMethod : undefined;
-  const onceQueue: { type: "value" | "impl"; data: any }[] = [];
-  const calls: any[][] = [];
+  const baseImpl = typeof originalMethod === "function" ? originalMethod : undefined;
+  const state: SpyState = { baseImpl, currentImpl: baseImpl, onceQueue: [], calls: [] };
 
   const spy = function (this: any, ...args: any[]): any {
-    calls.push(args);
-    let result: any;
-    if (onceQueue.length > 0) {
-      const entry = onceQueue.shift()!;
-      if (entry.type === "impl") {
-        result = entry.data.apply(this, args);
-      } else {
-        result = entry.data;
-      }
-    } else if (currentImpl) {
-      result = currentImpl.apply(this, args);
-    }
-    recordResult(spy, result, this);
-    return result;
+    return invokeSpy(spy, state, this, args);
   } as MockInstance;
 
-  spy.calls = calls;
-  stampVitestCompat(spy, calls, prop);
+  spy.calls = state.calls;
+  stampVitestCompat(spy, state.calls, prop);
 
-  spy.mockReturnValue = (val: any) => {
-    currentImpl = () => val;
-    obj[prop] = spy;
-    return spy;
+  const install = () => {
+    if (obj[prop] !== spy) {
+      obj[prop] = spy;
+    }
   };
-
-  spy.mockReturnValueOnce = (val: any) => {
-    onceQueue.push({ type: "value", data: val });
-    obj[prop] = spy;
-    return spy;
-  };
-
-  spy.mockImplementation = (fn: (...args: any[]) => any) => {
-    currentImpl = fn;
-    obj[prop] = spy;
-    return spy;
-  };
+  attachMockMethods(spy, state, install);
 
   spy.mockRestore = () => {
     obj[prop] = originalMethod;
-    onceQueue.length = 0;
-    calls.length = 0;
-    spy.mock.results.length = 0;
-    spy.mock.instances.length = 0;
-    spy.mock.invocationCallOrder.length = 0;
-    spy.mock.lastCall = undefined;
-    currentImpl = typeof originalMethod === "function" ? originalMethod : undefined;
+    (spy as any).mockReset();
   };
 
   // Install the spy on the object
-  obj[prop] = spy;
+  install();
 
   return spy;
 }
