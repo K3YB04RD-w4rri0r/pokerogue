@@ -28,7 +28,30 @@ import argparse
 # Run-config support (src/rl/run_config.py): --config loads a YAML/JSON file
 # describing the run (seed, starters, overrides, ...); CLI flags override it.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+from rl.observation import ACTION_SPACE_SIZE, OBSERVATION_DIM  # noqa: E402
 from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
+
+def require_protocol(msg: dict, context: str) -> None:
+    """Strict `ready` handshake: version AND dims must match, None included.
+
+    A bundle/CLI that omits protocolVersion is precisely the stale pre-v5
+    build the guard exists for — accepting it with a warning lets a
+    mis-encoding session run to completion silently (mirrors
+    PokeRogueEnv._check_versions, which has always hard-failed).
+    """
+    proto = msg.get("protocolVersion")
+    if proto != PROTOCOL_VERSION:
+        raise SystemExit(
+            f"{context} speaks protocol {proto!r}, this client needs {PROTOCOL_VERSION} — "
+            "rebuild (pnpm rl:build) / hard-reload the browser tab (Ctrl+Shift+R) and rerun"
+        )
+    obs_dim, act_dim = msg.get("obsDim"), msg.get("actionDim")
+    if obs_dim != OBSERVATION_DIM or act_dim != ACTION_SPACE_SIZE:
+        raise SystemExit(
+            f"{context} reports obsDim={obs_dim} actionDim={act_dim}, "
+            f"this client needs {OBSERVATION_DIM}/{ACTION_SPACE_SIZE} — rebuild/reload and rerun"
+        )
+
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
 
 
@@ -130,10 +153,18 @@ def print_header(step: int, phase: str, game_state: dict):
     money = battle.get("money", 0)
 
     print()
-    print(f"{C.BOLD}{'\u2550' * 60}{C.RESET}")
-    print(f"{C.BOLD}  Wave {wave} \u2502 Turn {turn} \u2502 Step {step} \u2502 ${money}{C.RESET}")
+    print(f"{C.BOLD}{BAR}{C.RESET}")
+    print(f"{C.BOLD}  Wave {wave} {SEP} Turn {turn} {SEP} Step {step} {SEP} ${money}{C.RESET}")
     print(f"{C.BOLD}  Phase: {C.CYAN}{phase}{C.RESET}")
-    print(f"{C.BOLD}{'\u2550' * 60}{C.RESET}")
+    print(f"{C.BOLD}{BAR}{C.RESET}")
+
+
+# Box-drawing constants hoisted out of f-strings: backslash escapes inside
+# f-string expressions are a SyntaxError before Python 3.12 (PEP 701), and the
+# package claims support for >= 3.10.
+BAR = "\u2550" * 60
+SEP = "\u2502"
+SEP_J = " \u2502 "
 
 
 def _format_pokemon_line(p: dict, show_hp_abs: bool = False) -> str:
@@ -284,7 +315,7 @@ def _print_field_compact(game_state: dict):
         parts.append("Double")
 
     if parts:
-        print(f"\n  {C.DIM}Field: {' \u2502 '.join(parts)}{C.RESET}")
+        print(f"\n  {C.DIM}Field: {SEP_J.join(parts)}{C.RESET}")
 
 
 def _get_side_hazards(field: dict, side: str) -> str:
@@ -725,7 +756,7 @@ def print_moves_detail(game_state: dict):
 
             details.append(f"usable:{usable_str}")
             if details:
-                print(f"        {C.DIM}{' \u2502 '.join(details)}{C.RESET}")
+                print(f"        {C.DIM}{SEP_J.join(details)}{C.RESET}")
 
 
 def print_field_state(game_state: dict):
@@ -1408,7 +1439,7 @@ def prompt_action(valid_ids: set, game_state: dict = None, step: int = 0) -> int
 def run_headless(args):
     """Spawn the headless RL runner as a subprocess and play via stdio."""
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    cli_path = os.path.join(project_root, "dist", "rl", "cli.js")
+    cli_path = os.environ.get("POKEROGUE_RL_CLI") or os.path.join(project_root, "dist", "rl", "cli.js")
 
     if not os.path.exists(cli_path):
         print(f"{C.RED}Error: {cli_path} not found.{C.RESET}")
@@ -1430,7 +1461,10 @@ def run_headless(args):
         cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,  # game noise goes here
+        # Never PIPE stderr without draining it: the CLI routes all game
+        # console noise there and an unread pipe wedges node at 64KB
+        # (same rule as pokerogue_env._spawn and verify/common.spawn_cli).
+        stderr=subprocess.DEVNULL,
         text=True,
         bufsize=1,  # line-buffered
         cwd=project_root,
@@ -1456,6 +1490,7 @@ def run_headless(args):
             msg_type = msg.get("type")
 
             if msg_type == "ready":
+                require_protocol(msg, "headless CLI (dist/rl/cli.js)")
                 boot_time = msg.get("bootTime", "?")
                 print(f"  Booted in {boot_time}ms. Let's play!\n")
 
@@ -1571,12 +1606,7 @@ def run_rendered(args):
             msg_type = msg.get("type")
 
             if msg_type == "ready":
-                proto = msg.get("protocolVersion")
-                if proto is not None and proto != PROTOCOL_VERSION:
-                    raise SystemExit(
-                        f"browser bundle speaks protocol {proto}, this client needs {PROTOCOL_VERSION} — "
-                        "hard-reload the browser tab (Ctrl+Shift+R) and rerun"
-                    )
+                require_protocol(msg, "browser bundle")
                 if started:
                     print(f"\n  {C.RED}Browser session restarted (page reload?) — "
                           f"starting a FRESH episode.{C.RESET}\n")

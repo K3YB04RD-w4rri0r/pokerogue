@@ -49,6 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from rl.observation import (  # noqa: E402
     ACTION_SPACE_SIZE,
+    OBSERVATION_DIM,
     encode_observation,
     extract_action_mask,
     parse_game_state,
@@ -56,6 +57,28 @@ from rl.observation import (  # noqa: E402
 from rl.policy import Sb3Policy, make_builtin_policy  # noqa: E402
 from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
+
+def require_protocol(msg: dict, context: str) -> None:
+    """Strict `ready` handshake: version AND dims must match, None included.
+
+    A bundle/CLI that omits protocolVersion is precisely the stale pre-v5
+    build the guard exists for — accepting it with a warning lets a
+    mis-encoding session run to completion silently (mirrors
+    PokeRogueEnv._check_versions, which has always hard-failed).
+    """
+    proto = msg.get("protocolVersion")
+    if proto != PROTOCOL_VERSION:
+        raise SystemExit(
+            f"{context} speaks protocol {proto!r}, this client needs {PROTOCOL_VERSION} — "
+            "rebuild (pnpm rl:build) / hard-reload the browser tab (Ctrl+Shift+R) and rerun"
+        )
+    obs_dim, act_dim = msg.get("obsDim"), msg.get("actionDim")
+    if obs_dim != OBSERVATION_DIM or act_dim != ACTION_SPACE_SIZE:
+        raise SystemExit(
+            f"{context} reports obsDim={obs_dim} actionDim={act_dim}, "
+            f"this client needs {OBSERVATION_DIM}/{ACTION_SPACE_SIZE} — rebuild/reload and rerun"
+        )
+
 
 
 def make_policy(args, cfg: RunConfig):
@@ -102,15 +125,7 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
             if mtype == "ready":
                 # Protocol guard: a stale browser bundle (old tab, cached
                 # build) mis-encodes silently — reject it loudly instead.
-                proto = msg.get("protocolVersion")
-                if proto is not None and proto != PROTOCOL_VERSION:
-                    raise SystemExit(
-                        f"browser bundle speaks protocol {proto}, this client needs {PROTOCOL_VERSION} — "
-                        "hard-reload the browser tab (Ctrl+Shift+R) and rerun"
-                    )
-                if proto is None:
-                    print("warning: browser bridge sent no protocolVersion (pre-audit bundle?) — "
-                          "hard-reload the tab if observations look wrong")
+                require_protocol(msg, "browser bundle")
                 if started:
                     # A second `ready` mid-session means the PAGE RELOADED (vite
                     # hot-reload after a source edit, manual reload, second tab)
@@ -128,6 +143,11 @@ def run_rendered(args, policy, cfg: RunConfig) -> None:
                 # re-encode is the fallback for old bundles — full-info only.
                 if msg.get("obsB64"):
                     obs = np.frombuffer(base64.b64decode(msg["obsB64"]), dtype="<f4").copy()
+                    if obs.shape[0] != OBSERVATION_DIM:
+                        raise SystemExit(
+                            f"wire observation has {obs.shape[0]} dims, expected {OBSERVATION_DIM} — "
+                            "stale browser bundle? hard-reload the tab and rerun"
+                        )
                     mask = np.array(msg.get("mask") or [False] * ACTION_SPACE_SIZE, dtype=bool)
                 else:
                     state = parse_game_state(game_state)
