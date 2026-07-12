@@ -1191,7 +1191,9 @@ function buildPokemonState(
       is_boss: isBoss,
       boss_segments: isBoss ? ((pokemon as any).bossSegments ?? 0) : 0,
       boss_segment_index: isBoss ? ((pokemon as any).bossSegmentIndex ?? 0) : 0,
-      ai_type: (pokemon as any).aiType ?? 0,
+      // null = unknown controller (players / enemy-view opponents): both
+      // encoders map it to an all-zero one-hot instead of asserting RANDOM.
+      ai_type: (pokemon as any).aiType ?? null,
       is_fusion: !!pokemon.fusionSpecies,
       fusion_species_id: pokemon.fusionSpecies?.speciesId ?? null,
       is_on_field: safe(() => pokemon.isOnField(), false),
@@ -2008,6 +2010,24 @@ export function buildGameState(
     swap(field, "player_sticky_web", "enemy_sticky_web");
     swap(battle, "player_alive_count", "enemy_alive_count");
     swap(battle, "player_faints_battle", "enemy_faints_battle");
+    // Side-keyed structures must swap too: the encoders bank arena tags into
+    // player_/enemy_ blocks by `side` (1=PLAYER, 2=ENEMY) and split positional
+    // tags by target_index (0-1 player slots, 2-3 enemy slots). Without the
+    // remap, P2 saw the opponent's Reflect/Tailwind/Wish in its own banks.
+    const tags = (field as { arena_tags?: { side?: number }[] }).arena_tags ?? [];
+    for (const t of tags) {
+      if (t.side === 1) {
+        t.side = 2;
+      } else if (t.side === 2) {
+        t.side = 1;
+      }
+    }
+    const posTags = (field as { positional_tags?: { target_index?: number }[] }).positional_tags ?? [];
+    for (const pt of posTags) {
+      if (typeof pt.target_index === "number") {
+        pt.target_index = pt.target_index >= 2 ? pt.target_index - 2 : pt.target_index + 2;
+      }
+    }
   }
 
   return {

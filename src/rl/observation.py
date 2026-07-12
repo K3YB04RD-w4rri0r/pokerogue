@@ -15,7 +15,7 @@ Layout (6,991 float32):
   Phase block:              16
 
 Usage:
-    from observation import parse_game_state, encode_observation, extract_action_mask
+    from rl.observation import parse_game_state, encode_observation, extract_action_mask
 
     state = parse_game_state(raw_json)  # dict -> CleanGameState
     obs = encode_observation(state)      # -> np.ndarray(6991, float32)
@@ -2779,7 +2779,11 @@ def _encode_modifier_inventory(buf: np.ndarray, offset: int, state: CleanGameSta
     best_lapsing = None
     best_remaining = 0
     for mod in lapsing:
-        if mod.battles_remaining > best_remaining:
+        # Mirror spaces.ts exactly: the FIRST entry is selected even when
+        # battles_remaining <= 0 (an expiring modifier snapshotted between
+        # lapse and removal). Requiring > 0 here made the wire (TS) and this
+        # local re-encode diverge in that window.
+        if best_lapsing is None or mod.battles_remaining > best_remaining:
             best_lapsing = mod
             best_remaining = mod.battles_remaining
 
@@ -2930,15 +2934,15 @@ def encode_observation(state: CleanGameState, fog_of_war: bool = False) -> np.nd
         _encode_pokemon(buf, offset, poke, is_enemy=slot_key.startswith("enemy"), fog_of_war=fog_of_war)
         offset += POKEMON_BLOCK_DIM
 
-    # Field state (94)
+    # Field state (102)
     _encode_field(buf, offset, state.field)
     offset += FIELD_STATE_DIM
 
-    # Battle meta (31)
+    # Battle meta (40)
     _encode_battle(buf, offset, state.battle, state.phase)
     offset += BATTLE_META_DIM
 
-    # Modifier phase (225)
+    # Modifier phase (363)
     _encode_modifier(buf, offset, state.shop, state.battle.money)
     offset += MODIFIER_PHASE_DIM
 

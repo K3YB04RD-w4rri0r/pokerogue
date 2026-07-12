@@ -429,6 +429,9 @@ class TurnData(TypedDict):
     attacks_received: List[AttackReceived]  # All attacks received this turn
     order: int                  # Turn order index (lower = faster)
     hit_count: int              # Number of hits for current multi-hit move
+    hits_left: int              # Remaining hits in the current multi-hit move
+    move_effectiveness: Optional[float]  # Type effectiveness of the last move against this mon
+    single_hit_damage_dealt: int  # Damage dealt by the most recent single hit
     acted: bool                 # Whether the Pokemon has acted this turn
     switched_in_this_turn: bool # Whether switched in this turn (not initial summon)
     stat_stages_increased: bool # Whether any stat stages were raised
@@ -529,11 +532,15 @@ class PokemonState(TypedDict):
 
     # --- Boss ---
     is_boss: bool               # Whether this is a boss Pokemon
+    is_mega: bool               # Mega-evolved this battle
+    is_max: bool                # Dynamaxed this battle
+    was_seen: bool              # Fog-of-war: this enemy has been on-field (enemy slots)
+    move_known: List[bool]      # Fog-of-war: per-moveset-slot revealed flags
     boss_segments: int          # Total boss shield segments (0 if not boss)
     boss_segment_index: int     # Current shield segment index (0 if not boss)
 
     # --- AI (enemies only) ---
-    ai_type: int                # AiType enum: RANDOM=0, SMART_RANDOM=1, SMART=2
+    ai_type: Optional[int]      # AiType enum RANDOM=0/SMART_RANDOM=1/SMART=2; None = unknown (player-controlled or enemy-view opponent)
 
     # --- Fusion ---
     is_fusion: bool             # Whether this Pokemon is a fusion
@@ -771,6 +778,16 @@ class BattleState(TypedDict):
     # --- Run Metadata ---
     game_mode: int              # GameModes enum: CLASSIC=0, ENDLESS=1, etc.
     seed: str                   # Current RNG seed string
+    offset_gym: bool            # BattleScene.offsetGym (gym-leader wave offset)
+    is_classic: bool            # gameMode.isClassic — encoded battle-meta flag
+    is_endless: bool            # gameMode.isEndless — encoded battle-meta flag
+    is_daily: bool              # gameMode.isDaily — encoded battle-meta flag
+    is_challenge: bool          # gameMode.isChallenge — encoded battle-meta flag
+    has_mystery_encounters: bool  # gameMode flag — encoded battle-meta flag
+    has_short_biomes: bool      # gameMode flag — encoded battle-meta flag
+    has_random_biomes: bool     # gameMode flag — encoded battle-meta flag
+    has_random_bosses: bool     # gameMode flag — encoded battle-meta flag
+    inverse_battle: bool        # Inverse Battle challenge active — encoded flag
 
     # --- Trainer ---
     trainer: Optional[TrainerInfo]  # Trainer info if battle_type == TRAINER, else None
@@ -891,6 +908,8 @@ class RewardOption(TypedDict):
     # Item effect fields (for RL evaluation of rewards)
     type_id: Optional[int]      # PokemonType for type-boosting items (e.g. Silk Scarf → NORMAL)
     stat_id: Optional[int]      # Stat for stat-boosting items (e.g. Protein → ATK)
+    move_id: Optional[int]      # MoveId for TM items (None otherwise)
+    berry_type: Optional[int]   # BerryType enum value (None if not a berry)
     description: str            # Brief effect description for RL understanding
 
 
@@ -913,6 +932,8 @@ class ShopOption(TypedDict):
     # Item effect fields (for RL evaluation of shop items)
     type_id: Optional[int]      # PokemonType for type-boosting items
     stat_id: Optional[int]      # Stat for stat-boosting items
+    move_id: Optional[int]      # MoveId for TM items (None otherwise)
+    berry_type: Optional[int]   # BerryType enum value (None if not a berry)
     description: str            # Brief effect description for RL understanding
 
 
@@ -970,6 +991,7 @@ class PhaseInfo(TypedDict):
     learn_move_id: Optional[int]         # Move ID of the new move (learn_move phase)
     learn_move_name: Optional[str]       # Name of the move to learn (learn_move phase)
     learn_move_stats: Optional[MoveSlot] # Full stats of the new move (learn_move phase)
+    learn_move_party_index: int          # Which party member is learning (learn_move phase; -1 otherwise)
     learn_move_current: Optional[List[str]]  # Current moveset names (learn_move phase)
     biome_options: Optional[List[str]]   # Available biome names (select_biome phase)
     mystery_option_count: Optional[int]  # Number of ME options (mystery phase)

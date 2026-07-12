@@ -1,18 +1,19 @@
 """
-Feature name table for the 9,875-dim RL observation vector.
+Feature name table for the 6,991-dim RL observation vector (layout v9).
 
 Provides a human-readable name for every dimension written by
 ``encode_observation()`` in observation.py. The name list mirrors the EXACT
 write order of the encoders:
 
-  Pokemon blocks:     12 x 815 = 9,780   (_encode_pokemon / _encode_move)
-  Field state:        94                 (_encode_field)
+  Pokemon blocks:     12 x 513 = 6,156   (_encode_pokemon / _encode_move)
+  Field state:        102                (_encode_field)
   Battle meta:        40                 (_encode_battle)
-  Modifier phase:     225                (_encode_modifier)
+  Modifier phase:     363                (_encode_modifier)
   Modifier inventory: 220                (_encode_modifier_inventory)
   Derived fields:     28                 (_encode_derived_fields)
+  Learn-move block:   66                 (_encode_learn_move)
   Phase indicator:    16                 (_encode_phase)
-  Total:              9,875
+  Total:              6,991
 
 Usage:
     from rl.feature_names import FEATURE_NAMES, ONE_HOT_GROUPS

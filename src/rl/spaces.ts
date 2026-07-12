@@ -306,6 +306,11 @@ export const PHASE_INDICATOR_DIM = 16;
 /** Mapping from DecisionPhase string values to one-hot indices */
 export const PHASE_INDEX_MAP: Record<string, number> = {
   command: 0,
+  // Self-play: the enemy's decision is a COMMAND decision from its own
+  // perspective (same positional action space), so it shares index 0 —
+  // without this alias the 16-dim phase one-hot was all-zero on every
+  // enemy-perspective step, indistinguishable from "unknown".
+  enemy_command: 0,
   target: 1,
   modifier: 2,
   modifier_target: 3,
@@ -790,7 +795,7 @@ function encodePokemonFromDict(
   writeOneHot(buf, pos, NUM_POKEMON_TYPES, num(poke, "tera_type", -1));
   pos += NUM_POKEMON_TYPES;
 
-  // volatile_tags(39 curated) + other_tag_count(1)
+  // volatile_tags(69 curated) + other_tag_count(1)
   const volatileTags = arr(poke, "volatile_tags");
   const activeTagTypes = new Set<string>();
   for (const tag of volatileTags) {
@@ -1275,7 +1280,7 @@ function encodeModifierFromDict(
     }
   }
 
-  // ── Shop options (6 × 23 = 138 dims) ──
+  // ── Shop options (12 × 23 = 276 dims) ──
   // Encode the first 6 shop options in their NATURAL order — the same order
   // the BUY_SHOP actions (40-51) index. They used to be sorted by cost here,
   // which broke the framework's slot contract ("the observation describes

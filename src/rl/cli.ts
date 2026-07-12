@@ -811,6 +811,18 @@ async function main(): Promise<void> {
   }
 
   const bootTime = Date.now() - bootStart;
+
+  if (options.fogOfWar && options.enemyControlled) {
+    // seenEnemyPartyMemberIds only tracks ENEMY ids — there is no
+    // seenPlayerPartyMemberIds — so under the enemy perspective every
+    // opponent (real player) slot fails was_seen and fogs to zero,
+    // including the active on-field mon. Warn loudly until seen-tracking
+    // exists for the player side.
+    console.error(
+      "[cli] WARNING: --fog-of-war with --enemy-controlled produces fully-fogged "
+        + "opponent blocks on enemy-perspective steps (no player-side seen-tracking yet).",
+    );
+  }
   if (!options.interactive) {
     console.log(`[cli] Headless game initialized in ${bootTime}ms`);
   }

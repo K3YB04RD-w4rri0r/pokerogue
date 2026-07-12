@@ -6,7 +6,7 @@ class names, phase names) is mapped to a unique integer here. Numeric enums
 mirror the TypeScript source exactly.
 
 Usage:
-    from enums import PokemonType, lookup_battler_tag, DIMS
+    from rl.enums import PokemonType, lookup_battler_tag, DIMS
 """
 
 from __future__ import annotations
@@ -571,6 +571,9 @@ _PHASE_VALUES: List[str] = [
 ]
 
 PHASE_STR_TO_ID: Dict[str, int] = {v: i for i, v in enumerate(_PHASE_VALUES)}
+# Self-play alias (mirrors spaces.ts PHASE_INDEX_MAP): an enemy_command
+# decision is a command decision from the enemy's own perspective.
+PHASE_STR_TO_ID["enemy_command"] = PHASE_STR_TO_ID["command"]
 PHASE_ID_TO_STR: Dict[int, str] = {v: k for k, v in PHASE_STR_TO_ID.items()}
 NUM_PHASES = len(_PHASE_VALUES)  # 16
 
