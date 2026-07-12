@@ -72,12 +72,12 @@ function updateIndicator(el: HTMLDivElement, text: string, bg?: string): void {
 // ── URL Parameters ────────────────────────────────────────────────────
 
 interface UrlParams {
-  seed?: string;
+  seed?: string | undefined;
   /** Delay (ms) after executing an action, giving the browser time to animate.
    *  Default: 500. Set to 0 to disable. Use ?delay=1000 for slower animations. */
   renderDelay: number;
   /** Custom starting party from &starters=MEWTWO,LUGIA,... (default: daily-run starters) */
-  starters?: ReturnType<typeof parseStarterCsv>;
+  starters?: ReturnType<typeof parseStarterCsv> | undefined;
   /** Game overrides from repeated &override=KEY=VALUE params (same surface as
    *  the headless CLI's --override; VALUE is JSON if parseable, else a raw string). */
   overrides: Record<string, unknown> | null;
@@ -195,8 +195,8 @@ async function waitForGameReady(indicator: HTMLDivElement): Promise<void> {
   // By returning null, TitlePhase will show "New Game" instead of "Continue",
   // and our executeTitleAction() will start fresh at wave 1.
   globalScene.gameData.getSession = async (_slotId: number) => {
-    console.log("[RL Bridge] Intercepted getSession() — returning null (fresh start)");
-    return null;
+    console.log("[RL Bridge] Intercepted getSession() — returning undefined (fresh start)");
+    return;
   };
   console.log("[RL Bridge] getSession patched (no saved session will load)");
 
@@ -643,7 +643,10 @@ async function startBridge(): Promise<void> {
   // Step 2: Create PhaseRouter ASAP — must be before TitlePhase fires
   // so the setMode hook catches it. TitlePhase waits indefinitely for input,
   // so even if it fires before the hook, detectCurrentDecision() will find it.
-  const router: PhaseRouter = createPhaseRouter({ verbose: true, starterSpecies: urlParams.starters });
+  const router: PhaseRouter = createPhaseRouter({
+    verbose: true,
+    ...(urlParams.starters !== undefined ? { starterSpecies: urlParams.starters } : {}),
+  });
 
   // Debug handle for bug hunting (browser devtools / automated probes):
   // window.__rlDebug.state() -> current phase, UI mode, handler flags.

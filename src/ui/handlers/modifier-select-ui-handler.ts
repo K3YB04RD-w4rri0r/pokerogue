@@ -12,6 +12,7 @@ import { HealShopCostModifier, LockModifierTiersModifier, PokemonHeldItemModifie
 import type { ModifierTypeOption } from "#modifiers/modifier-type";
 import { getPlayerShopModifierTypeOptionsForWave, TmModifierType } from "#modifiers/modifier-type";
 import type { ModifierSelectCallback } from "#phases/select-modifier-phase";
+import type { AnyFn } from "#types/type-helpers";
 import { AwaitableUiHandler } from "#ui/awaitable-ui-handler";
 import { MoveInfoOverlay } from "#ui/move-info-overlay";
 import { addTextObject, getModifierTierTextTint, getTextColor, getTextStyleOptions } from "#ui/text";
@@ -439,7 +440,7 @@ export class ModifierSelectUiHandler extends AwaitableUiHandler {
     }
     this.awaitingActionInput = true;
     if (onActionInput) {
-      this.onActionInput = onActionInput as (typeof this)["onActionInput"];
+      this.onActionInput = onActionInput as AnyFn;
     }
   }
 

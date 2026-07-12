@@ -268,7 +268,7 @@ const AUTO_SKIP_PHASES = new Set<string>([
 export function parseStarterCsv(csv: string): SpeciesId[] {
   return csv
     .split(",")
-    .map(n => (SpeciesId as Record<string, number>)[n.trim().toUpperCase()])
+    .map(n => (SpeciesId as unknown as Record<string, number>)[n.trim().toUpperCase()])
     .filter((v): v is SpeciesId => typeof v === "number");
 }
 
@@ -1369,7 +1369,7 @@ export function createPhaseRouter(options?: {
     // OptionSelectUiHandler stores options in a protected `config` property
     const handler = globalScene.ui.getHandler() as unknown as { config?: { options?: { label?: string }[] } };
     const handlerOptions = handler?.config?.options;
-    if (handlerOptions?.length > 0) {
+    if (handlerOptions && handlerOptions.length > 0) {
       optionCount = Math.min(handlerOptions.length, 4);
       for (let i = 0; i < optionCount; i++) {
         biomeNames.push(handlerOptions[i]?.label ?? `Biome ${i}`);
@@ -2399,7 +2399,7 @@ export function createPhaseRouter(options?: {
     // with an explicit team, e.g. a full legendary lineup for a demo run.
     // generateStarters builds the party from these ids; undefined falls back to
     // the default daily-run starters.
-    if (verbose && starterSpecies?.length > 0) {
+    if (verbose && starterSpecies && starterSpecies.length > 0) {
       console.log(`[PhaseRouter] Using starter override: [${starterSpecies.join(", ")}]`);
     }
     // RE-SOW the seeded RNG from the user seed BEFORE generating the party.
@@ -2778,7 +2778,7 @@ export function createPhaseRouter(options?: {
     // The message handler shows text and waits for ACTION. Check both the
     // handler from getHandler() and the dedicated message handler.
     if (uiMode === UiMode.MESSAGE) {
-      const msgHandler = globalScene.ui.getMessageHandler() as {
+      const msgHandler = globalScene.ui.getMessageHandler() as unknown as {
         awaitingActionInput?: boolean;
         onActionInput?: (() => void) | null;
         processInput?(button: Button): boolean;

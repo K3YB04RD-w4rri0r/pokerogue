@@ -50,7 +50,10 @@ import type { IntClosedRange, TupleOf } from "type-fest";
  * ```
  */
 const overrides = {
-  MYSTERY_ENCOUNTER_RATE_OVERRIDE: 0,
+  // Typed wide so the module type matches DefaultOverrides — the RL branch
+  // commits this override, and a narrowed `number` breaks the vi.mock factory
+  // in test/setup/vitest.setup.ts under exactOptionalPropertyTypes.
+  MYSTERY_ENCOUNTER_RATE_OVERRIDE: 0 as number | null,
 } satisfies Partial<InstanceType<OverridesType>>;
 
 /**
