@@ -21,7 +21,9 @@ import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SRC_DIR = REPO_ROOT / "src"
-CLI_PATH = REPO_ROOT / "dist" / "rl" / "cli.js"
+# Overridable so the verify suite can target an out-of-tree build,
+# mirroring pokerogue_env._resolve_default_cli().
+CLI_PATH = Path(os.environ.get("POKEROGUE_RL_CLI", REPO_ROOT / "dist" / "rl" / "cli.js"))
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
@@ -227,3 +229,10 @@ def kill_proc(proc, stderr_fh=None) -> None:
             stderr_fh.close()
         except Exception:
             pass
+    # Close our ends of the pipes so respawn loops don't leak 2 fds/generation.
+    for pipe in (proc.stdin, proc.stdout):
+        if pipe is not None:
+            try:
+                pipe.close()
+            except Exception:
+                pass

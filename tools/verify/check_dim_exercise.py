@@ -56,7 +56,11 @@ try:
     from gen_coverage_corpus import SCENARIOS as _CORPUS_SCENARIOS
 
     KNOWN_SCENARIOS: set[str] | None = set(_CORPUS_SCENARIOS)
-except Exception:
+except ImportError as err:
+    # Only a missing module disables the dead-canary check, and never silently:
+    # this validation is the one failure the script promises to raise even
+    # without --gate, so a broken import must not turn the gate toothless.
+    print(f"warning: dead-canary validation disabled (cannot import scenarios: {err})", file=sys.stderr)
     KNOWN_SCENARIOS = None
 
 LEDGER_PATH = Path(__file__).resolve().parent / "coverage-manifests" / "dim-exercise-ledger.json"

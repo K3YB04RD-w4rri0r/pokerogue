@@ -152,6 +152,11 @@ def compare(a: list[dict], b: list[dict]) -> int:
             "chosenAction": (ra.get("chosenAction"), rb.get("chosenAction")),
             "obsB64": (ra["obsB64"], rb["obsB64"]),
             "stateHash": (canonical_state_hash(ra["gameState"]), canonical_state_hash(rb["gameState"])),
+            # Reward and mask are what training actually consumes; comparing
+            # them closes the gap where calculator/guard state could drift
+            # across in-process episodes while the chosen trajectory matches.
+            "reward": (ra.get("reward"), rb.get("reward")),
+            "actionMask": (ra.get("actionMask"), rb.get("actionMask")),
         }
         bad = {k: v for k, v in fields.items() if v[0] != v[1]}
         if bad:
