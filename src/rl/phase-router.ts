@@ -2320,7 +2320,8 @@ export function createPhaseRouter(options?: {
     // cannot re-detect the still-open SwitchPhase and burn extra decisions
     // while the party UI finishes opening).
     for (let retries = 20; retries > 0; retries--) {
-      await new Promise<void>(r => setTimeout(r, 50));
+      await new Promise<void>(r => setTimeout(r, pollIntervalMs()));
+      drainMockTimers();
       if (destroyed || tryCallback()) {
         return;
       }
@@ -2719,7 +2720,7 @@ export function createPhaseRouter(options?: {
             );
           }
         }
-      }, 50); // 50ms poll interval
+      }, pollIntervalMs()); // 2ms under the deterministic clock, 50ms rendered
 
       // Clean up the poll if resolved/rejected before it fires
       const originalResolve = resolve;
@@ -2933,7 +2934,7 @@ export function createPhaseRouter(options?: {
    * transport has a real Phaser clock without `overrideDelay` — no-op there.
    */
   let drainingTimers = false;
-  function drainMockTimers(rounds = 20): void {
+  function drainMockTimers(maxRounds = 500): void {
     if (drainingTimers) {
       return;
     }
@@ -2942,6 +2943,8 @@ export function createPhaseRouter(options?: {
           overrideDelay?: unknown;
           preUpdate?: (time: number, delta: number) => void;
           update?: (time: number, delta: number) => void;
+          _active?: unknown[];
+          _pendingInsertion?: unknown[];
         }
       | undefined;
     if (!t || !("overrideDelay" in t) || typeof t.preUpdate !== "function" || typeof t.update !== "function") {
@@ -2950,7 +2953,13 @@ export function createPhaseRouter(options?: {
     const loopTime = (globalScene as unknown as { game?: { loop?: { time?: number } } }).game?.loop?.time ?? Date.now();
     drainingTimers = true;
     try {
-      for (let i = 0; i < rounds; i++) {
+      // Drain until the timer queue is EMPTY, not a fixed round count —
+      // transition chains can nest arbitrarily deep, and empty-queue rounds
+      // exit immediately, so the cap is only a runaway backstop.
+      for (let i = 0; i < maxRounds; i++) {
+        if ((t._active?.length ?? 0) + (t._pendingInsertion?.length ?? 0) === 0) {
+          break;
+        }
         t.preUpdate(loopTime + i, 1);
         t.update(loopTime + i, 1);
       }
@@ -2959,6 +2968,15 @@ export function createPhaseRouter(options?: {
     } finally {
       drainingTimers = false;
     }
+  }
+
+  /** Poll cadence for waiting loops. Under the deterministic clock (no real
+   *  1ms interval) the poll tick is what advances timer-driven transitions —
+   *  a 50ms tick halved interactive throughput. Every iteration drains the
+   *  timer queue to empty, so a faster wall cadence cannot change outcomes,
+   *  only latency. */
+  function pollIntervalMs(): number {
+    return (globalThis as { __rlDeterministicClock?: boolean }).__rlDeterministicClock ? 2 : 50;
   }
 
   function detectCurrentDecision(): PhaseState | null {
