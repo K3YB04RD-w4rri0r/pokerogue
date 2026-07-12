@@ -207,8 +207,12 @@ async function waitForGameReady(indicator: HTMLDivElement): Promise<void> {
 // ── WebSocket Helpers ─────────────────────────────────────────────────
 
 function connectWS(): Promise<WebSocket> {
-  const port = window.location.port || "8080";
-  const wsUrl = `ws://localhost:${port}/ws/rl?role=browser`;
+  // The relay lives on the SAME http server that served this page, so derive
+  // the address from location: host includes the port iff non-default (a
+  // hardcoded localhost:<port> broke default-port, remote-host and https
+  // setups in three different ways).
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  const wsUrl = `${proto}://${window.location.host}/ws/rl?role=browser`;
   console.log("[RL Bridge] Connecting to", wsUrl);
 
   return new Promise<WebSocket>((resolve, reject) => {

@@ -165,6 +165,13 @@ function sendJson(obj: Record<string, unknown>): void {
   process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
+// A dead peer (Python killed mid-write) surfaces as an async EPIPE on stdout,
+// which try/catch around the loops cannot catch. Exiting is the correct
+// outcome (no orphan) — just do it cleanly instead of as an uncaught crash.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  process.exit(err?.code === "EPIPE" ? 0 : 1);
+});
+
 // ─── Observation Dump (--dump-obs) ──────────────────────────────────
 
 /** Append-only JSONL writer for the TS<->Python parity harness. */
@@ -240,17 +247,34 @@ class LineReader {
   }
 }
 
-/** Read an action from stdin via JSON. Returns -1 on EOF. */
+/** Stashed lifecycle command that arrived while an episode was running
+ *  (e.g. a gymnasium reset() mid-episode). The episode loop aborts and the
+ *  lifecycle loop consumes this INSTEAD of reading stdin — previously such a
+ *  line executed as action 0, silently desyncing the whole episode. */
+let pendingLifecycleLine: string | null = null;
+
+/** Read an action from stdin via JSON.
+ *  Returns -1 on EOF, -2 when a lifecycle command was stashed (abort episode).
+ *  Malformed / non-action lines get a warning and are skipped. */
 async function readAction(reader: LineReader): Promise<number> {
-  const line = await reader.next();
-  if (line === null) {
-    return -1; // EOF
-  }
-  try {
-    const msg = JSON.parse(line);
-    return typeof msg.action === "number" ? msg.action : 0;
-  } catch {
-    return 0;
+  for (;;) {
+    const line = await reader.next();
+    if (line === null) {
+      return -1; // EOF
+    }
+    try {
+      const msg = JSON.parse(line);
+      if (typeof msg.action === "number") {
+        return msg.action;
+      }
+      if (typeof msg.cmd === "string") {
+        pendingLifecycleLine = line;
+        return -2;
+      }
+      sendJson({ type: "warning", message: `Expected {"action": <int>}, got: ${line.slice(0, 120)}` });
+    } catch {
+      sendJson({ type: "warning", message: `Non-JSON line ignored while awaiting action: ${line.slice(0, 120)}` });
+    }
   }
 }
 
@@ -654,6 +678,13 @@ async function runInteractiveEpisode(
         sendJson({ type: "error", message: "stdin closed (EOF)" });
         break;
       }
+      // Lifecycle command mid-episode: abort cleanly. The trailing `done` is
+      // skipped by the client's _await_ready, and the lifecycle loop consumes
+      // the stashed command (reset/quit) instead of reading stdin.
+      if (action === -2) {
+        sendJson({ type: "done", reason: "lifecycle-command", step, wave });
+        break;
+      }
 
       // Validate: invalid actions fall back to the first valid action
       const { executed, wasValid: actionWasValid } = resolveExecutedAction(state, action);
@@ -828,9 +859,11 @@ async function main(): Promise<void> {
         dumper,
       );
 
-      // Await the next lifecycle command
+      // Await the next lifecycle command (a command stashed by readAction
+      // during the episode takes priority over reading stdin)
       for (;;) {
-        const line = await stdinReader!.next();
+        const line = pendingLifecycleLine ?? (await stdinReader!.next());
+        pendingLifecycleLine = null;
         if (line === null) {
           break episodeLoop; // EOF
         }
