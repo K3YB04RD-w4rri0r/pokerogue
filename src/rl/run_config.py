@@ -12,7 +12,8 @@ and every entry point consumes it:
 Schema (all keys optional; unknown top-level keys are rejected)::
 
     seed: exp-42                 # game RNG seed (str). Omit -> random per episode.
-    waves: 50                    # episode budget: ends after waves*50 decisions
+    waves: 50                    # WAVE CAP: truncates at the first decision of wave 51
+                                 # (waves*50 decisions remains only as a safety backstop)
     starters: MEWTWO,LUGIA       # SpeciesId names, CSV string or list
     starting_wave: 10            # -> STARTING_WAVE_OVERRIDE
     starting_level: 20           # -> STARTING_LEVEL_OVERRIDE

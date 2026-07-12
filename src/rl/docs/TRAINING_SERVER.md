@@ -17,7 +17,7 @@ never the constraint.
 git clone <repo> && cd pokerogue
 git checkout rl-framework
 git submodule update --init assets locales   # tests + i18n
-# Node >= 20 (nvm/tarball) + pnpm via corepack
+# Node >= 24.9 (engines pin; nvm/tarball) + pnpm via corepack
 pnpm install && pnpm rl:build
 pip install -r requirements-rl.txt stable-baselines3 sb3-contrib torch  # CUDA wheel for the 3090s
 bash scripts/rl-verify.sh quick               # must be fully green
@@ -77,7 +77,8 @@ vs `fog_of_war: true` trained side by side, or two reward configs.
    every checkpoint; training reward alone lies.
 3. Behavior-cloning warm start from `maxdamage` demonstrations is the
    next efficiency lever if curves plateau (generate with
-   `tools/run_policy.py --policy maxdamage` + a dump flag).
+   the node CLI directly: `node dist/rl/cli.js --seed=... --dump-obs=out.jsonl`
+   — run_policy.py has no dump flag).
 
 ## Curriculum design — the reset question, answered
 

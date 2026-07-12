@@ -40,7 +40,7 @@ closure) with an `act` method is an agent.
 `mask[i]` is False, the environment rejects it and silently executes a
 *different* action (the first legal one) in its place. Your agent then gets
 credit/blame for an action it didn't choose — corrupt training signal. The env
-counts these in `info["invalid_action_count"]`; a correct agent keeps it at 0.
+counts these in `info["invalid_action_count"]`; a correct agent never triggers it (the key only appears once nonzero).
 Always intersect your choice with the mask.
 
 **Rule 2 — branch on `info["phase"]`.** The same run visits battle commands,

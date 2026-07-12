@@ -3,21 +3,24 @@
 What "verified" means for this stack, how to re-run every check, and the
 latest results. Re-run the suite after ANY change to: `state-builder.ts`,
 `spaces.ts`, `observation.py`, `cli.ts`, `phase-router.ts`, `rewards.ts`,
-`ability-features.ts`, `modifier-features.ts`.
+`ability-features.ts`, `modifier-features.ts`, `episode-runtime.ts`,
+`modifier-api.ts`, `browser-bridge.ts`, `headless-boot.ts`, or the Python
+lockstep files `enums.py` / `state_schema.py` / `feature_names.py`.
 
 ## Prerequisites
 
 ```bash
 pnpm install
 pnpm rl:build                      # builds dist/rl/cli.js (REQUIRED before node-side checks)
-pip install -r requirements-rl.txt # numpy, gymnasium
+pip install -r requirements-rl.txt # installs the rl package (-e .): numpy, gymnasium, pyyaml
 ```
 
 ## Running
 
 ```bash
-pnpm rl:verify        # full suite (V1-V12), ~10-15 min, artifacts in .rl-verify/
-pnpm rl:verify:quick  # 1 smoke seed, fewer waves, skips the bench
+pnpm rl:verify        # full suite (V-1..V16), ~30-60 min, artifacts in .rl-verify/
+pnpm rl:verify:quick  # 1 smoke seed, fewer waves; skips corpus (V14), dim-gate
+                      # (V13b), mask gating (V15), bench/soak (V12/V12b)
 ```
 
 ## Check matrix
@@ -28,7 +31,7 @@ pnpm rl:verify:quick  # 1 smoke seed, fewer waves, skips the bench
 | V1  | Headless bundle builds | `pnpm rl:build` | exit 0, dist/rl/cli.js exists |
 | V2  | Auto-mode episode completes | `node dist/rl/cli.js --seed=test --waves=3 --log` | exit 0, episode summary printed |
 | V3  | Protocol conformance + episode completion under a masked-random policy | `python3 tools/verify/run_episodes.py --seeds 5 --waves 10 --probe-invalid 0.02 --dump-dir .rl-verify/smoke` | every episode reaches game_over/step-cap; zero hangs |
-| V4  | Layout version guard | automatic at every wrapper reset | ready message obsDim/actionDim == 9875/58 |
+| V4  | Layout version guard | automatic at every wrapper reset | ready message protocolVersion/obsDim/actionDim == 5/6991/58 |
 | V5a | TS↔Python encoder parity on hand-built fixtures (golden files) | `pnpm exec vitest run test/rl/spaces-encoding.test.ts` + `python3 tools/verify/fixture_parity.py` | bitwise-identical to goldens on both sides |
 | V5b | TS↔Python parity on real gameplay states | `python3 tools/verify/check_parity.py ".rl-verify/**/*.jsonl"` | 0 mismatches at atol 1e-6 (observed: bitwise-identical), exact mask equality |
 | V6  | Action-mask validity | part of V3 | zero unexpected `warning` messages (mask-approved actions never rejected); every `--probe-invalid` probe acknowledged |
@@ -43,11 +46,18 @@ pnpm rl:verify:quick  # 1 smoke seed, fewer waves, skips the bench
 | V13a | Observation coverage: every game-side enumerable (96 battler tags, 214 move attrs, 109 modifier types, 20 move flags, 311 abilities) is encoded or excluded-with-reason | `python3 tools/verify/check_obs_coverage.py` | 0 UNREVIEWED |
 | V13b | Dim exercise: every never-varying dim group classified (unexercised → names its corpus scenario / structurally-constant → code reason); scenario-ran-but-dim-stayed-flat = suspected bug | `python3 tools/verify/check_dim_exercise.py ".rl-verify/**/*.jsonl" --gate` | 0 UNREVIEWED, 0 suspected-bug |
 | V14 | Deep-coverage corpus: scripted scenarios (doubles, trainer parties, megas, long runs, weather, full-party, status) each ASSERT their target situation occurred | `python3 tools/verify/gen_coverage_corpus.py` | all scenarios + asserts pass |
+| V15 | Mask soft-lock guards end-to-end (shielded-boss ball gating + can_catch, PP-exhaustion Struggle, shop reroll-keeps-open/skip-exits) | `python3 tools/verify/check_mask_gating.py` | all scenarios pass |
+| V16 | Rendered E2E (real vite dev server + WS relay + browser bridge under headless Chromium): determinism, evolution, shop, headless-vs-rendered reset-obs equivalence | `RL_VERIFY_RENDERED=1 python3 tools/verify/check_rendered.py` (opt-in; needs playwright + chromium) | all scenarios pass |
+| V-1 | Python lint (pyflakes/bugbear/import order via ruff) | `python3 -m ruff check src/rl tools examples/rl` | zero findings |
 
 Golden regeneration (ONLY after an intentional encoding/layout change):
 `UPDATE_RL_GOLDEN=1 pnpm exec vitest run test/rl/spaces-encoding.test.ts`
 
-## Latest results — 2026-06-10, branch rl-framework
+## Historical results — 2026-06-10 (v8 era, protocol 2; kept for the audit trail)
+
+> Current numbers: protocolVersion 5 / 6,991 dims, 105 tests / 20 files,
+> ~95-105 steps/s interactive, ~140-150 steps/s in-process soak — see the
+> nightly `rl-verify` CI runs for the living record.
 
 | Check | Result | Notes |
 |-------|--------|-------|

@@ -1,6 +1,7 @@
 # PokeRogue RL — Observation Protocol v9 Layout Design (protocol 4 → 5)
 
-**Status:** design-complete; numbers verified against the rl-framework
+**Status:** IMPLEMENTED and shipped (protocol 5 live on both encoders);
+originally design-complete; numbers verified against the rl-framework
 branch and `.rl-audit/redundancy-ledger.json` (3,769-decision corpus;
 6,242/10,403 dims dead, 804 exact-dup, 128 low-info).
 **Wire authority:** `src/rl/spaces.ts`; `src/rl/observation.py` is the

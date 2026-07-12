@@ -26,7 +26,12 @@ No code changes were made — this phase was purely diagnostic.
 3. Module resolution (path aliases) and jsdom are the two hard blockers — both solved by Vite bundling
 4. 18 decision phases identified, ~6 handled by test harness, rest need new handlers
 5. Pokemon extends Phaser.GameObjects.Container — must keep Phaser loaded, not separable
-6. No core game files need modification — all RL framework code is additive
+6. ~~No core game files need modification — all RL framework code is additive~~
+   *(SUPERSEDED — Phase-1 prediction that did not hold: 10 core src files were
+   ultimately modified — battle.ts, battle-scene.ts, overrides.ts,
+   settings.ts, move.ts, scan-ivs/summon/summon-missing/select-modifier
+   phases, modifier-select-ui-handler — mostly guarded bug fixes plus RL API
+   surface and two intentional default changes; see the branch diff.)*
 
 **Side Effects**: None. No code was modified, only new files in src/rl/diagnosis/ were created.
 

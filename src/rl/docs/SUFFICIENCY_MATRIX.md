@@ -1,5 +1,11 @@
 # Obs-v9 Sufficiency Matrix (Phase 2) — WORKING DRAFT
 
+> **Resolved by v9 (2026-07):** the ❌ rows below described the v8 layout and
+> drove the v9 design — learn-move features, multi_hit, ai_type, 12 shop
+> slots and the singles bench remap are all encoded now (see
+> OBS_V9_LAYOUT.md). Rows are kept as the design rationale, not as the
+> current state.
+
 For each decision type: the inputs the GAME's own computation uses, traced
 to observation dims. Status: ✅ encoded · ⚠️ partial/approximated · ❌ missing.
 Every row cites the game-code source. Rows marked TODO(verify) still need

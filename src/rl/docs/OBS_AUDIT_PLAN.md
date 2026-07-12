@@ -1,8 +1,10 @@
 # Observation v9 — Audit & Redesign Plan
 
-Status: PROPOSED (not started). The current 10,403-dim observation (v8,
-protocol 4) predates several framework fixes and has never had a
-systematic audit. Before any v9 layout is designed, three questions need
+Status: COMPLETED — all phases executed; findings in AUDIT_FINDINGS_P1.md,
+the resulting layout in OBS_V9_LAYOUT.md (6,991 dims, protocol 5). Kept as
+the methodology record. Original framing follows. The then-current
+10,403-dim observation (v8, protocol 4) predated several framework fixes
+and had never had a systematic audit. Before any v9 layout is designed, three questions need
 evidence-grade answers, in this order:
 
 1. **Redundancy** — which of the 10,403 dims carry no information

@@ -118,7 +118,7 @@ finding bugs, but it's not fun to watch — use `maxdamage` (or a model) for tha
 
 The rendered URL accepts the same config surface as the headless CLI:
 `&override=KEY=VALUE` (repeatable game override), `&rewardConfig=<json>`
-(partial RewardConfig), `&waves=N` (step budget), alongside `&seed=`,
+(partial RewardConfig), `&waves=N` (wave cap; ends at the first decision of wave N+1), alongside `&seed=`,
 `&starters=`, `&delay=`. Rendered state/game_over messages carry the same
 `reward`/`wave`/`obsB64`/`mask` fields the headless protocol has, so a rendered
 episode reports the rewards headless training would.
@@ -324,14 +324,13 @@ prompt — type `h` for the list (inspect modifiers, field, party, etc.). `q` qu
 
 - **Observation:** 6,991 float32 dims (protocolVersion 5 / obs v9). The TypeScript
   encoder (`spaces.ts`) is the wire authority; `observation.py` mirrors it bitwise.
-  See `docs/OBSERVATION_BUILDING.md` and `docs/OBSERVATION_CHUNKS.md`.
+  Layout reference: `docs/OBS_V9_LAYOUT.md`; audit trail:
+  `docs/AUDIT_FINDINGS_P1.md`, `docs/SUFFICIENCY_MATRIX.md`.
 - **Reward:** `rewards.ts` (14 base + shaped components).
 - **Verify everything:** `pnpm rl:verify` — build, TS+Python parity (bitwise),
   determinism, a deep-coverage corpus, and an in-process soak. See
   `docs/VERIFICATION.md`.
-- **Architecture & status:** `STATUS.md`, `CHANGELOG.md`, `INPUT.md`;
-  known gaps in `docs/UNSOLVED.md` / `docs/LIMITATIONS.md`; game mechanics in
-  `docs/pokerogue-mechanics.md`.
+- **History:** `CHANGELOG.md` (design decisions, bug post-mortems, eval runs).
 - **Key files:** `cli.ts` (headless runner + interactive protocol),
   `browser-bridge.ts` + `vite-ws-plugin.ts` (rendered transport),
   `phase-router.ts` (decision detection, action mask, action execution),
