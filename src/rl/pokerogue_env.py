@@ -180,6 +180,7 @@ class PokeRogueEnv(gym.Env):
         # own features).
         self.last_info: dict = {}
         self._last_wave = 0
+        self._last_obs: np.ndarray | None = None
         # No-progress livelock backstop (see NO_PROGRESS_LIMIT): observations
         # seen this episode, and consecutive decisions that produced no new one.
         self._seen_obs: set[int] = set()
@@ -266,6 +267,7 @@ class PokeRogueEnv(gym.Env):
         self._seen_obs = set()
         self._no_progress = 0
         obs = self._obs_from(msg)
+        self._last_obs = obs.copy()
         self.last_info = self._info_from(msg)
         return obs, self.last_info
 
@@ -282,7 +284,12 @@ class PokeRogueEnv(gym.Env):
             # episode gracefully instead of killing the worker (audit H2).
             self._reap()
             self._needs_reset = True
-            obs = np.zeros(OBSERVATION_DIM, np.float32)
+            # Return the LAST delivered observation, not zeros: SB3's timeout
+            # bootstrap adds gamma*V(terminal_observation) to this step's
+            # return, and V(all-zeros) is the value of a never-visited
+            # out-of-distribution state — pure noise injected exactly on the
+            # flakiest (long/deep) episodes. V(s_t) is the honest estimate.
+            obs = self._last_obs.copy() if self._last_obs is not None else np.zeros(OBSERVATION_DIM, np.float32)
             # Keep the info dict's key set identical to every other step so
             # user wrappers indexing info["wave"] etc. survive the flaky path;
             # the pre-timeout mask is stale, so zero it.
@@ -306,7 +313,11 @@ class PokeRogueEnv(gym.Env):
         if terminated or truncated:
             self._needs_reset = True
             has_obs = "obsB64" in msg or msg.get("gameState")
-            obs = self._obs_from(msg) if has_obs else np.zeros(OBSERVATION_DIM, np.float32)
+            obs = (
+                self._obs_from(msg)
+                if has_obs
+                else (self._last_obs.copy() if self._last_obs is not None else np.zeros(OBSERVATION_DIM, np.float32))
+            )
             info = self._info_from(msg)
             self.last_info = info
             if mtype == "error":
@@ -320,6 +331,7 @@ class PokeRogueEnv(gym.Env):
         if mtype != "state":
             raise ProtocolError(f"unexpected message type {mtype!r}")
         obs = self._obs_from(msg)
+        self._last_obs = obs.copy()
 
         # Phase-agnostic no-progress backstop: a no-op self-loop (in ANY phase)
         # revisits already-seen observations without producing new ones. If that
@@ -464,7 +476,11 @@ class PokeRogueEnv(gym.Env):
             # chose, which silently corrupts the learner's credit assignment.
             # Track it and surface it in info (see _info_from).
             if msg.get("type") == "warning":
-                self._invalid_action_count += 1
+                # Only the invalid-action fallback corrupts credit assignment;
+                # protocol-noise warnings (non-JSON line, missing action key)
+                # must not inflate the diagnostic.
+                if "Invalid action" in str(msg.get("message", "")):
+                    self._invalid_action_count += 1
                 self._last_warning = msg.get("message")
 
     def _send(self, action: int) -> None:

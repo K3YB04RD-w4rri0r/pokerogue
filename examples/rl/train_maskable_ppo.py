@@ -55,6 +55,8 @@ def main() -> int:
         "for the 6,991-dim observation; default train.net_arch or sb3 default",
     )
     ap.add_argument("--n-steps", type=int, default=None, help="rollout length per env (default train.n_steps or 256)")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="learner seed (torch init, action sampling, minibatch shuffle; default train.seed or unseeded)")
     ap.add_argument("--checkpoint-every", type=int, default=None,
                     help="save <save>.ckpt-<steps>.zip every N timesteps (default train.checkpoint_every; 0=off)")
     ap.add_argument("--tensorboard", default=None, help="tensorboard log dir (default train.tensorboard)")
@@ -94,6 +96,31 @@ def main() -> int:
     n_steps = args.n_steps if args.n_steps is not None else int(cfg.train.get("n_steps", 256))
     tb = args.tensorboard or cfg.train.get("tensorboard")
 
+    # Episode stats (rollout/ep_rew_mean, ep_len_mean) require a Monitor layer;
+    # without it the learning curve the run exists to produce is never logged.
+    from stable_baselines3.common.monitor import Monitor
+    from stable_baselines3.common.vec_env import VecEnv, VecMonitor
+
+    if isinstance(env, VecEnv):
+        env = VecMonitor(env)
+    else:
+        # single-env path: gymnasium Monitor (forwards action_masks via
+        # wrapper __getattr__, so MaskablePPO still finds the masker)
+        env = Monitor(env)
+
+    seed = args.seed if args.seed is not None else cfg.train.get("seed")
+    # Core PPO knobs, exposed but defaulting to sb3's own values when unset.
+    # gamma deserves attention: sb3's 0.99 half-life is ~69 DECISIONS (not
+    # game turns) — with 8-15 decisions/wave the terminal bonus is nearly
+    # invisible beyond ~10 waves of lookahead; raise toward 0.999 for long
+    # wave caps.
+    optional = {}
+    for key in ("gamma", "gae_lambda", "learning_rate", "ent_coef", "clip_range"):
+        if cfg.train.get(key) is not None:
+            optional[key] = float(cfg.train[key])
+    if seed is not None:
+        optional["seed"] = int(seed)
+
     model = MaskablePPO(
         "MlpPolicy",
         env,
@@ -103,6 +130,7 @@ def main() -> int:
         device=device,
         policy_kwargs=policy_kwargs or None,
         tensorboard_log=tb,
+        **optional,
     )
 
     callback = None
@@ -129,6 +157,14 @@ def main() -> int:
         if save_path:
             model.save(save_path)
             print(f"saved model to {save_path}")
+    except KeyboardInterrupt:
+        # A SIGTERM'd run must not lose everything since the last checkpoint
+        # (the flagship config sets none): salvage the current weights.
+        if save_path:
+            rescue = str(Path(save_path).with_suffix("")) + ".interrupted.zip"
+            model.save(rescue)
+            print(f"interrupted — salvaged model to {rescue}")
+        raise
     finally:
         env.close()
     return 0

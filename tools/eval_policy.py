@@ -51,6 +51,10 @@ def run_episode(env: PokeRogueEnv, policy, seed: str) -> dict:
         # info["protocol_error"] and a partial reward — NOT a real budget stop.
         # Flag it so the stats can exclude it instead of folding it into budget%.
         "error": bool(info.get("protocol_error")),
+        # A livelock truncation (no-progress backstop fired) is a POLICY
+        # failure, not a completed horizon — folding it into budget% would
+        # read "survived the budget" for a policy that got stuck.
+        "livelock": bool(info.get("livelock_truncation")),
     }
 
 
@@ -80,6 +84,7 @@ def main() -> int:
                 "error" if r["error"]
                 else "win" if r["victory"]
                 else "loss" if r["terminated"]
+                else "livelock" if r["livelock"]
                 else "budget"
             )
             print(
@@ -90,25 +95,39 @@ def main() -> int:
         results[name] = runs
         print(f"[{name}] {args.episodes} eps in {time.time() - t0:.0f}s", flush=True)
 
-    print(f"\n{'policy':<40} {'mean_reward':>12} {'median':>9} {'mean_wave':>10} {'win%':>6} {'budget%':>8} {'err':>4}")
+    print(
+        f"\n{'policy':<40} {'mean_reward':>12} {'±sem':>7} {'median':>9} {'mean_wave':>10} "
+        f"{'win%':>6} {'budget%':>8} {'lvlk':>5} {'err':>4}"
+    )
     for name, runs in results.items():
         # Exclude protocol-error episodes from every statistic — their partial
-        # reward and spurious `truncated` flag are not a real outcome. Report
-        # the error count separately so a flaky run is visible, not hidden.
+        # reward and spurious `truncated` flag are not a real outcome. NOTE:
+        # this is policy-dependent censoring (errors correlate with long/deep
+        # episodes), so the excluded seeds are LISTED so paired-seed
+        # comparisons can be re-run on the intersection.
         valid = [r for r in runs if not r["error"]]
         errors = len(runs) - len(valid)
+        excluded = [i for i, r in enumerate(runs) if r["error"]]
         rewards = [r["reward"] for r in valid]
         waves = [r["wave"] for r in valid if r["wave"] is not None]
         denom = len(valid)
         wins = (sum(1 for r in valid if r["victory"]) / denom) if denom else float("nan")
-        budget = (sum(1 for r in valid if r["truncated"]) / denom) if denom else float("nan")
+        livelocks = sum(1 for r in valid if r["livelock"])
+        budget = (sum(1 for r in valid if r["truncated"] and not r["livelock"]) / denom) if denom else float("nan")
         mean_reward = statistics.mean(rewards) if rewards else float("nan")
+        # Roguelike returns are heavy-tailed; a mean over ~10 episodes without
+        # dispersion invites reading noise as signal.
+        sem = (statistics.stdev(rewards) / (len(rewards) ** 0.5)) if len(rewards) > 1 else float("nan")
         median_reward = statistics.median(rewards) if rewards else float("nan")
         mean_wave = statistics.mean(waves) if waves else float("nan")
         print(
-            f"{name:<40} {mean_reward:>12.2f} {median_reward:>9.2f} "
-            f"{mean_wave:>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}% {errors:>4}"
+            f"{name:<40} {mean_reward:>12.2f} {sem:>7.2f} {median_reward:>9.2f} "
+            f"{mean_wave:>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}% {livelocks:>5} {errors:>4}"
         )
+        if excluded:
+            print(f"    excluded (protocol errors) seeds: {[f'{args.seed_prefix}-{i}' for i in excluded]}")
+    if args.waves < 200:
+        print(f"\nnote: win%% requires reaching wave 200; under --waves {args.waves} it is structurally 0.")
     return 0
 
 

@@ -67,6 +67,8 @@ REWARD_CONFIG_KEYS = frozenset({
 TRAIN_CONFIG_KEYS = frozenset({
     "timesteps", "save", "num_envs", "n_steps", "net_arch", "device",
     "checkpoint_every", "tensorboard", "batch_size",
+    # learner-level reproducibility + core PPO knobs (sb3 defaults when unset)
+    "seed", "gamma", "gae_lambda", "learning_rate", "ent_coef", "clip_range",
 })
 
 ENV_KWARG_KEYS = frozenset({
