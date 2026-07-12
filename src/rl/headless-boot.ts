@@ -57,9 +57,6 @@ let globalsInstalled = false;
 /** Whether initStandalone() has been called (one-time init). */
 let standaloneInitialized = false;
 
-/** The active MockClock setInterval handle, tracked for cleanup. */
-let clockIntervalId: ReturnType<typeof setInterval> | null = null;
-
 // ---------------------------------------------------------------------------
 // Phase 1: Install jsdom browser globals
 // ---------------------------------------------------------------------------
@@ -694,12 +691,6 @@ export async function initHeadless(config?: HeadlessConfig): Promise<BattleScene
 export async function destroyHeadless(): Promise<void> {
   const { restoreAllMocks } = await import("#app/rl/mocks/spy");
   restoreAllMocks();
-
-  // Clear any dangling MockClock intervals
-  if (clockIntervalId !== null) {
-    clearInterval(clockIntervalId);
-    clockIntervalId = null;
-  }
 
   // Destroy the Phaser game instance
   if (phaserGame) {

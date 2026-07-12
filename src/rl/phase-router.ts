@@ -23,12 +23,15 @@ import { allMoves } from "#data/data-lists";
 import { AbilityId } from "#enums/ability-id";
 import { BattleType } from "#enums/battle-type";
 import { BattlerIndex } from "#enums/battler-index";
+import { BattlerTagType } from "#enums/battler-tag-type";
 import { BiomeId } from "#enums/biome-id";
 import { Button } from "#enums/buttons";
 import { Command } from "#enums/command";
 import { GameModes } from "#enums/game-modes";
+import { MoveId } from "#enums/move-id";
 import { MoveTarget } from "#enums/move-target";
 import { MoveUseMode } from "#enums/move-use-mode";
+import { MysteryEncounterMode } from "#enums/mystery-encounter-mode";
 import { PokeballType } from "#enums/pokeball";
 import { SpeciesId } from "#enums/species-id";
 import { SwitchType } from "#enums/switch-type";
@@ -409,7 +412,6 @@ export function createPhaseRouter(options?: {
   let shopStuckCount = 0;
 
   // Timeout handle for the advance loop
-  let advanceTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   // Re-entry guard: prevent executeTitleAction from being called multiple times.
   // In the browser, initBattle() is async (loads real assets). While assets load,
@@ -479,6 +481,9 @@ export function createPhaseRouter(options?: {
       if (mode === UiMode.SUMMARY || mode === UiMode.POKEDEX_PAGE) {
         // Summary/Pokedex view during capture — auto-dismiss by pressing CANCEL
         setTimeout(() => {
+          if (destroyed) {
+            return; // a destroyed router must not press buttons (reset boundary)
+          }
           const phase = globalScene.phaseManager.getCurrentPhase();
           if (phase?.phaseName !== "AttemptCapturePhase") {
             return;
@@ -526,6 +531,9 @@ export function createPhaseRouter(options?: {
       }
       // Auto-decline after the current call stack completes
       setTimeout(() => {
+        if (destroyed) {
+          return; // a destroyed router must not end phases (reset boundary)
+        }
         const phase = globalScene.phaseManager.getCurrentPhase();
         if (phase?.phaseName === "ScanIvsPhase") {
           globalScene.ui.setMode(UiMode.MESSAGE);
@@ -585,11 +593,40 @@ export function createPhaseRouter(options?: {
       originalEnemyCommandStart.call(this);
       return;
     }
+    // Turns the game itself decides are not agent decisions — deferring them
+    // would let the agent act on a skipped turn or change a locked-in
+    // multi-turn move (Outrage/charge/Encore), desyncing self-play from real
+    // game rules. Mirror the real phase's gates and fall through:
+    // - mysteryEncounter.skipEnemyBattleTurns / COMMANDER set skipTurn
+    // - a non-empty move queue means getNextMove() is forced
+    const battleGates = globalScene.currentBattle;
+    const commanderSkip =
+      (battleGates?.double ?? false)
+      && enemy.hasAbility?.(AbilityId.COMMANDER)
+      && !!enemy.getAlly?.()?.getTag?.(BattlerTagType.COMMANDED);
+    if (
+      battleGates?.mysteryEncounter?.skipEnemyBattleTurns
+      || commanderSkip
+      || (enemy.getMoveQueue?.()?.length ?? 0) > 0
+    ) {
+      originalEnemyCommandStart.call(this);
+      return;
+    }
     // Defer: the phase stays current (we never call end() here), so the game
     // pauses at it exactly like a UI-driven player CommandPhase waiting for input.
     // Resolve on a fresh microtask (setTimeout 0), mirroring hookedSetMode, so the
     // decision survives executeActionInternal's post-execute currentPhaseState=null.
     pendingEnemyPhase = { phase: this, fieldIndex };
+    // ENEMY_COMMAND delivery is ONE-SHOT (the phase is not in the decision map,
+    // so a dropped resolve can never be re-detected and the deferred phase
+    // would hang until the watchdog kills the episode). If the mask would be
+    // empty (no active opponent and no legal switch), let the scripted AI act.
+    const probeMask = buildEnemyCommandActionMask({});
+    if (!probeMask.some(Boolean)) {
+      pendingEnemyPhase = null;
+      originalEnemyCommandStart.call(this);
+      return;
+    }
     setTimeout(() => {
       if (!destroyed) {
         resolveDecisionPoint(DecisionPhase.ENEMY_COMMAND, "EnemyCommandPhase", UiMode.COMMAND);
@@ -597,17 +634,22 @@ export function createPhaseRouter(options?: {
     }, 0);
   }
 
-  // Install hooks
-  UI.prototype.setMode = function (mode: UiMode, ...args: unknown[]): Promise<void> {
+  // Install hooks. Keep references to OUR wrappers so destroy() can restore
+  // reference-checked: two live routers would otherwise capture each other's
+  // wrappers as "original" and a destroy would silently unhook the survivor.
+  const installedSetMode = function (this: UI, mode: UiMode, ...args: unknown[]): Promise<void> {
     return hookedSetMode.call(this, mode, ...args);
   };
-  Phase.prototype.end = function (): void {
+  const installedPhaseEnd = function (this: Phase): void {
     hookedPhaseEnd.call(this);
   };
+  const installedEnemyStart = function (this: EnemyCommandPhase): void {
+    hookedEnemyCommandStart.call(this);
+  };
+  UI.prototype.setMode = installedSetMode;
+  Phase.prototype.end = installedPhaseEnd;
   if (enemyControlled) {
-    EnemyCommandPhase.prototype.start = function (): void {
-      hookedEnemyCommandStart.call(this);
-    };
+    EnemyCommandPhase.prototype.start = installedEnemyStart;
   }
 
   // Trampoline the phase pump to prevent a headless stack overflow. The game's
@@ -937,9 +979,10 @@ export function createPhaseRouter(options?: {
     if (!isTrapped) {
       const activeIds = new Set(playerField.map(p => p.id));
       let slotIdx = 0;
+      // (challenge modes also require isAllowedInBattle — see loop below)
       for (let i = 1; i < playerParty.length && slotIdx < 5; i++) {
         const p = playerParty[i];
-        if (!p.isFainted() && !activeIds.has(p.id)) {
+        if (!p.isFainted() && !activeIds.has(p.id) && p.isAllowedInBattle()) {
           mask[ACTION_SWITCH_START + slotIdx] = true;
         }
         slotIdx++;
@@ -955,8 +998,15 @@ export function createPhaseRouter(options?: {
       }
     }
 
-    // Run (22)
-    if (!isTrainerBattle && !isEndBiome && !isTrapped) {
+    // Run (22) — mirror ALL of handleRunCommand's gates: trainer battle,
+    // END biome, trapped, plus the two mystery-encounter refusals (fleeAllowed
+    // === false, and ME trainer battles, whose battleType is MYSTERY_ENCOUNTER
+    // so isTrainerBattle alone misses them). A rejected RUN re-surfaces the
+    // identical COMMAND decision — deterministic-policy livelock.
+    const meRun = globalScene.currentBattle?.mysteryEncounter;
+    const meBlocksRun =
+      !!meRun && (meRun.fleeAllowed === false || meRun.encounterMode === MysteryEncounterMode.TRAINER_BATTLE);
+    if (!isTrainerBattle && !isEndBiome && !isTrapped && !meBlocksRun) {
       mask[ACTION_RUN] = true;
     }
 
@@ -1196,18 +1246,12 @@ export function createPhaseRouter(options?: {
     // all three unchanged; if that persists for MODIFIER_LIVELOCK_LIMIT
     // consecutive modifier decisions, collapse the mask to "skip" so the agent
     // is forced out of the shop instead of re-selecting the no-op forever.
-    let hpSum = 0;
-    for (const p of globalScene.getPlayerParty?.() ?? []) {
-      hpSum += p?.hp ?? 0;
-    }
-    const sig = `${money}|${modifiers.rewards.length}|${hpSum}`;
-    if (sig === shopProgressSig) {
-      shopStuckCount++;
-    } else {
-      shopProgressSig = sig;
-      shopStuckCount = 0;
-    }
-    if (shopStuckCount >= MODIFIER_LIVELOCK_LIMIT) {
+    const sig = shopProgressSignature();
+    // The counter ticks in executeModifierAction (once per EXECUTED decision);
+    // building a mask must stay side-effect-free — the hook + poll + status
+    // probes can build the same decision several times, and build-time ticks
+    // made the collapse trip after a timing-dependent number of agent steps.
+    if (sig === shopProgressSig && shopStuckCount >= MODIFIER_LIVELOCK_LIMIT) {
       const skipOnly = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
       skipOnly[ACTION_SKIP] = true;
       metadata.shopLivelockBreak = true;
@@ -1278,7 +1322,7 @@ export function createPhaseRouter(options?: {
     for (let i = 0; i < playerParty.length && slotIdx < 5; i++) {
       const p = playerParty[i];
       // Use ACTION_SWITCH_START range: party slot i maps to switch action
-      if (i > 0 && !p.isFainted() && !activeIds.has(p.id)) {
+      if (i > 0 && !p.isFainted() && !activeIds.has(p.id) && p.isAllowedInBattle()) {
         mask[ACTION_SWITCH_START + (i - 1)] = true;
       }
       if (i > 0) {
@@ -1293,6 +1337,12 @@ export function createPhaseRouter(options?: {
 
   function buildCheckSwitchActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
+    // Guard: the hook resolves on a timeout — in headless the synchronous pump
+    // can already be past the phase, and an unguarded non-empty mask would
+    // surface a stale decision (the executor then errors "Not in X").
+    if (!globalScene.phaseManager.getCurrentPhase()?.is("CheckSwitchPhase")) {
+      return mask;
+    }
     // Binary choice: yes (accept switch) or no (decline)
     // Map to action 0 = yes, action 1 = no (using first two action slots)
     // Actually, for simplicity, use ACTION_SKIP (39) as "decline" and ACTION_FIGHT_ENEMY_START (0) as "accept"
@@ -1332,6 +1382,11 @@ export function createPhaseRouter(options?: {
       metadata.learnMovePartyIndex = globalScene.getPlayerParty().indexOf(pokemon);
     }
 
+    // Guard (see buildCheckSwitchActionMask): only offer actions while the
+    // LearnMovePhase is actually current.
+    if (!currentPhase?.is("LearnMovePhase")) {
+      return mask;
+    }
     // Actions 0-3: replace move at slot 0-3
     // ACTION_SKIP (39): don't learn the move
     for (let i = 0; i < MAX_MOVES; i++) {
@@ -1346,6 +1401,9 @@ export function createPhaseRouter(options?: {
 
   function buildRevivalBlessingActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
+    if (!globalScene.phaseManager.getCurrentPhase()?.is("RevivalBlessingPhase")) {
+      return mask;
+    }
     const playerParty = globalScene.getPlayerParty() ?? [];
 
     // Allow selecting fainted party members
@@ -1363,8 +1421,14 @@ export function createPhaseRouter(options?: {
 
   function buildSelectBiomeActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
-    // Read the actual option count and labels from the UI handler (typically 2-3 biome links)
-    let optionCount = 2; // safe default
+    if (!globalScene.phaseManager.getCurrentPhase()?.is("SelectBiomePhase")) {
+      return mask;
+    }
+    // Read the actual option count and labels from the UI handler (typically 2-3 biome links).
+    // Default 1, not 2: if the handler config is unreadable we KNOW at least one
+    // option exists (the phase is showing), but offering a second could
+    // mask-legalize a nonexistent choice on single-link biomes.
+    let optionCount = 1;
     const biomeNames: string[] = [];
     // OptionSelectUiHandler stores options in a protected `config` property
     const handler = globalScene.ui.getHandler() as unknown as { config?: { options?: { label?: string }[] } };
@@ -1388,6 +1452,9 @@ export function createPhaseRouter(options?: {
 
   function buildGameOverActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
+    // No phase guard: GAME_OVER states are also resolved from the terminal
+    // poll AFTER GameOverPhase ended, and the executor's quit/retry no-ops
+    // safely if the phase is gone.
     // Binary: retry (0) or quit (1)
     mask[0] = true; // Retry
     mask[1] = true; // Quit
@@ -1399,11 +1466,16 @@ export function createPhaseRouter(options?: {
 
   function buildMysteryEncounterActionMask(metadata: Record<string, unknown>): boolean[] {
     const mask = new Array<boolean>(ACTION_SPACE_SIZE).fill(false);
-    // Mystery encounters typically have 2-4 options
+    // Mystery encounters typically have 2-4 options. The UI rejects options
+    // whose requirements aren't met (optionsMeetsReqs) — offering one would
+    // no-op and re-surface the identical decision forever for a deterministic
+    // policy (no livelock guard covers this path).
     const encounter = globalScene.currentBattle?.mysteryEncounter;
-    const optionCount = encounter?.options?.length ?? 2;
+    const options = encounter?.options ?? [];
+    const optionCount = options.length || 2;
     for (let i = 0; i < optionCount && i < 4; i++) {
-      mask[i] = true;
+      const opt = options[i] as unknown as { meetsRequirements?: () => boolean } | undefined;
+      mask[i] = opt?.meetsRequirements ? opt.meetsRequirements() : true;
     }
     metadata.isMysteryEncounter = true;
     metadata.optionCount = optionCount;
@@ -1422,6 +1494,7 @@ export function createPhaseRouter(options?: {
       console.error("[PhaseRouter] No current phase state to execute action against");
       return;
     }
+    const stateAtEntry = currentPhaseState;
 
     // Validate action against mask
     if (!currentPhaseState.actionMask[action]) {
@@ -1503,8 +1576,13 @@ export function createPhaseRouter(options?: {
         break;
     }
 
-    // Clear current state after executing
-    currentPhaseState = null;
+    // Clear current state after executing — but only OUR state: during the
+    // awaited switch retry loop a hook can legitimately resolve the NEXT
+    // decision into currentPhaseState; nulling that would drop a one-shot
+    // delivery (ENEMY_COMMAND has no re-detect path).
+    if (currentPhaseState === stateAtEntry) {
+      currentPhaseState = null;
+    }
   }
 
   // ── Command Action Execution ───────────────────────────────────────
@@ -1665,7 +1743,17 @@ export function createPhaseRouter(options?: {
 
     const writeFight = (moveIndex: number, targetOverride?: BattlerIndex): void => {
       const moveset = enemy?.getMoveset(false) ?? [];
-      const moveId = moveset[moveIndex]?.moveId ?? 0;
+      let moveId = moveset[moveIndex]?.moveId ?? 0;
+      // Mirror handleFightCommand's useStruggle substitution: writing an
+      // unusable (or empty) slot straight into turnCommands bypasses the
+      // player path's fix-up and the enemy's turn silently fizzles every turn.
+      if (enemy) {
+        const chosenUsable = moveId > 0 && (moveset[moveIndex]?.isUsable(enemy)?.[0] ?? false);
+        if (!chosenUsable && !moveset.some(m => m && m.isUsable(enemy)[0])) {
+          moveId = MoveId.STRUGGLE;
+          targetOverride = undefined; // let the game compute struggle's target
+        }
+      }
       let targets: BattlerIndex[];
       if (targetOverride !== undefined) {
         targets = [targetOverride];
@@ -2039,7 +2127,28 @@ export function createPhaseRouter(options?: {
     }
   }
 
+  /** Signature of everything a legitimate shop action moves: money (buy/
+   *  reroll), remaining reward picks, and party HP (a heal). */
+  function shopProgressSignature(): string {
+    let hpSum = 0;
+    for (const p of globalScene.getPlayerParty?.() ?? []) {
+      hpSum += p?.hp ?? 0;
+    }
+    const money = globalScene.money ?? 0;
+    const rewards = getAvailableModifiers()?.rewards.length ?? 0;
+    return `${money}|${rewards}|${hpSum}`;
+  }
+
   function executeModifierAction(action: number): void {
+    // Livelock accounting: one tick per executed modifier decision whose
+    // pre-action signature hasn't moved since the previous one.
+    const sigNow = shopProgressSignature();
+    if (sigNow === shopProgressSig) {
+      shopStuckCount++;
+    } else {
+      shopProgressSig = sigNow;
+      shopStuckCount = 0;
+    }
     // Select reward (35-37)
     if (action >= ACTION_SELECT_REWARD_START && action < ACTION_SELECT_REWARD_START + MAX_REWARD_OPTIONS) {
       const rewardIndex = action - ACTION_SELECT_REWARD_START;
@@ -2149,7 +2258,7 @@ export function createPhaseRouter(options?: {
       || party[targetSlot].isFainted()
       || activeIds.has(party[targetSlot].id)
     ) {
-      targetSlot = party.findIndex((p, i) => i > 0 && !p.isFainted() && !activeIds.has(p.id));
+      targetSlot = party.findIndex((p, i) => i > 0 && !p.isFainted() && !activeIds.has(p.id) && p.isAllowedInBattle());
     }
     if (targetSlot < 1) {
       console.warn("[PhaseRouter] SwitchPhase: no valid switch target");
@@ -2489,7 +2598,13 @@ export function createPhaseRouter(options?: {
         return;
       }
 
-      // Set up pending decision that will be resolved by the setMode hook
+      // Set up pending decision that will be resolved by the setMode hook.
+      // A second concurrent advanceToNextDecision() would silently overwrite
+      // this slot (first caller leaks; its timeout then rejects the SECOND
+      // caller's promise) — fail the older waiter loudly instead.
+      if (pendingDecision) {
+        pendingDecision.reject(new Error("advanceToNextDecision superseded by a newer call"));
+      }
       pendingDecision = { resolve, reject };
 
       // Progress tracking for the sliding timeout (see the poll below)
@@ -2848,6 +2963,12 @@ export function createPhaseRouter(options?: {
 
     const currentPhase = globalScene.phaseManager?.getCurrentPhase();
     if (currentPhase?.is("GameOverPhase")) {
+      // The rendered transport can poll here DURING GameOverPhase (10s fade +
+      // async save) before end() sets victoryFlag — read the phase's own flag
+      // so a classic victory isn't reported as a loss.
+      if ("isVictory" in currentPhase && (currentPhase as unknown as { isVictory?: boolean }).isVictory) {
+        victoryFlag = true;
+      }
       gameOverFlag = true;
       return true;
     }
@@ -2911,20 +3032,20 @@ export function createPhaseRouter(options?: {
     destroy(): void {
       destroyed = true;
 
-      // Restore original prototypes
-      UI.prototype.setMode = originalSetMode;
-      Phase.prototype.end = originalPhaseEnd;
-      if (enemyControlled) {
+      // Restore original prototypes — only if OUR wrapper is still installed
+      // (a newer router may have re-hooked; restoring would unhook it).
+      if (UI.prototype.setMode === installedSetMode) {
+        UI.prototype.setMode = originalSetMode;
+      }
+      if (Phase.prototype.end === installedPhaseEnd) {
+        Phase.prototype.end = originalPhaseEnd;
+      }
+      if (enemyControlled && EnemyCommandPhase.prototype.start === installedEnemyStart) {
         EnemyCommandPhase.prototype.start = originalEnemyCommandStart;
       }
       pendingEnemyPhase = null;
 
       // Clean up
-      if (advanceTimeoutId !== null) {
-        clearTimeout(advanceTimeoutId);
-        advanceTimeoutId = null;
-      }
-
       if (pendingDecision) {
         pendingDecision.reject(new Error("PhaseRouter destroyed"));
         pendingDecision = null;

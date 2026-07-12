@@ -44,6 +44,7 @@ import type { PhaseRouter, PhaseState } from "#rl/phase-router";
 import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
 import { ACTION_SPACE_SIZE, encodeObservation, OBSERVATION_DIM } from "#rl/spaces";
 import { buildGameState as buildFullGameState } from "#rl/state-builder";
+import type { SessionSaveData } from "#types/save-data";
 import Phaser from "phaser";
 
 // ── Visual Indicator ──────────────────────────────────────────────────
@@ -192,9 +193,9 @@ async function waitForGameReady(indicator: HTMLDivElement): Promise<void> {
   // Phase 3: Monkey-patch getSession to prevent loading saved sessions from the
   // API server. When bypassLogin=false, TitlePhase.start() calls getSession()
   // which fetches session data from the server (ignoring localStorage.clear()).
-  // By returning null, TitlePhase will show "New Game" instead of "Continue",
-  // and our executeTitleAction() will start fresh at wave 1.
-  globalScene.gameData.getSession = async (_slotId: number) => {
+  // By resolving to undefined, TitlePhase will show "New Game" instead of
+  // "Continue", and our executeTitleAction() will start fresh at wave 1.
+  globalScene.gameData.getSession = async (_slotId: number): Promise<SessionSaveData | undefined> => {
     console.log("[RL Bridge] Intercepted getSession() — returning undefined (fresh start)");
     return;
   };
