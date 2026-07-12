@@ -24,6 +24,8 @@ Phaser+jsdom node process (several hundred MB); ~4-8 envs per 16 GB RAM.
 from __future__ import annotations
 
 import atexit
+import time
+import weakref
 import base64
 import json
 import queue
@@ -187,7 +189,10 @@ class PokeRogueEnv(gym.Env):
                 f"{self._cli_path} not found — build the headless bundle (pnpm rl:build in the repo) "
                 "or point POKEROGUE_RL_CLI at an existing dist/rl/cli.js"
             )
-        atexit.register(self.close)
+        # weakref so constructing many envs in one process doesn't retain
+        # them all until exit (subprocess cleanup still guaranteed while alive)
+        _self = weakref.ref(self)
+        atexit.register(lambda: (lambda e: e.close() if e is not None else None)(_self()))
 
     @classmethod
     def from_config(cls, config, **kwargs) -> "PokeRogueEnv":
@@ -241,7 +246,10 @@ class PokeRogueEnv(gym.Env):
         msg = self._next_decision()
         while msg.get("type") == "state" and msg.get("phase") in SETUP_PHASES:
             valid = self._valid_actions(msg)
-            self._send(valid[0] if valid else 0)
+            try:
+                self._send(valid[0] if valid else 0)
+            except TimeoutError as err:
+                raise ProtocolError(f"CLI died during setup: {err}") from err
             msg = self._next_decision()
 
         if msg.get("type") != "state":
@@ -274,7 +282,18 @@ class PokeRogueEnv(gym.Env):
             self._reap()
             self._needs_reset = True
             obs = np.zeros(OBSERVATION_DIM, np.float32)
-            info = {"protocol_error": f"step timeout: {err}"}
+            # Keep the info dict's key set identical to every other step so
+            # user wrappers indexing info["wave"] etc. survive the flaky path;
+            # the pre-timeout mask is stale, so zero it.
+            self._mask = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
+            info = {
+                "protocol_error": f"step timeout: {err}",
+                "action_mask": self._mask.copy(),
+                "phase": "?",
+                "step": None,
+                "wave": self._last_wave,
+                "game_state": {},
+            }
             self.last_info = info
             return obs, 0.0, False, True, info
         mtype = msg.get("type")
@@ -426,9 +445,14 @@ class PokeRogueEnv(gym.Env):
                 continue
 
     def _next_decision(self) -> dict:
-        """Read to the next state / game_over / done / error message."""
+        """Read to the next state / game_over / done / error message.
+
+        The timeout is one deadline for the WHOLE skip loop: a wedged CLI that
+        keeps emitting info/warning noise must still trip the watchdog."""
+        deadline = time.monotonic() + self._step_timeout
         while True:
-            msg = self._read_message(self._step_timeout)
+            remaining = max(0.1, deadline - time.monotonic())
+            msg = self._read_message(remaining)
             if msg is None:
                 return {"type": "error", "message": "EOF from CLI subprocess"}
             if msg.get("type") in ("state", "game_over", "done", "error"):
@@ -444,8 +468,14 @@ class PokeRogueEnv(gym.Env):
 
     def _send(self, action: int) -> None:
         assert self._proc is not None and self._proc.stdin is not None
-        self._proc.stdin.write(json.dumps({"action": action}) + "\n")
-        self._proc.stdin.flush()
+        try:
+            self._proc.stdin.write(json.dumps({"action": action}) + "\n")
+            self._proc.stdin.flush()
+        except OSError as err:
+            # Node died since the last exchange (OOM/crash): surface it as the
+            # same graceful-truncation signal the read path uses, instead of a
+            # raw BrokenPipeError that kills the whole VecEnv worker.
+            raise TimeoutError(f"CLI subprocess pipe closed: {err}") from err
 
     @staticmethod
     def _valid_actions(msg: dict) -> list[int]:
