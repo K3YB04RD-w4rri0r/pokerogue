@@ -33,3 +33,26 @@ rendered = ["websocket-client>=1.6"]
 [tool.setuptools]
 package-dir = { "rl" = "src/rl" }
 packages = ["rl"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+include = ["src/rl/**/*.py", "tools/**/*.py", "examples/rl/**/*.py"]
+
+[tool.ruff.lint]
+# E/F: pycodestyle+pyflakes core; I: import order; B: bugbear (real bug patterns);
+# UP: pyupgrade (but keep 3.10 compat via target-version); BLE: no blind except.
+select = ["E", "F", "I", "B", "UP", "BLE"]
+ignore = [
+  "E501",   # long lines: docstrings/tables read better unwrapped; format handles code
+  "E402",   # module-import-not-at-top: the sys.path bootstrap pattern requires it
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The encoder mirrors spaces.ts table-for-table; the dense `buf[pos] = x; pos += 1`
+# one-liner idiom keeps each dim on one line for side-by-side parity review.
+"src/rl/observation.py" = ["E702"]
+# The gymnasium env and verify harness intentionally catch broad exceptions at
+# process/teardown boundaries (documented at each site).
+"src/rl/pokerogue_env.py" = ["BLE001"]
+"tools/**" = ["BLE001"]

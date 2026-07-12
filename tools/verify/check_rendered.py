@@ -44,7 +44,6 @@ import threading
 import time
 
 import numpy as np
-
 from common import REPO_ROOT  # noqa: F401  (sys.path side effect adds src/)
 
 from rl.policy import FirstLegalPolicy, RandomPolicy  # noqa: E402
@@ -171,7 +170,7 @@ def scenario_determinism(pw, port: int) -> None:
     check("run B clean", not err_b, str(err_b[:1]))
     check("traces identical", trace_a == trace_b, f"lenA={len(trace_a)} lenB={len(trace_b)}")
     if trace_a != trace_b:
-        for i, (x, y) in enumerate(zip(trace_a, trace_b)):
+        for i, (x, y) in enumerate(zip(trace_a, trace_b, strict=False)):
             if x != y:
                 print(f"  first divergence at index {i}: A={x} B={y}", flush=True)
                 break

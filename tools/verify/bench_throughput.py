@@ -22,7 +22,6 @@ import random
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from common import (  # noqa: E402
     ACTION_RUN,
@@ -32,6 +31,7 @@ from common import (  # noqa: E402
     send_action,
     spawn_cli,
 )
+
 from rl.observation import encode_observation, parse_game_state  # noqa: E402
 
 

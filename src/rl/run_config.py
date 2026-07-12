@@ -225,13 +225,13 @@ def _validate(cfg: RunConfig) -> None:
                 raise RunConfigError(f"pokeballs key {name!r} not one of {POKEBALL_NAMES}")
     unknown_reward = set(cfg.reward) - REWARD_CONFIG_KEYS
     if unknown_reward:
-        warnings.warn(f"run config: unknown reward keys {sorted(unknown_reward)} (ignored by rewards.ts)")
+        warnings.warn(f"run config: unknown reward keys {sorted(unknown_reward)} (ignored by rewards.ts)", stacklevel=2)
     unknown_env = set(cfg.env) - ENV_KWARG_KEYS
     if unknown_env:
         raise RunConfigError(f"env section: unknown PokeRogueEnv kwargs {sorted(unknown_env)}")
     unknown_train = set(cfg.train) - TRAIN_CONFIG_KEYS
     if unknown_train:
-        warnings.warn(f"run config: unknown train keys {sorted(unknown_train)} (the trainer will ignore them)")
+        warnings.warn(f"run config: unknown train keys {sorted(unknown_train)} (the trainer will ignore them)", stacklevel=2)
     if not isinstance(cfg.overrides, dict):
         raise RunConfigError("overrides must be a mapping of DefaultOverrides keys")
 

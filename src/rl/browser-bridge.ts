@@ -44,6 +44,7 @@ import type { PhaseRouter, PhaseState } from "#rl/phase-router";
 import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
 import { ACTION_SPACE_SIZE, encodeObservation, OBSERVATION_DIM } from "#rl/spaces";
 import { buildGameState as buildFullGameState } from "#rl/state-builder";
+import { CINEMATIC_TIMESCALE, DECISION_TIMEOUT_MS, EVOLUTION_ASSET_RACE_MS, NO_PROGRESS_LIMIT } from "#rl/tunables";
 import type { SessionSaveData } from "#types/save-data";
 import Phaser from "phaser";
 
@@ -468,7 +469,7 @@ function installInstantEvolution(): void {
       const before = pokemon?.name;
       await Promise.race([
         pokemon.evolve(this.evolution, pokemon.species),
-        sleep(15000).then(() =>
+        sleep(EVOLUTION_ASSET_RACE_MS).then(() =>
           console.warn("[RL Bridge] evolve() asset load did not settle in 15s — continuing (sprites may lag)"),
         ),
       ]);
@@ -513,7 +514,6 @@ const CINEMATIC_PHASES = new Set([
   "EggHatchPhase",
   "EggSummaryPhase",
 ]);
-const CINEMATIC_TIMESCALE = 50;
 
 /** Start the cinematic watcher; returns a stop function. */
 function startCinematicFastForward(): () => void {
@@ -562,7 +562,7 @@ function startCinematicFastForward(): () => void {
  * In the browser, initBattle() is async — TitlePhase stays current while
  * assets load. This waits (with timeout) until the phase changes.
  */
-async function waitForPhaseChange(currentPhaseName: string, timeoutMs = 30000): Promise<void> {
+async function waitForPhaseChange(currentPhaseName: string, timeoutMs = DECISION_TIMEOUT_MS): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     await sleep(100);
@@ -751,7 +751,6 @@ async function startBridge(): Promise<void> {
   // produces no new observation for this many consecutive decisions — a no-op
   // cycle the TS shop guard didn't resolve — truncate instead of watching it
   // spin to the step cap.
-  const NO_PROGRESS_LIMIT = 40;
   const seenObs = new Set<string>();
   let noProgress = 0;
   // Evolutions: run the logic, skip the cinematic entirely

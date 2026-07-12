@@ -83,7 +83,7 @@ def diff_json(a, b, path: str = "$", out: list[str] | None = None, limit: int = 
     elif isinstance(a, list):
         if len(a) != len(b):
             out.append(f"{path}: length {len(a)} != {len(b)}")
-        for i, (x, y) in enumerate(zip(a, b)):
+        for i, (x, y) in enumerate(zip(a, b, strict=False)):
             diff_json(x, y, f"{path}[{i}]", out, limit)
     elif a != b:
         out.append(f"{path}: {a!r} != {b!r}")

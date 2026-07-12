@@ -18,8 +18,11 @@ import sys
 from collections import defaultdict
 
 import numpy as np
-
 from common import decode_obs_b64  # noqa: E402  (sys.path side effect)
+from invariants import check_mask as inv_check_mask  # noqa: E402
+from invariants import check_observation  # noqa: E402
+
+from rl.feature_names import dim_to_name  # noqa: E402
 from rl.observation import (  # noqa: E402
     ACTION_SPACE_SIZE,
     OBSERVATION_DIM,
@@ -27,10 +30,6 @@ from rl.observation import (  # noqa: E402
     extract_action_mask,
     parse_game_state,
 )
-
-from invariants import check_mask as inv_check_mask  # noqa: E402
-from invariants import check_observation  # noqa: E402
-from rl.feature_names import dim_to_name  # noqa: E402
 
 
 def check_invariants(obs: np.ndarray, label: str) -> list[str]:

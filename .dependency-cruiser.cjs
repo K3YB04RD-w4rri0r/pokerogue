@@ -177,6 +177,12 @@ module.exports = {
           "./test",
           "(^|/)src/plugins/vite/.+[.]ts",
           "(^|/)src/vite[.]env[.]d[.]ts",
+          // The RL framework is node-side tooling (headless trainer, vite dev
+          // plugin): it never enters the production web build, so devDependency
+          // imports (ws, jsdom) are correct there. NOTE dist/rl/cli.js therefore
+          // has a RUNTIME requirement on devDependencies — fine for a repo where
+          // `pnpm install` always installs them.
+          "(^|/)src/rl/",
         ],
       },
       to: {

@@ -38,7 +38,6 @@ import sys
 from collections import defaultdict
 
 import numpy as np
-
 from common import REPO_ROOT  # noqa: F401  (sys.path side effect adds src/)
 
 from rl.feature_names import dim_to_name  # noqa: E402
@@ -129,7 +128,7 @@ def main() -> int:
 
     # ── near-duplicates (|r| >= threshold) among varying, non-exact ──
     exact_dup_set = set()
-    for k, v in dup_groups.items():
+    for _k, v in dup_groups.items():
         exact_dup_set.update(v)
     candidates = np.array([d for d in varying if d not in exact_dup_set])
     near_pairs: list[tuple[int, int, float]] = []

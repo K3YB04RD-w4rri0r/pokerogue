@@ -50,7 +50,8 @@ Or compose weighted components without writing a class::
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Mapping, Protocol, Tuple
+from collections.abc import Callable, Mapping
+from typing import Protocol
 
 import gymnasium as gym
 
@@ -149,7 +150,7 @@ class ComponentReward(RewardBase):
     """Weighted sum of named components: ``{name: (weight, component_fn)}``.
     Fully user-editable — add/remove/reweight entries to taste."""
 
-    def __init__(self, components: Dict[str, Tuple[float, ComponentFn]]):
+    def __init__(self, components: dict[str, tuple[float, ComponentFn]]):
         self.components = components
 
     def __call__(self, prev: GameState, cur: GameState, info: Mapping[str, object]) -> float:

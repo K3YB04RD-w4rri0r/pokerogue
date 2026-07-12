@@ -46,8 +46,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+from common import decode_obs_b64  # noqa: E402
 
-from common import REPO_ROOT, decode_obs_b64  # noqa: E402
 from rl.feature_names import FEATURE_NAMES, dim_to_name  # noqa: E402
 
 # Authoritative corpus-scenario names (module-level dict, no import side effects)

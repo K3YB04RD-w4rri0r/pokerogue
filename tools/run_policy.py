@@ -54,9 +54,10 @@ from rl.observation import (  # noqa: E402
     extract_action_mask,
     parse_game_state,
 )
-from rl.policy import Sb3Policy, make_builtin_policy  # noqa: E402
 from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
+from rl.policy import Sb3Policy, make_builtin_policy  # noqa: E402
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
+
 
 def require_protocol(msg: dict, context: str) -> None:
     """Strict `ready` handshake: version AND dims must match, None included.

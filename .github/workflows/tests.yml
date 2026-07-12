@@ -7,12 +7,16 @@ on:
       - beta
       - release
       - 'hotfix*'
+      # standard gates must also run on the RL branch (it previously had
+      # NO tsc/biome/test CI at all - only the rl-verify workflow)
+      - rl-framework
   pull_request:
     branches:
       - main
       - beta
       - release
       - 'hotfix*'
+      - rl-framework
   merge_group:
     types: [checks_requested]
   workflow_dispatch:

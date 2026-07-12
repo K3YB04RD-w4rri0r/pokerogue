@@ -23,8 +23,8 @@ import json
 import sys
 from pathlib import Path
 
-from common import REPO_ROOT  # noqa: E402
 import run_episodes  # noqa: E402
+from common import REPO_ROOT  # noqa: E402
 
 
 def _any_step(records: list[dict], pred) -> bool:

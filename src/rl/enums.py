@@ -12,7 +12,6 @@ Usage:
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Dict, List
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. NUMERIC IntEnums (mirror TS enums exactly)
@@ -274,7 +273,7 @@ class Command(IntEnum):
 
 # ─── BattlerTagType: 97 members + UNKNOWN=0 ──────────────────────────────
 
-_BATTLER_TAG_VALUES: List[str] = [
+_BATTLER_TAG_VALUES: list[str] = [
     "RECHARGING",
     "FLINCHED",
     "INTERRUPTED",
@@ -374,14 +373,14 @@ _BATTLER_TAG_VALUES: List[str] = [
 ]
 
 # 0 = UNKNOWN, 1..97 = tag types in declaration order
-BATTLER_TAG_STR_TO_ID: Dict[str, int] = {v: i + 1 for i, v in enumerate(_BATTLER_TAG_VALUES)}
-BATTLER_TAG_ID_TO_STR: Dict[int, str] = {v: k for k, v in BATTLER_TAG_STR_TO_ID.items()}
+BATTLER_TAG_STR_TO_ID: dict[str, int] = {v: i + 1 for i, v in enumerate(_BATTLER_TAG_VALUES)}
+BATTLER_TAG_ID_TO_STR: dict[int, str] = {v: k for k, v in BATTLER_TAG_STR_TO_ID.items()}
 BATTLER_TAG_ID_TO_STR[0] = "UNKNOWN"
 NUM_BATTLER_TAGS = len(_BATTLER_TAG_VALUES) + 1  # 98 including UNKNOWN
 
 # ─── ArenaTagType: 28 members (excl. NONE) + UNKNOWN=0 + NONE=1 ─────────
 
-_ARENA_TAG_VALUES: List[str] = [
+_ARENA_TAG_VALUES: list[str] = [
     "NONE",
     "MUD_SPORT",
     "WATER_SPORT",
@@ -414,14 +413,14 @@ _ARENA_TAG_VALUES: List[str] = [
 ]
 
 # 0 = UNKNOWN, 1..29 = tag types in declaration order (NONE=1)
-ARENA_TAG_STR_TO_ID: Dict[str, int] = {v: i + 1 for i, v in enumerate(_ARENA_TAG_VALUES)}
-ARENA_TAG_ID_TO_STR: Dict[int, str] = {v: k for k, v in ARENA_TAG_STR_TO_ID.items()}
+ARENA_TAG_STR_TO_ID: dict[str, int] = {v: i + 1 for i, v in enumerate(_ARENA_TAG_VALUES)}
+ARENA_TAG_ID_TO_STR: dict[int, str] = {v: k for k, v in ARENA_TAG_STR_TO_ID.items()}
 ARENA_TAG_ID_TO_STR[0] = "UNKNOWN"
 NUM_ARENA_TAGS = len(_ARENA_TAG_VALUES) + 1  # 30 including UNKNOWN
 
 # ─── ModifierTypeId: 109 modifier type keys (alphabetically sorted) ──────
 
-_MODIFIER_TYPE_VALUES: List[str] = sorted([
+_MODIFIER_TYPE_VALUES: list[str] = sorted([
     "POKEBALL", "GREAT_BALL", "ULTRA_BALL", "ROGUE_BALL", "MASTER_BALL",
     "RARE_CANDY", "RARER_CANDY", "EVOLUTION_ITEM", "RARE_EVOLUTION_ITEM",
     "FORM_CHANGE_ITEM", "RARE_FORM_CHANGE_ITEM", "EVOLUTION_TRACKER_GIMMIGHOUL",
@@ -455,14 +454,14 @@ _MODIFIER_TYPE_VALUES: List[str] = sorted([
 ])
 
 # 0 = UNKNOWN, 1..109 = modifier types in alphabetical order
-MODIFIER_TYPE_STR_TO_ID: Dict[str, int] = {v: i + 1 for i, v in enumerate(_MODIFIER_TYPE_VALUES)}
-MODIFIER_TYPE_ID_TO_STR: Dict[int, str] = {v: k for k, v in MODIFIER_TYPE_STR_TO_ID.items()}
+MODIFIER_TYPE_STR_TO_ID: dict[str, int] = {v: i + 1 for i, v in enumerate(_MODIFIER_TYPE_VALUES)}
+MODIFIER_TYPE_ID_TO_STR: dict[int, str] = {v: k for k, v in MODIFIER_TYPE_STR_TO_ID.items()}
 MODIFIER_TYPE_ID_TO_STR[0] = "UNKNOWN"
 NUM_MODIFIER_TYPES = len(_MODIFIER_TYPE_VALUES) + 1  # 110 including UNKNOWN
 
 # ─── ModifierClassId: 78 concrete modifier class names ───────────────────
 
-_MODIFIER_CLASS_VALUES: List[str] = [
+_MODIFIER_CLASS_VALUES: list[str] = [
     "AddPokeballModifier",
     "AddVoucherModifier",
     "AttackTypeBoosterModifier",
@@ -544,14 +543,14 @@ _MODIFIER_CLASS_VALUES: List[str] = [
 ]
 
 # 0 = UNKNOWN, 1..78 = modifier classes in alphabetical order
-MODIFIER_CLASS_STR_TO_ID: Dict[str, int] = {v: i + 1 for i, v in enumerate(_MODIFIER_CLASS_VALUES)}
-MODIFIER_CLASS_ID_TO_STR: Dict[int, str] = {v: k for k, v in MODIFIER_CLASS_STR_TO_ID.items()}
+MODIFIER_CLASS_STR_TO_ID: dict[str, int] = {v: i + 1 for i, v in enumerate(_MODIFIER_CLASS_VALUES)}
+MODIFIER_CLASS_ID_TO_STR: dict[int, str] = {v: k for k, v in MODIFIER_CLASS_STR_TO_ID.items()}
 MODIFIER_CLASS_ID_TO_STR[0] = "UNKNOWN"
 NUM_MODIFIER_CLASSES = len(_MODIFIER_CLASS_VALUES) + 1  # 79 including UNKNOWN
 
 # ─── PhaseId: 16 phase types matching PHASE_INDEX_MAP in spaces.ts ───────
 
-_PHASE_VALUES: List[str] = [
+_PHASE_VALUES: list[str] = [
     "command",          # 0
     "target",           # 1
     "modifier",         # 2
@@ -570,11 +569,11 @@ _PHASE_VALUES: List[str] = [
     "select_gender",    # 15
 ]
 
-PHASE_STR_TO_ID: Dict[str, int] = {v: i for i, v in enumerate(_PHASE_VALUES)}
+PHASE_STR_TO_ID: dict[str, int] = {v: i for i, v in enumerate(_PHASE_VALUES)}
 # Self-play alias (mirrors spaces.ts PHASE_INDEX_MAP): an enemy_command
 # decision is a command decision from the enemy's own perspective.
 PHASE_STR_TO_ID["enemy_command"] = PHASE_STR_TO_ID["command"]
-PHASE_ID_TO_STR: Dict[int, str] = {v: k for k, v in PHASE_STR_TO_ID.items()}
+PHASE_ID_TO_STR: dict[int, str] = {v: k for k, v in PHASE_STR_TO_ID.items()}
 NUM_PHASES = len(_PHASE_VALUES)  # 16
 
 # ─── TargetKindId: 4 members ─────────────────────────────────────────────
@@ -586,7 +585,7 @@ class TargetKindId(IntEnum):
     POKEMON_PAIR = 3
 
 
-TARGET_KIND_STR_TO_ID: Dict[str, int] = {
+TARGET_KIND_STR_TO_ID: dict[str, int] = {
     "none": 0, "pokemon": 1, "move": 2, "pokemon_pair": 3,
 }
 
@@ -598,7 +597,7 @@ class PositionalTagId(IntEnum):
     WISH = 2
 
 
-POSITIONAL_TAG_STR_TO_ID: Dict[str, int] = {
+POSITIONAL_TAG_STR_TO_ID: dict[str, int] = {
     "DELAYED_ATTACK": 1, "WISH": 2,
 }
 
@@ -610,7 +609,7 @@ POSITIONAL_TAG_STR_TO_ID: Dict[str, int] = {
 # v9: 7 TURN_END-transient tags cut (FLINCHED/PROTECTED/ENDURING/
 # HELPING_HAND/MAGIC_COAT/POWDER/CENTER_OF_ATTENTION) — they lapse before
 # every decision boundary. Must match spaces.ts CURATED_VOLATILE_TAGS.
-CURATED_VOLATILE_TAGS: List[str] = [
+CURATED_VOLATILE_TAGS: list[str] = [
     "CONFUSED", "INFATUATED", "SEEDED", "TRAPPED",
     "ENCORE", "SUBSTITUTE", "DISABLED",
     "TAUNT", "TORMENT", "HEAL_BLOCK", "INGRAIN", "AQUA_RING",
@@ -643,7 +642,7 @@ CURATED_VOLATILE_TAGS: List[str] = [
 ]
 
 # 28 arena tag types in spaces.ts order (lines 232-261)
-ARENA_TAG_ORDER: List[str] = [
+ARENA_TAG_ORDER: list[str] = [
     "MUD_SPORT", "WATER_SPORT", "SPIKES", "TOXIC_SPIKES", "MIST",
     "STEALTH_ROCK", "STICKY_WEB", "TRICK_ROOM", "GRAVITY", "REFLECT",
     "LIGHT_SCREEN", "AURORA_VEIL", "QUICK_GUARD", "WIDE_GUARD", "MAT_BLOCK",
@@ -696,35 +695,35 @@ def lookup_positional_tag(tag_str: str) -> int:
 # 5. DISPLAY NAME DICTIONARIES (for play.py TUI)
 # ═══════════════════════════════════════════════════════════════════════════
 
-TYPE_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in PokemonType}
+TYPE_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in PokemonType}
 TYPE_NAMES[-1] = "\u2014"
 
-STATUS_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in StatusEffect}
+STATUS_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in StatusEffect}
 STATUS_NAMES[0] = "\u2014"
 
-WEATHER_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in WeatherType}
+WEATHER_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in WeatherType}
 WEATHER_NAMES[0] = "None"
 
-TERRAIN_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in TerrainType}
+TERRAIN_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in TerrainType}
 TERRAIN_NAMES[0] = "None"
 
-CATEGORY_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in MoveCategory}
+CATEGORY_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in MoveCategory}
 
-BATTLE_TYPE_NAMES: Dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in BattleType}
+BATTLE_TYPE_NAMES: dict[int, str] = {m.value: m.name.replace("_", " ").title() for m in BattleType}
 
-TYPE_ABBREV: Dict[int, str] = {
+TYPE_ABBREV: dict[int, str] = {
     0: "Nor", 1: "Fig", 2: "Fly", 3: "Psn", 4: "Gnd", 5: "Rck", 6: "Bug",
     7: "Gho", 8: "Stl", 9: "Fir", 10: "Wat", 11: "Grs", 12: "Elc", 13: "Psy",
     14: "Ice", 15: "Drg", 16: "Drk", 17: "Fai", 18: "Str", -1: "\u2014",
 }
 
-CATEGORY_ABBREV: Dict[int, str] = {0: "Phy", 1: "Spe", 2: "Sta"}
+CATEGORY_ABBREV: dict[int, str] = {0: "Phy", 1: "Spe", 2: "Sta"}
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 6. DIMENSION CONSTANTS
 # ═══════════════════════════════════════════════════════════════════════════
 
-DIMS: Dict[str, int] = {
+DIMS: dict[str, int] = {
     "pokemon_type": 19,
     "status_effect": 8,
     "weather_type": 10,
@@ -746,7 +745,7 @@ DIMS: Dict[str, int] = {
 }
 
 # Pokemon slot keys in observation order (matches spaces.ts POKEMON_SLOT_KEYS)
-POKEMON_SLOT_KEYS: List[str] = [
+POKEMON_SLOT_KEYS: list[str] = [
     "player_0", "player_1",  # active player (2)
     "enemy_0", "enemy_1",    # active enemy (2)
     "player_2", "player_3", "player_4", "player_5",  # player bench (4)

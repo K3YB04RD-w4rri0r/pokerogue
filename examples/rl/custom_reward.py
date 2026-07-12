@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from rl.policy import make_builtin_policy  # noqa: E402
 from rl.pokerogue_env import PokeRogueEnv  # noqa: E402
+from rl.policy import make_builtin_policy  # noqa: E402
 from rl.reward import (  # noqa: E402
     ComponentReward,
     CustomReward,

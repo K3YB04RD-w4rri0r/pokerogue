@@ -24,15 +24,15 @@ Phaser+jsdom node process (several hundred MB); ~4-8 envs per 16 GB RAM.
 from __future__ import annotations
 
 import atexit
-import time
-import weakref
 import base64
 import json
-import queue
 import os
+import queue
 import signal
 import subprocess
 import threading
+import time
+import weakref
 from pathlib import Path
 
 import gymnasium as gym
@@ -45,6 +45,7 @@ from .observation import (
     extract_action_mask,
     parse_game_state,
 )
+
 
 def _resolve_default_cli() -> Path:
     """Locate dist/rl/cli.js: POKEROGUE_RL_CLI env var, else the repo-relative
@@ -195,7 +196,7 @@ class PokeRogueEnv(gym.Env):
         atexit.register(lambda: (lambda e: e.close() if e is not None else None)(_self()))
 
     @classmethod
-    def from_config(cls, config, **kwargs) -> "PokeRogueEnv":
+    def from_config(cls, config, **kwargs) -> PokeRogueEnv:
         """Build an env from a run config (path to a YAML/JSON file, or a
         RunConfig object). Explicit ``kwargs`` win over the file's values.
 

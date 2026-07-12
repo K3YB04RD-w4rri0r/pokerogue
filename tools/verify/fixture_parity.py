@@ -16,8 +16,8 @@ import json
 import sys
 
 import numpy as np
-
 from common import REPO_ROOT  # noqa: E402  (sys.path side effect)
+
 from rl.feature_names import dim_to_name, name_to_dim
 from rl.observation import ACTION_SPACE_SIZE, encode_observation, extract_action_mask, parse_game_state
 

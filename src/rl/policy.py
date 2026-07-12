@@ -34,7 +34,8 @@ one-hots them (dims named ``phase/*`` in feature_names.py).
 from __future__ import annotations
 
 import zlib
-from typing import Mapping, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Protocol, runtime_checkable
 
 import numpy as np
 

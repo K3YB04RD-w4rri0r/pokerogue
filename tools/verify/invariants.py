@@ -6,9 +6,9 @@ Used by check_parity.py on every record; importable anywhere.
 
 from __future__ import annotations
 
+import common  # noqa: F401  (sys.path side effect)
 import numpy as np
 
-import common  # noqa: F401  (sys.path side effect)
 from rl.feature_names import FEATURE_NAMES, ONE_HOT_GROUPS, dim_to_name
 from rl.observation import ACTION_SPACE_SIZE, OBSERVATION_DIM
 

@@ -31,8 +31,6 @@ indicator). Multi-hot banks (volatile tags, arena tags) are NOT included.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
-
 from .enums import (
     ARENA_TAG_ORDER,
     CURATED_VOLATILE_TAGS,
@@ -40,12 +38,15 @@ from .enums import (
     POKEMON_SLOT_KEYS,
 )
 from .observation import (
-    LEARN_MOVE_BLOCK_DIM,
+    _ENEMY_MOD_IDS,
+    _KEY_ARENA_TAGS,
+    _PARTY_FLAG_IDS,
     ABILITY_FEATURE_DIM,
     BATTLE_META_DIM,
     DERIVED_FIELDS_DIM,
     FIELD_STATE_DIM,
     HELD_ITEM_SLOT_DIM,
+    LEARN_MOVE_BLOCK_DIM,
     MAX_HELD_ITEMS_ENCODED,
     MAX_MOVES,
     MAX_REWARD_OPTIONS,
@@ -69,9 +70,6 @@ from .observation import (
     REWARD_OPTION_DIM,
     SHOP_OPTION_DIM,
     TOTAL_POKEMON_SLOTS,
-    _ENEMY_MOD_IDS,
-    _KEY_ARENA_TAGS,
-    _PARTY_FLAG_IDS,
 )
 
 # ─── Label vocabularies (mirror state_schema.py orderings) ─────────────────
@@ -184,15 +182,15 @@ _ENEMY_ACTIVE_KEYS = POKEMON_SLOT_KEYS[2:4]  # enemy_0, enemy_1
 _PHASE_LABELS = [PHASE_ID_TO_STR[i] for i in range(PHASE_INDICATOR_DIM)]
 
 
-def build_feature_names() -> Tuple[List[str], List[Tuple[int, int, str]]]:
+def build_feature_names() -> tuple[list[str], list[tuple[int, int, str]]]:
     """Build (names, one_hot_groups) for the 9,875-dim observation.
 
     names[i] is the feature name of observation dimension i.
     one_hot_groups is a list of (start_index, size, label) tuples for every
     genuine one-hot range written by the encoders.
     """
-    names: List[str] = []
-    one_hot_groups: List[Tuple[int, int, str]] = []
+    names: list[str] = []
+    one_hot_groups: list[tuple[int, int, str]] = []
 
     def add(name: str) -> None:
         names.append(name)
@@ -455,7 +453,7 @@ assert len(_MOVE_SCALAR_FIELDS) == 18 and len(_MOVE_POST_TARGET_FIELDS) == 16
 
 # Block ranges: (label, start, size) in observation order
 _POKEMON_TOTAL = TOTAL_POKEMON_SLOTS * POKEMON_BLOCK_DIM
-BLOCK_RANGES: List[Tuple[str, int, int]] = [
+BLOCK_RANGES: list[tuple[str, int, int]] = [
     (slot, i * POKEMON_BLOCK_DIM, POKEMON_BLOCK_DIM)
     for i, slot in enumerate(POKEMON_SLOT_KEYS)
 ] + [
@@ -482,7 +480,7 @@ BLOCK_RANGES: List[Tuple[str, int, int]] = [
 ]
 assert BLOCK_RANGES[-1][1] + BLOCK_RANGES[-1][2] == OBSERVATION_DIM
 
-_NAME_TO_DIM: Dict[str, int] = {n: i for i, n in enumerate(FEATURE_NAMES)}
+_NAME_TO_DIM: dict[str, int] = {n: i for i, n in enumerate(FEATURE_NAMES)}
 
 
 def dim_to_name(i: int) -> str:
@@ -497,7 +495,7 @@ def name_to_dim(name: str) -> int:
     return _NAME_TO_DIM[name]
 
 
-def block_of(i: int) -> Tuple[str, int]:
+def block_of(i: int) -> tuple[str, int]:
     """Return (block_label, offset_within_block) for observation dimension i."""
     if not 0 <= i < OBSERVATION_DIM:
         raise IndexError(f"dimension {i} out of range [0, {OBSERVATION_DIM})")

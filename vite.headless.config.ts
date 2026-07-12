@@ -78,7 +78,6 @@ const EXTERNAL_DEPS = [
   // NOTE: crypto-js is intentionally NOT externalized. It is a CJS module
   // that doesn't support named ESM exports (e.g., `import { AES, enc }`).
   // Bundling it lets Vite handle CJS->ESM interop correctly.
-  "json-stable-stringify",
   "jszip",
   "compare-versions",
   "core-js",
@@ -176,7 +175,7 @@ export default defineConfig({
     // Don't minify -- we want readable stack traces for debugging RL issues
     minify: false,
 
-    // Don't clear the output dir on each build (other dist/ content may exist)
+    // Clear only dist/rl on each build (outDir is scoped, the web build's dist is untouched) (other dist/ content may exist)
     emptyOutDir: true,
 
     // SSR build mode: targets Node.js, uses CJS-compatible output,
@@ -281,8 +280,15 @@ export default defineConfig({
 
   // ── esbuild Configuration ─────────────────────────────────────────
   esbuild: {
-    // Keep original function/class names for debugging and phase name detection
-    // (the game uses constructor.name / phaseName for phase identification)
+    // LOAD-BEARING for observation parity, not just debugging: the state
+    // builder serializes modifier.constructor.name (modifier_class) and phase
+    // detection reads constructor.name. Two silent break vectors if touched:
+    //   1. `esbuild: false` — kills the __name annotations, so Rollup's
+    //      deconfliction renames classes (Foo$1)
+    //   2. `build.minify: "terser"` — the terser path IGNORES esbuild.keepNames
+    //      (needs terserOptions.keep_classnames instead)
+    // The V5 parity gate catches the resulting drift — but only if it runs;
+    // this file is in rl-verify.yml's path filters for exactly that reason.
     keepNames: true,
   },
 });

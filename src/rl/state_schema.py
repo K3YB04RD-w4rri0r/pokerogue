@@ -30,7 +30,7 @@ Slot layout (12 Pokemon total):
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, TypedDict
+from typing import TypedDict
 
 # ---------------------------------------------------------------------------
 # Constants — mirror the TypeScript enum counts in spaces.ts / enums/
@@ -163,7 +163,7 @@ class MoveSlot(TypedDict):
     # --- Secondary Effects ---
     effect_chance: int          # % chance of secondary effect (-1 if none, 100 if guaranteed)
     status_effect: int          # StatusEffect inflicted (0=NONE, 1=POISON, ..., 7=FAINT)
-    stat_changes: List[StatChange]  # Stat stage changes (e.g. [{stat:1, stages:2, self:True, chance:100}])
+    stat_changes: list[StatChange]  # Stat stage changes (e.g. [{stat:1, stages:2, self:True, chance:100}])
     drain_ratio: float          # Fraction of damage dealt healed back (Drain Punch=0.5, 0.0 if none)
     recoil_ratio: float         # Fraction of damage dealt as recoil (Brave Bird=0.33, 0.0 if none)
                                 # NOTE: some moves use fraction of maxHP instead (Struggle=0.25, Chloroblast=0.5)
@@ -330,24 +330,24 @@ class VolatileTag(TypedDict):
 
     tag_type: str               # BattlerTagType string value (e.g. "CONFUSED")
     turn_count: int             # Number of turns remaining, or <=0 if indefinite
-    source_id: Optional[int]    # Pokemon PID (Pokemon.id) of the setter, or None
-    source_move: Optional[int]  # MoveId that created this tag, or None
+    source_id: int | None    # Pokemon PID (Pokemon.id) of the setter, or None
+    source_move: int | None  # MoveId that created this tag, or None
 
     # --- Extra state for specific tag subclasses ---
-    substitute_hp: Optional[int]       # SubstituteTag: remaining HP of the substitute
-    stockpile_count: Optional[int]     # StockpilingTag: Stockpile stacks (1-3)
-    encore_move_id: Optional[int]      # EncoreTag: which move is locked
-    disabled_move_id: Optional[int]    # DisabledTag: which move is disabled
-    type_boost_type: Optional[int]     # TypeBoostTag: which PokemonType is boosted
-    type_boost_value: Optional[float]  # TypeBoostTag: boost multiplier
-    crit_boost_stages: Optional[int]   # CritBoostTag: crit stage bonus (Focus Energy, etc.)
+    substitute_hp: int | None       # SubstituteTag: remaining HP of the substitute
+    stockpile_count: int | None     # StockpilingTag: Stockpile stacks (1-3)
+    encore_move_id: int | None      # EncoreTag: which move is locked
+    disabled_move_id: int | None    # DisabledTag: which move is disabled
+    type_boost_type: int | None     # TypeBoostTag: which PokemonType is boosted
+    type_boost_value: float | None  # TypeBoostTag: boost multiplier
+    crit_boost_stages: int | None   # CritBoostTag: crit stage bonus (Focus Energy, etc.)
 
     # --- v5 additions (completeness audit) ---
-    gorilla_tactics_move_id: Optional[int]       # GorillaTacticsTag: move locked into (Choice-like)
-    highest_stat_boost_stat: Optional[int]       # HighestStatBoostTag: which EffectiveStat (Protosynthesis/Quark Drive)
-    highest_stat_boost_multiplier: Optional[float]  # HighestStatBoostTag: 1.3 or 1.5 (1.5 for Speed)
-    supreme_overlord_faint_count: Optional[int]  # SupremeOverlordTag: prior faints (0-5, +10% dmg each)
-    autotomize_count: Optional[int]    # AutotomizedTag: stacks reducing weight by 100kg each
+    gorilla_tactics_move_id: int | None       # GorillaTacticsTag: move locked into (Choice-like)
+    highest_stat_boost_stat: int | None       # HighestStatBoostTag: which EffectiveStat (Protosynthesis/Quark Drive)
+    highest_stat_boost_multiplier: float | None  # HighestStatBoostTag: 1.3 or 1.5 (1.5 for Speed)
+    supreme_overlord_faint_count: int | None  # SupremeOverlordTag: prior faints (0-5, +10% dmg each)
+    autotomize_count: int | None    # AutotomizedTag: stacks reducing weight by 100kg each
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -362,9 +362,9 @@ class QueuedMove(TypedDict):
     """
 
     move_id: int                # Moves enum ID
-    targets: List[int]          # BattlerIndex targets
+    targets: list[int]          # BattlerIndex targets
     use_mode: int               # MoveUseMode enum value
-    result: Optional[int]       # MoveResult enum (SUCCESS, MISS, FAIL, etc.), None if pending
+    result: int | None       # MoveResult enum (SUCCESS, MISS, FAIL, etc.), None if pending
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -400,18 +400,18 @@ class HeldItem(TypedDict):
     is_transferable: bool       # Whether the item can be transferred (Baton Pass, etc.)
 
     # Type-specific fields (present only for certain modifier classes)
-    type_id: Optional[int]      # PokemonType for type-boosting items (None if N/A)
-    stat_id: Optional[int]      # Stat ID for single-stat items like BaseStatModifier (None if N/A)
-    status_effect: Optional[int]  # StatusEffect for TurnStatusEffectModifier (Toxic/Flame Orb)
+    type_id: int | None      # PokemonType for type-boosting items (None if N/A)
+    stat_id: int | None      # Stat ID for single-stat items like BaseStatModifier (None if N/A)
+    status_effect: int | None  # StatusEffect for TurnStatusEffectModifier (Toxic/Flame Orb)
 
     # Berry-specific fields (BerryModifier)
-    berry_type: Optional[int]   # BerryType enum value (None if not a berry)
-    consumed: Optional[bool]    # Whether the berry has been consumed (None if not a berry)
+    berry_type: int | None   # BerryType enum value (None if not a berry)
+    consumed: bool | None    # Whether the berry has been consumed (None if not a berry)
 
     # v5 additions (completeness audit)
-    stat_modifier: Optional[int]       # PokemonBaseStatTotalModifier: +10 (Shuckle Juice good) or -15 (bad)
-    form_change_item: Optional[int]    # PokemonFormChangeItemModifier: FormChangeItem enum value
-    form_change_active: Optional[bool] # PokemonFormChangeItemModifier: whether currently active
+    stat_modifier: int | None       # PokemonBaseStatTotalModifier: +10 (Shuckle Juice good) or -15 (bad)
+    form_change_item: int | None    # PokemonFormChangeItemModifier: FormChangeItem enum value
+    form_change_active: bool | None # PokemonFormChangeItemModifier: whether currently active
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -426,17 +426,17 @@ class TurnData(TypedDict):
 
     damage_taken: int           # Total damage taken this turn (damageTaken)
     total_damage_dealt: int     # Total damage dealt this turn (totalDamageDealt)
-    attacks_received: List[AttackReceived]  # All attacks received this turn
+    attacks_received: list[AttackReceived]  # All attacks received this turn
     order: int                  # Turn order index (lower = faster)
     hit_count: int              # Number of hits for current multi-hit move
     hits_left: int              # Remaining hits in the current multi-hit move
-    move_effectiveness: Optional[float]  # Type effectiveness of the last move against this mon
+    move_effectiveness: float | None  # Type effectiveness of the last move against this mon
     single_hit_damage_dealt: int  # Damage dealt by the most recent single hit
     acted: bool                 # Whether the Pokemon has acted this turn
     switched_in_this_turn: bool # Whether switched in this turn (not initial summon)
     stat_stages_increased: bool # Whether any stat stages were raised
     stat_stages_decreased: bool # Whether any stat stages were lowered
-    berries_eaten: List[int]    # BerryType values of berries eaten this turn
+    berries_eaten: list[int]    # BerryType values of berries eaten this turn
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -451,8 +451,8 @@ class BattleData(TypedDict):
 
     hit_count: int              # Direct hits received this battle (PokemonBattleData.hitCount, for Rage Fist)
     has_eaten_berry: bool       # Whether a berry was eaten this battle (for Belch)
-    berries_eaten: List[int]    # BerryType values of berries eaten (for Harvest)
-    abilities_applied: List[int]  # Ability IDs that triggered (from PokemonWaveData)
+    berries_eaten: list[int]    # BerryType values of berries eaten (for Harvest)
+    abilities_applied: list[int]  # Ability IDs that triggered (from PokemonWaveData)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -486,14 +486,14 @@ class PokemonState(TypedDict):
 
     # --- Stats ---
     # Each list is ordered [HP, ATK, DEF, SPATK, SPDEF, SPD]
-    base_stats: List[int]       # Species base stats (length 6)
-    ivs: List[int]              # Individual values 0-31 (length 6)
-    stats: List[int]            # Computed battle stats (length 6)
+    base_stats: list[int]       # Species base stats (length 6)
+    ivs: list[int]              # Individual values 0-31 (length 6)
+    stats: list[int]            # Computed battle stats (length 6)
 
     # --- Stat Stages ---
     # Ordered [ATK, DEF, SPATK, SPDEF, SPD, ACC, EVA] — range -6 to +6
     # Only meaningful for on-field Pokemon with summonData.
-    stat_stages: List[int]      # Length 7
+    stat_stages: list[int]      # Length 7
 
     # --- Status ---
     status_effect: int          # StatusEffect enum (0=NONE, 1=POISON, ..., 7=FAINT)
@@ -501,7 +501,7 @@ class PokemonState(TypedDict):
     sleep_turns_remaining: int  # Turns of sleep left (0 if not asleep)
 
     # --- Typing ---
-    types: List[int]            # Current types as PokemonType ints (length 1-2)
+    types: list[int]            # Current types as PokemonType ints (length 1-2)
     tera_type: int              # Tera type (PokemonType), or -1 if none
     is_terastallized: bool      # Whether currently Terastallized
     added_type: int             # Type added by Forest's Curse / Trick-or-Treat (-1 if none)
@@ -517,34 +517,34 @@ class PokemonState(TypedDict):
 
     # --- Nature ---
     nature: int                 # Nature enum (0-24)
-    nature_multipliers: List[float]  # Stat multipliers for ATK/DEF/SPATK/SPDEF/SPD (length 5)
+    nature_multipliers: list[float]  # Stat multipliers for ATK/DEF/SPATK/SPDEF/SPD (length 5)
                                 # Each is 0.9, 1.0, or 1.1
 
     # --- Moves ---
-    moves: List[MoveSlot]       # Up to 4 move slots (may be fewer)
-    move_history: List[QueuedMove]  # Recent move history (from summonData.moveHistory)
+    moves: list[MoveSlot]       # Up to 4 move slots (may be fewer)
+    move_history: list[QueuedMove]  # Recent move history (from summonData.moveHistory)
 
     # --- Catch Ball ---
     pokeball: int               # PokeballType used to catch this Pokemon (0-5)
 
     # --- Volatile Tags ---
-    volatile_tags: List[VolatileTag]  # All active BattlerTag volatile conditions
+    volatile_tags: list[VolatileTag]  # All active BattlerTag volatile conditions
 
     # --- Boss ---
     is_boss: bool               # Whether this is a boss Pokemon
     is_mega: bool               # Mega-evolved this battle
     is_max: bool                # Dynamaxed this battle
     was_seen: bool              # Fog-of-war: this enemy has been on-field (enemy slots)
-    move_known: List[bool]      # Fog-of-war: per-moveset-slot revealed flags
+    move_known: list[bool]      # Fog-of-war: per-moveset-slot revealed flags
     boss_segments: int          # Total boss shield segments (0 if not boss)
     boss_segment_index: int     # Current shield segment index (0 if not boss)
 
     # --- AI (enemies only) ---
-    ai_type: Optional[int]      # AiType enum RANDOM=0/SMART_RANDOM=1/SMART=2; None = unknown (player-controlled or enemy-view opponent)
+    ai_type: int | None      # AiType enum RANDOM=0/SMART_RANDOM=1/SMART=2; None = unknown (player-controlled or enemy-view opponent)
 
     # --- Fusion ---
     is_fusion: bool             # Whether this Pokemon is a fusion
-    fusion_species_id: Optional[int]  # Species ID of the fusion partner, or None
+    fusion_species_id: int | None  # Species ID of the fusion partner, or None
 
     # --- Positioning ---
     is_on_field: bool           # Whether currently on the battlefield
@@ -553,12 +553,12 @@ class PokemonState(TypedDict):
     field_index: int            # 0 or 1 (slot on that side)
 
     # --- Held Items ---
-    held_items: List[HeldItem]  # All held items on this Pokemon
+    held_items: list[HeldItem]  # All held items on this Pokemon
 
     # === FIELDS MISSING FROM CURRENT FLOAT32 ENCODING (spaces.ts) ===
 
     # --- Queued Moves ---
-    move_queue: List[QueuedMove]  # Queued moves (Encore, two-turn, Outrage, etc.)
+    move_queue: list[QueuedMove]  # Queued moves (Encore, two-turn, Outrage, etc.)
 
     # --- Battle Participation ---
     wave_turn_count: int        # Turns this Pokemon has been active this wave
@@ -570,12 +570,12 @@ class PokemonState(TypedDict):
     is_grounded: bool           # Affected by ground-based effects (isGrounded())
 
     # --- Transform / Illusion ---
-    transform_species_id: Optional[int]  # Species ID if Transform is active, else None
-    transform_moves: Optional[List[MoveSlot]]  # Moveset from Transform, or None
-    illusion_species_id: Optional[int]    # Species ID of Illusion disguise, or None
+    transform_species_id: int | None  # Species ID if Transform is active, else None
+    transform_moves: list[MoveSlot] | None  # Moveset from Transform, or None
+    illusion_species_id: int | None    # Species ID of Illusion disguise, or None
 
     # --- Combat History ---
-    attacks_received: List[AttackReceived]  # Convenience copy of turnData.attacks_received (resets each turn)
+    attacks_received: list[AttackReceived]  # Convenience copy of turnData.attacks_received (resets each turn)
     turn_data: TurnData         # Per-turn transient data
     battle_data: BattleData     # Cumulative battle data
 
@@ -585,10 +585,10 @@ class PokemonState(TypedDict):
     base_total: int             # Sum of base stats
 
     # --- Stellar ---
-    stellar_types_boosted: List[int]  # PokemonType values already Stellar-boosted
+    stellar_types_boosted: list[int]  # PokemonType values already Stellar-boosted
 
     # --- v5 additions (completeness audit) ---
-    berries_eaten_last: List[int]     # BerryType values eaten last turn (Cud Chew re-eats these)
+    berries_eaten_last: list[int]     # BerryType values eaten last turn (Cud Chew re-eats these)
     exp_to_next_level: int            # EXP needed to reach next level (for Rare Candy / EXP Share value)
     luck: int                         # Luck value (affects modifier tier generation in shop)
     endured_this_wave: bool           # Whether Focus Band / Endure Token already triggered this wave
@@ -606,7 +606,7 @@ class ArenaTagState(TypedDict):
     turn_count: int             # Turns remaining; <=0 if indefinite (hazards use 0)
     layers: int                 # Layer count for stackable tags (Spikes: 1-3,
                                 # Toxic Spikes: 1-2); 1 for non-stackable
-    source_id: Optional[int]    # Pokemon PID (Pokemon.id) of the setter, or None
+    source_id: int | None    # Pokemon PID (Pokemon.id) of the setter, or None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -619,9 +619,9 @@ class PositionalTag(TypedDict):
     tag_type: str               # PositionalTagType: "DELAYED_ATTACK" or "WISH"
     countdown: int              # Turns until activation
     target_index: int           # BattlerIndex of the target slot
-    source_id: Optional[int]    # Pokemon PID of the user (DelayedAttackTag only), or None
-    move_id: Optional[int]      # Move ID (Future Sight / Doom Desire), or None
-    heal_hp: Optional[int]      # WishTag: HP amount to heal, or None
+    source_id: int | None    # Pokemon PID of the user (DelayedAttackTag only), or None
+    move_id: int | None      # Move ID (Future Sight / Doom Desire), or None
+    heal_hp: int | None      # WishTag: HP amount to heal, or None
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -650,10 +650,10 @@ class FieldState(TypedDict):
     player_teras_used: int      # Number of teras used by the player this battle
 
     # --- Arena Tags ---
-    arena_tags: List[ArenaTagState]  # All active arena tags (screens, hazards, rooms)
+    arena_tags: list[ArenaTagState]  # All active arena tags (screens, hazards, rooms)
 
     # --- Positional Tags ---
-    positional_tags: List[PositionalTag]  # Delayed effects (Future Sight, Wish, etc.)
+    positional_tags: list[PositionalTag]  # Delayed effects (Future Sight, Wish, etc.)
 
     # --- Battle Configuration ---
     is_double_battle: bool      # Whether the current battle is a double battle
@@ -700,8 +700,8 @@ class TrainerInfo(TypedDict):
     is_double: bool             # Whether this trainer forces a double battle
     is_boss: bool               # Whether this is a gym leader / elite four / champion
     party_template_size: int    # Expected number of Pokemon in trainer's party
-    specialty_type: Optional[int]  # PokemonType the trainer specializes in (None if N/A)
-    tera_mode: Optional[int]    # TeraAIMode enum: NO_TERA=0, etc. (None if unknown)
+    specialty_type: int | None  # PokemonType the trainer specializes in (None if N/A)
+    tera_mode: int | None    # TeraAIMode enum: NO_TERA=0, etc. (None if unknown)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -722,7 +722,7 @@ class MysteryEncounterState(TypedDict):
 
     encounter_type: int         # MysteryEncounterType enum value
     encounter_name: str         # Display name
-    options: List[MysteryEncounterOption]  # Available choices
+    options: list[MysteryEncounterOption]  # Available choices
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -763,7 +763,7 @@ class BattleState(TypedDict):
     enemy_faints_battle: int    # Enemy faints in current battle (Battle.enemyFaints)
 
     # --- Last Move ---
-    last_move_id: Optional[int] # Move ID of the last move used, or None
+    last_move_id: int | None # Move ID of the last move used, or None
 
     # --- Economy ---
     money: int                  # Current money
@@ -790,10 +790,10 @@ class BattleState(TypedDict):
     inverse_battle: bool        # Inverse Battle challenge active — encoded flag
 
     # --- Trainer ---
-    trainer: Optional[TrainerInfo]  # Trainer info if battle_type == TRAINER, else None
+    trainer: TrainerInfo | None  # Trainer info if battle_type == TRAINER, else None
 
     # --- Mystery Encounter ---
-    mystery_encounter: Optional[MysteryEncounterState]  # If in mystery encounter
+    mystery_encounter: MysteryEncounterState | None  # If in mystery encounter
 
     # === FIELDS MISSING FROM CURRENT FLOAT32 ENCODING ===
 
@@ -806,7 +806,7 @@ class BattleState(TypedDict):
     money_scattered: int        # Money scattered from moves like Pay Day/Make It Rain this battle
 
     # --- Challenges ---
-    challenges: List[ChallengeInfo]  # Active challenge modifiers
+    challenges: list[ChallengeInfo]  # Active challenge modifiers
 
     # --- Modifier Phase Control ---
     lock_modifier_tiers: bool   # Whether modifier tiers are locked (reroll preserves tiers)
@@ -838,9 +838,9 @@ class PartyModifier(TypedDict):
     max_stack_count: int        # Maximum allowed stacks
 
     # Subtype-specific fields
-    type_id: Optional[int]      # For type-specific modifiers
-    stat_id: Optional[int]      # For stat-specific modifiers
-    status_effect: Optional[int]  # StatusEffect for EnemyAttackStatusEffectChanceModifier
+    type_id: int | None      # For type-specific modifiers
+    stat_id: int | None      # For stat-specific modifiers
+    status_effect: int | None  # StatusEffect for EnemyAttackStatusEffectChanceModifier
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -861,8 +861,8 @@ class LapsingModifier(TypedDict):
     battles_remaining: int      # Battles until this modifier expires
 
     # TempStatStageBoosterModifier-specific fields
-    stat_id: Optional[int]      # TempBattleStat enum (which stat is boosted, None if N/A)
-    boost: Optional[float]      # Boost amount (stat stage multiplier increase, None if N/A)
+    stat_id: int | None      # TempBattleStat enum (which stat is boosted, None if N/A)
+    boost: float | None      # Boost amount (stat stage multiplier increase, None if N/A)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -877,16 +877,16 @@ class ModifierInventory(TypedDict):
     """
 
     # Per-pokemon held items, keyed by party slot index ("0" - "5")
-    held_items: Dict[str, List[HeldItem]]
+    held_items: dict[str, list[HeldItem]]
 
     # Party-wide modifiers (EXP Share, Lucky Egg, Amulet Coin, etc.)
-    party_modifiers: List[PartyModifier]
+    party_modifiers: list[PartyModifier]
 
     # Modifiers that expire after N battles
-    lapsing_modifiers: List[LapsingModifier]
+    lapsing_modifiers: list[LapsingModifier]
 
     # Enemy-side hidden modifiers (enemy stat boosts, etc.)
-    enemy_modifiers: List[PartyModifier]
+    enemy_modifiers: list[PartyModifier]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -906,10 +906,10 @@ class RewardOption(TypedDict):
     is_pokemon_modifier: bool   # Whether this targets a specific Pokemon
 
     # Item effect fields (for RL evaluation of rewards)
-    type_id: Optional[int]      # PokemonType for type-boosting items (e.g. Silk Scarf → NORMAL)
-    stat_id: Optional[int]      # Stat for stat-boosting items (e.g. Protein → ATK)
-    move_id: Optional[int]      # MoveId for TM items (None otherwise)
-    berry_type: Optional[int]   # BerryType enum value (None if not a berry)
+    type_id: int | None      # PokemonType for type-boosting items (e.g. Silk Scarf → NORMAL)
+    stat_id: int | None      # Stat for stat-boosting items (e.g. Protein → ATK)
+    move_id: int | None      # MoveId for TM items (None otherwise)
+    berry_type: int | None   # BerryType enum value (None if not a berry)
     description: str            # Brief effect description for RL understanding
 
 
@@ -930,10 +930,10 @@ class ShopOption(TypedDict):
     affordable: bool            # Whether the player has enough money
 
     # Item effect fields (for RL evaluation of shop items)
-    type_id: Optional[int]      # PokemonType for type-boosting items
-    stat_id: Optional[int]      # Stat for stat-boosting items
-    move_id: Optional[int]      # MoveId for TM items (None otherwise)
-    berry_type: Optional[int]   # BerryType enum value (None if not a berry)
+    type_id: int | None      # PokemonType for type-boosting items
+    stat_id: int | None      # Stat for stat-boosting items
+    move_id: int | None      # MoveId for TM items (None otherwise)
+    berry_type: int | None   # BerryType enum value (None if not a berry)
     description: str            # Brief effect description for RL understanding
 
 
@@ -944,8 +944,8 @@ class ShopOption(TypedDict):
 class ShopState(TypedDict):
     """State of the reward/shop selection (only present during SelectModifierPhase)."""
 
-    reward_options: List[RewardOption]  # Free reward choices (up to 3)
-    shop_options: List[ShopOption]      # Purchasable items (up to 12)
+    reward_options: list[RewardOption]  # Free reward choices (up to 3)
+    shop_options: list[ShopOption]      # Purchasable items (up to 12)
     can_reroll: bool                    # Whether rerolling is available
     reroll_cost: int                    # Money cost to reroll
     money: int                          # Current money (for affordability checks)
@@ -980,23 +980,23 @@ class PhaseInfo(TypedDict):
 
     # --- Command Phase Context ---
     command_field_index: int     # Which Pokemon is choosing (-1 if not command phase)
-    command_pokemon_species: Optional[str]  # Species name of the choosing Pokemon
+    command_pokemon_species: str | None  # Species name of the choosing Pokemon
 
     # --- Action Space ---
-    action_mask: List[bool]     # 58 booleans for valid actions
-    valid_actions: List[int]    # Indices of valid actions (convenience)
+    action_mask: list[bool]     # 58 booleans for valid actions
+    valid_actions: list[int]    # Indices of valid actions (convenience)
 
     # --- Phase-Specific Metadata ---
     # These are present only for specific phases:
-    learn_move_id: Optional[int]         # Move ID of the new move (learn_move phase)
-    learn_move_name: Optional[str]       # Name of the move to learn (learn_move phase)
-    learn_move_stats: Optional[MoveSlot] # Full stats of the new move (learn_move phase)
+    learn_move_id: int | None         # Move ID of the new move (learn_move phase)
+    learn_move_name: str | None       # Name of the move to learn (learn_move phase)
+    learn_move_stats: MoveSlot | None # Full stats of the new move (learn_move phase)
     learn_move_party_index: int          # Which party member is learning (learn_move phase; -1 otherwise)
-    learn_move_current: Optional[List[str]]  # Current moveset names (learn_move phase)
-    biome_options: Optional[List[str]]   # Available biome names (select_biome phase)
-    mystery_option_count: Optional[int]  # Number of ME options (mystery phase)
-    is_game_over: Optional[bool]         # True if this is a game_over phase
-    is_victory: Optional[bool]           # True if game_over was a victory
+    learn_move_current: list[str] | None  # Current moveset names (learn_move phase)
+    biome_options: list[str] | None   # Available biome names (select_biome phase)
+    mystery_option_count: int | None  # Number of ME options (mystery phase)
+    is_game_over: bool | None         # True if this is a game_over phase
+    is_victory: bool | None           # True if game_over was a victory
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1053,10 +1053,10 @@ class GameState(TypedDict):
     phase: PhaseInfo            # Current phase, action mask, valid actions
 
     # --- Shop (only during SelectModifierPhase) ---
-    shop: Optional[ShopState]   # Reward/shop state, or None if not in shop phase
+    shop: ShopState | None   # Reward/shop state, or None if not in shop phase
 
     # --- Action Labels (human-readable, optional) ---
-    action_labels: Optional[List[ActionInfo]]  # Human-readable action descriptions
+    action_labels: list[ActionInfo] | None  # Human-readable action descriptions
 
     # --- Protocol Metadata ---
     step: int                   # Decision step counter (0-indexed)
@@ -1078,8 +1078,8 @@ class StateMessage(TypedDict):
     step: int                   # Decision step counter
     phase: str                  # Decision phase name
     gameState: GameState        # Full game state matching GameState schema
-    actions: List[ActionInfo]   # Valid actions with labels
-    metadata: Optional[dict]    # Phase-specific metadata (command info, learn move, etc.)
+    actions: list[ActionInfo]   # Valid actions with labels
+    metadata: dict | None    # Phase-specific metadata (command info, learn move, etc.)
 
 
 class ActionMessage(TypedDict):

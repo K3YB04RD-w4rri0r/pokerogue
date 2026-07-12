@@ -25,8 +25,8 @@ Usage:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field as dc_field
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 import numpy as np
 
@@ -139,7 +139,7 @@ class ObsMove:
     is_ballistic: bool = False
     effect_chance: int = 0
     status_effect: int = 0
-    stat_changes: List[ObsStatChange] = dc_field(default_factory=list)
+    stat_changes: list[ObsStatChange] = dc_field(default_factory=list)
     drain_ratio: float = 0.0
     recoil_ratio: float = 0.0
     heal_ratio: float = 0.0
@@ -291,7 +291,7 @@ class ObsVolatileTag:
 @dataclass(slots=True)
 class ObsQueuedMove:
     move_id: int = 0
-    targets: List[int] = dc_field(default_factory=list)
+    targets: list[int] = dc_field(default_factory=list)
     use_mode: int = 0
     result: int = -1
 
@@ -327,14 +327,14 @@ class ObsHeldItem:
 class ObsTurnData:
     damage_taken: int = 0
     total_damage_dealt: int = 0
-    attacks_received: List[ObsAttackReceived] = dc_field(default_factory=list)
+    attacks_received: list[ObsAttackReceived] = dc_field(default_factory=list)
     order: int = 0
     hit_count: int = 0
     acted: bool = False
     switched_in_this_turn: bool = False
     stat_stages_increased: bool = False
     stat_stages_decreased: bool = False
-    berries_eaten: List[int] = dc_field(default_factory=list)
+    berries_eaten: list[int] = dc_field(default_factory=list)
     move_effectiveness: float = 0.0
     hits_left: int = 0
     single_hit_damage_dealt: int = 0
@@ -344,8 +344,8 @@ class ObsTurnData:
 class ObsBattleData:
     hit_count: int = 0
     has_eaten_berry: bool = False
-    berries_eaten: List[int] = dc_field(default_factory=list)
-    abilities_applied: List[int] = dc_field(default_factory=list)
+    berries_eaten: list[int] = dc_field(default_factory=list)
+    abilities_applied: list[int] = dc_field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -361,14 +361,14 @@ class ObsPokemon:
     hp: int = 0
     max_hp: int = 0
     hp_ratio: float = 0.0
-    base_stats: List[int] = dc_field(default_factory=lambda: [0] * 6)
-    ivs: List[int] = dc_field(default_factory=lambda: [0] * 6)
-    stats: List[int] = dc_field(default_factory=lambda: [0] * 6)
-    stat_stages: List[int] = dc_field(default_factory=lambda: [0] * 7)
+    base_stats: list[int] = dc_field(default_factory=lambda: [0] * 6)
+    ivs: list[int] = dc_field(default_factory=lambda: [0] * 6)
+    stats: list[int] = dc_field(default_factory=lambda: [0] * 6)
+    stat_stages: list[int] = dc_field(default_factory=lambda: [0] * 7)
     status_effect: int = 0
     toxic_turn_count: int = 0
     sleep_turns_remaining: int = 0
-    types: List[int] = dc_field(default_factory=list)
+    types: list[int] = dc_field(default_factory=list)
     tera_type: int = -1
     is_terastallized: bool = False
     added_type: int = -1
@@ -379,13 +379,13 @@ class ObsPokemon:
     ability_revealed: bool = False
     # v9 fog-of-war inputs
     was_seen: bool = True
-    move_known: List[bool] = dc_field(default_factory=list)
+    move_known: list[bool] = dc_field(default_factory=list)
     nature: int = 0
-    nature_multipliers: List[float] = dc_field(default_factory=lambda: [1.0] * 5)
-    moves: List[ObsMove] = dc_field(default_factory=list)
-    move_history: List[ObsQueuedMove] = dc_field(default_factory=list)
+    nature_multipliers: list[float] = dc_field(default_factory=lambda: [1.0] * 5)
+    moves: list[ObsMove] = dc_field(default_factory=list)
+    move_history: list[ObsQueuedMove] = dc_field(default_factory=list)
     pokeball: int = 0
-    volatile_tags: List[ObsVolatileTag] = dc_field(default_factory=list)
+    volatile_tags: list[ObsVolatileTag] = dc_field(default_factory=list)
     is_boss: bool = False
     boss_segments: int = 0
     boss_segment_index: int = 0
@@ -396,8 +396,8 @@ class ObsPokemon:
     is_player: bool = False
     battler_index: int = -1
     field_index: int = -1
-    held_items: List[ObsHeldItem] = dc_field(default_factory=list)
-    move_queue: List[ObsQueuedMove] = dc_field(default_factory=list)
+    held_items: list[ObsHeldItem] = dc_field(default_factory=list)
+    move_queue: list[ObsQueuedMove] = dc_field(default_factory=list)
     wave_turn_count: int = 0
     is_fainted: bool = False
     is_active: bool = False
@@ -405,14 +405,14 @@ class ObsPokemon:
     is_grounded: bool = True
     transform_species_id: int = -1
     illusion_species_id: int = -1
-    attacks_received: List[ObsAttackReceived] = dc_field(default_factory=list)
+    attacks_received: list[ObsAttackReceived] = dc_field(default_factory=list)
     turn_data: ObsTurnData = dc_field(default_factory=ObsTurnData)
     battle_data: ObsBattleData = dc_field(default_factory=ObsBattleData)
     weight: float = 0.0
     catch_rate: int = 0
     base_total: int = 0
-    stellar_types_boosted: List[int] = dc_field(default_factory=list)
-    berries_eaten_last: List[int] = dc_field(default_factory=list)
+    stellar_types_boosted: list[int] = dc_field(default_factory=list)
+    berries_eaten_last: list[int] = dc_field(default_factory=list)
     exp_to_next_level: int = 0
     luck: int = 0
     endured_this_wave: bool = False
@@ -451,8 +451,8 @@ class ObsField:
     terrain_turns_left: int = 0
     terrain_is_permanent: bool = False
     player_teras_used: int = 0
-    arena_tags: List[ObsArenaTag] = dc_field(default_factory=list)
-    positional_tags: List[ObsPositionalTag] = dc_field(default_factory=list)
+    arena_tags: list[ObsArenaTag] = dc_field(default_factory=list)
+    positional_tags: list[ObsPositionalTag] = dc_field(default_factory=list)
     is_double_battle: bool = False
     trick_room_active: bool = False
     gravity_active: bool = False
@@ -516,10 +516,10 @@ class ObsLapsingModifier:
 
 @dataclass(slots=True)
 class ObsModifiers:
-    held_items: Dict[int, List[ObsHeldItem]] = dc_field(default_factory=dict)
-    party_modifiers: List[ObsPartyModifier] = dc_field(default_factory=list)
-    lapsing_modifiers: List[ObsLapsingModifier] = dc_field(default_factory=list)
-    enemy_modifiers: List[ObsPartyModifier] = dc_field(default_factory=list)
+    held_items: dict[int, list[ObsHeldItem]] = dc_field(default_factory=dict)
+    party_modifiers: list[ObsPartyModifier] = dc_field(default_factory=list)
+    lapsing_modifiers: list[ObsLapsingModifier] = dc_field(default_factory=list)
+    enemy_modifiers: list[ObsPartyModifier] = dc_field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -554,8 +554,8 @@ class ObsShopOption:
 
 @dataclass(slots=True)
 class ObsShop:
-    reward_options: List[ObsRewardOption] = dc_field(default_factory=list)
-    shop_options: List[ObsShopOption] = dc_field(default_factory=list)
+    reward_options: list[ObsRewardOption] = dc_field(default_factory=list)
+    shop_options: list[ObsShopOption] = dc_field(default_factory=list)
     can_reroll: bool = False
     reroll_cost: int = 0
     money: int = 0
@@ -582,8 +582,8 @@ class ObsBattle:
     can_catch: bool = False
     tera_available: bool = False
     game_mode: int = 0
-    trainer: Optional[ObsTrainerInfo] = None
-    challenges: List[ObsChallengeInfo] = dc_field(default_factory=list)
+    trainer: ObsTrainerInfo | None = None
+    challenges: list[ObsChallengeInfo] = dc_field(default_factory=list)
     battle_style: int = 0
     time_of_day: int = 0
     player_faints_biome: int = 0
@@ -613,14 +613,14 @@ class ObsPhase:
     current_phase: str = "unknown"
     current_phase_id: int = -1
     command_field_index: int = -1
-    action_mask: List[bool] = dc_field(default_factory=lambda: [False] * ACTION_SPACE_SIZE)
-    valid_actions: List[int] = dc_field(default_factory=list)
+    action_mask: list[bool] = dc_field(default_factory=lambda: [False] * ACTION_SPACE_SIZE)
+    valid_actions: list[int] = dc_field(default_factory=list)
     learn_move_id: int = -1
     # v9: full feature payload for the offered move + who is learning
-    learn_move_stats: Optional[ObsMove] = None
+    learn_move_stats: ObsMove | None = None
     learn_move_party_index: int = -1
     # Biome names offered by the select_biome phase (not encoded; decision metadata)
-    biome_options: List[str] = dc_field(default_factory=list)
+    biome_options: list[str] = dc_field(default_factory=list)
     mystery_option_count: int = -1
     is_game_over: bool = False
     is_victory: bool = False
@@ -628,12 +628,12 @@ class ObsPhase:
 
 @dataclass(slots=True)
 class CleanGameState:
-    pokemon: List[ObsPokemon] = dc_field(default_factory=list)
+    pokemon: list[ObsPokemon] = dc_field(default_factory=list)
     field: ObsField = dc_field(default_factory=ObsField)
     battle: ObsBattle = dc_field(default_factory=ObsBattle)
     modifiers: ObsModifiers = dc_field(default_factory=ObsModifiers)
     phase: ObsPhase = dc_field(default_factory=ObsPhase)
-    shop: Optional[ObsShop] = None
+    shop: ObsShop | None = None
     step: int = 0
     timestamp: float = 0.0
 
@@ -1137,7 +1137,7 @@ def _parse_battle(d: dict) -> ObsBattle:
 
 def _parse_modifiers(d: dict) -> ObsModifiers:
     held_raw = d.get("held_items", {})
-    held: Dict[int, List[ObsHeldItem]] = {}
+    held: dict[int, list[ObsHeldItem]] = {}
     if isinstance(held_raw, dict):
         for slot_str, items in held_raw.items():
             try:
@@ -2396,7 +2396,7 @@ def _encode_battle(buf: np.ndarray, offset: int, battle: ObsBattle, phase: ObsPh
 def _mf(d, s, h, sv, sp, se, ec, b, mag, proc, turn, hit, faint):
     return [d, s, h, sv, sp, se, ec, b, 0, 0, 0, 0, mag, proc, turn, hit, faint, 0, 0, 0]
 
-_MODIFIER_FEATURES: Dict[str, list] = {
+_MODIFIER_FEATURES: dict[str, list] = {
     # Held items (A-L)
     "ATTACK_TYPE_BOOSTER":    _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0, 0, 0),
     "BASE_STAT_BOOSTER":      _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.10,  0,    0, 0, 0),
@@ -2599,7 +2599,7 @@ def _sort_held_items_by_priority(items: list) -> list:
 
 # ── Modifier Phase Encoding ───────────────────────────────────────────
 
-def _encode_modifier(buf: np.ndarray, offset: int, shop: Optional[ObsShop], money: int) -> None:
+def _encode_modifier(buf: np.ndarray, offset: int, shop: ObsShop | None, money: int) -> None:
     """Encode modifier phase (225 dims)."""
     pos = offset
 
@@ -2808,7 +2808,7 @@ def _encode_modifier_inventory(buf: np.ndarray, offset: int, state: CleanGameSta
     buf[pos] = _clamp(len(enemy_mods) / 20, 0, 1); pos += 1
 
     # 7 aggregate stack values for known enemy modifier types
-    enemy_stack_map: Dict[str, int] = {}
+    enemy_stack_map: dict[str, int] = {}
     for mod in enemy_mods:
         mod_id = _get_modifier_id_str(mod.modifier_type_id)
         if mod_id:
@@ -2930,7 +2930,7 @@ def encode_observation(state: CleanGameState, fog_of_war: bool = False) -> np.nd
     offset = 0
 
     # Pokemon blocks (12 x 513 = 6,156); slot order mirrors POKEMON_SLOT_KEYS
-    for slot_key, poke in zip(POKEMON_SLOT_KEYS, state.pokemon):
+    for slot_key, poke in zip(POKEMON_SLOT_KEYS, state.pokemon, strict=True):
         _encode_pokemon(buf, offset, poke, is_enemy=slot_key.startswith("enemy"), fog_of_war=fog_of_war)
         offset += POKEMON_BLOCK_DIM
 

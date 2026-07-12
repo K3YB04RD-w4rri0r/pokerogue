@@ -1,17 +1,6 @@
-# Python dependencies for the PokeRogue RL environment.
-#   pip install -r requirements-rl.txt
-#
-# Build prerequisite for the game side:  pnpm rl:build
-
-numpy>=1.24
-gymnasium>=0.29
-# Run configs (src/rl/run_config.py); JSON configs work without it
-pyyaml>=6
-
-# Optional — rendered mode (tools/play.py --rendered):
-# websocket-client>=1.6
-
-# Optional — training (examples/rl/train_maskable_ppo.py):
-# stable-baselines3>=2.3
-# sb3-contrib>=2.3
-# torch
+# Python deps for the RL environment — the single source of truth is
+# pyproject.toml; this file exists for `pip install -r` ergonomics and as the
+# CI cache key. Extras:
+#   pip install -e ".[train]"     # stable-baselines3 + torch
+#   pip install -e ".[rendered]"  # websocket-client for the browser transport
+-e .

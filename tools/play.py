@@ -19,17 +19,18 @@ Requirements:
         - Vite dev server: npx vite --config vite.interactive.config.ts
 """
 
-import subprocess
-import json
-import sys
-import os
 import argparse
+import json
+import os
+import subprocess
+import sys
 
 # Run-config support (src/rl/run_config.py): --config loads a YAML/JSON file
 # describing the run (seed, starters, overrides, ...); CLI flags override it.
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 from rl.observation import ACTION_SPACE_SIZE, OBSERVATION_DIM  # noqa: E402
 from rl.pokerogue_env import PROTOCOL_VERSION  # noqa: E402
+
 
 def require_protocol(msg: dict, context: str) -> None:
     """Strict `ready` handshake: version AND dims must match, None included.
@@ -53,7 +54,6 @@ def require_protocol(msg: dict, context: str) -> None:
         )
 
 from rl.run_config import RunConfig, load_run_config  # noqa: E402
-
 
 # ─── Colors ──────────────────────────────────────────────────────────
 
@@ -82,8 +82,14 @@ class C:
 # two distinct module objects (see docs/VERIFICATION.md).
 try:
     from rl.enums import (  # noqa: E402
-        TYPE_NAMES, STATUS_NAMES, WEATHER_NAMES, TERRAIN_NAMES,
-        CATEGORY_NAMES, BATTLE_TYPE_NAMES, TYPE_ABBREV, CATEGORY_ABBREV,
+        BATTLE_TYPE_NAMES,
+        CATEGORY_ABBREV,
+        CATEGORY_NAMES,
+        STATUS_NAMES,
+        TERRAIN_NAMES,
+        TYPE_ABBREV,
+        TYPE_NAMES,
+        WEATHER_NAMES,
     )
 except ImportError:
     TYPE_NAMES = {
@@ -414,7 +420,7 @@ def _fmt_arr(arr, labels=None):
     if not arr:
         return "[]"
     if labels and len(labels) == len(arr):
-        return " ".join(f"{l}:{v}" for l, v in zip(labels, arr))
+        return " ".join(f"{label}:{v}" for label, v in zip(labels, arr, strict=False))
     return str(arr)
 
 
@@ -617,7 +623,7 @@ def print_pokemon_detail(poke: dict, label: str):
             if extras:
                 print(f"        {C.DIM}{extras}{C.RESET}")
     else:
-        print(f"    Held items: none")
+        print("    Held items: none")
 
     # Turn data (full)
     td = poke.get("turn_data", {})
@@ -930,7 +936,7 @@ def print_battle_info(game_state: dict):
         print(f"    Trainer: {t_name} (type:{t_type})  boss:{t_boss}  "
               f"double:{t_dbl}  party_size:{t_size}{spec_str}{tera_str}")
     else:
-        print(f"    Trainer: none (wild)")
+        print("    Trainer: none (wild)")
 
     # Mystery encounter (all MysteryEncounterState + MysteryEncounterOption fields)
     me = battle.get("mystery_encounter")
@@ -1030,7 +1036,7 @@ def print_shop_detail(game_state: dict):
                                      for it in items]
                         print(f"      Slot {slot}: {', '.join(item_strs)}")
             else:
-                print(f"    Held items: none")
+                print("    Held items: none")
         party_mods = modifiers.get("party_modifiers", [])
         if party_mods:
             for pm in party_mods:
@@ -1258,7 +1264,7 @@ def print_modifiers_full(game_state: dict):
             ext_str = f"  {' '.join(extras)}" if extras else ""
             print(f"      {pm_name} x{pm_stack}/{pm_max}  class:{pm_class}  id:{pm_id}{ext_str}")
     else:
-        print(f"    Party modifiers: none")
+        print("    Party modifiers: none")
 
     # Lapsing (use correct field name: battles_remaining)
     lapsing = modifiers.get("lapsing_modifiers", [])
@@ -1443,7 +1449,7 @@ def run_headless(args):
 
     if not os.path.exists(cli_path):
         print(f"{C.RED}Error: {cli_path} not found.{C.RESET}")
-        print(f"Build first: npx vite build --config vite.headless.config.ts")
+        print("Build first: npx vite build --config vite.headless.config.ts")
         sys.exit(1)
 
     cmd = ["node", cli_path, "--interactive", *args.run_config.to_cli_args()]
@@ -1453,9 +1459,9 @@ def run_headless(args):
     print(f"  Waves: {args.waves}")
     if args.run_config.source:
         print(f"  Config: {args.run_config.source}")
-    print(f"  Quit:  type 'q' at any prompt")
-    print(f"  Help:  type 'h' at any prompt for inspection commands")
-    print(f"\n  Booting headless game...")
+    print("  Quit:  type 'q' at any prompt")
+    print("  Help:  type 'h' at any prompt for inspection commands")
+    print("\n  Booting headless game...")
 
     proc = subprocess.Popen(
         cmd,
@@ -1556,7 +1562,7 @@ def run_rendered(args):
         import websocket
     except ImportError:
         print(f"{C.RED}Error: websocket-client required for --rendered mode{C.RESET}")
-        print(f"Install: pip install websocket-client")
+        print("Install: pip install websocket-client")
         sys.exit(1)
 
     import webbrowser
@@ -1568,10 +1574,10 @@ def run_rendered(args):
     print(f"  Port:  {args.port}")
     print(f"  Seed:  {args.seed or '(random)'}")
     print(f"  URL:   {url}")
-    print(f"  Quit:  type 'q' at any prompt")
-    print(f"  Help:  type 'h' at any prompt for inspection commands")
+    print("  Quit:  type 'q' at any prompt")
+    print("  Help:  type 'h' at any prompt for inspection commands")
     print()
-    print(f"  Opening browser...")
+    print("  Opening browser...")
     webbrowser.open(url)
     print(f"  Connecting to WebSocket at {ws_url}...")
 
@@ -1579,8 +1585,8 @@ def run_rendered(args):
         ws = websocket.create_connection(ws_url, timeout=30)
     except Exception as e:
         print(f"{C.RED}Failed to connect: {e}{C.RESET}")
-        print(f"Make sure the Vite dev server is running:")
-        print(f"  npx vite --config vite.interactive.config.ts")
+        print("Make sure the Vite dev server is running:")
+        print("  npx vite --config vite.interactive.config.ts")
         sys.exit(1)
 
     # Disable recv timeout — the user needs time to start the game in the browser

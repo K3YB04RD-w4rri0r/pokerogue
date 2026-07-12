@@ -8,31 +8,54 @@ on:
     paths:
       - "src/rl/**"
       - "test/rl/**"
+      # the headless bundle dynamically imports test/test-utils (game-wrapper,
+      # mocks) — a mock refactor can break dist/rl/cli.js with no RL signal
+      - "test/test-utils/**"
+      - "test/setup/**"
       - "tools/**"
       - "scripts/rl-*.sh"
-      - "vite.rl.config.ts"
+      - "vite.headless.config.ts"
+      - "vite.interactive.config.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pyproject.toml"
       - "requirements-rl.txt"
+      - "examples/rl/**"
       - ".github/workflows/rl-verify.yml"
   pull_request:
     paths:
       - "src/rl/**"
       - "test/rl/**"
+      # the headless bundle dynamically imports test/test-utils (game-wrapper,
+      # mocks) — a mock refactor can break dist/rl/cli.js with no RL signal
+      - "test/test-utils/**"
+      - "test/setup/**"
       - "tools/**"
       - "scripts/rl-*.sh"
-      - "vite.rl.config.ts"
+      - "vite.headless.config.ts"
+      - "vite.interactive.config.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pyproject.toml"
       - "requirements-rl.txt"
+      - "examples/rl/**"
       - ".github/workflows/rl-verify.yml"
   # Nightly full run so the deep regression guards (coverage corpus, mask
   # gating, dim-exercise gate, determinism, soak) are exercised even on days
   # with no RL changes — those live only in `full`, and a PR gate that runs
   # only `quick` is how the round-6 corpus regression sat unnoticed.
+  # NOTE: GitHub only fires `schedule` from the DEFAULT branch's workflow
+  # file — this cron is inert until rl-verify.yml lands on beta. Until then
+  # the push-full runs are the deep gate.
   schedule:
     - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # scheduled runs get their own group so a push near 06:00 UTC can't cancel
+  # the nightly (and vice versa)
+  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 jobs:
   rl-verify:
@@ -49,16 +72,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: "package.json"
-
-      - name: Enable pnpm
-        run: corepack enable pnpm
-
-      - name: Install node dependencies
-        run: pnpm install --frozen-lockfile
+      # Same toolchain as every other workflow: .nvmrc-pinned Node + pnpm
+      # store caching. (`node-version-file: package.json` resolved the LATEST
+      # node satisfying `engines` — a silent drift vector.)
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup-deps
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -68,7 +86,13 @@ jobs:
           cache-dependency-path: requirements-rl.txt
 
       - name: Install python dependencies
-        run: pip install -r requirements-rl.txt
+        run: pip install -r requirements-rl.txt ruff
+
+      # The packaged install path (pyproject) is exercised nowhere else in CI
+      - name: Smoke the pip-installed package
+        run: |
+          pip install -e .
+          python -c "import rl; import rl.observation; import rl.pokerogue_env"
 
       - name: Run the RL quick verification gate
         if: github.event_name == 'pull_request'

@@ -72,6 +72,7 @@ import {
   MAX_SHOP_OPTIONS,
   NUM_POKEBALL_TYPES,
 } from "#rl/spaces";
+import { DECISION_TIMEOUT_MS, INFINITE_TWEEN_SENTINEL_MS, MODIFIER_LIVELOCK_LIMIT } from "#rl/tunables";
 import { generateStarters } from "#test/test-utils/game-manager-utils";
 import { PartyOption } from "#ui/party-ui-handler";
 import { UI } from "#ui/ui";
@@ -407,7 +408,6 @@ export function createPhaseRouter(options?: {
   // cycles the modifier mask collapses to "skip" so ANY policy is forced out of
   // the shop and the episode continues (the universal auto-proceed flagged as
   // the proper fix in the 2026-07-08 round-3 livelock note).
-  const MODIFIER_LIVELOCK_LIMIT = 4;
   let shopProgressSig: string | null = null;
   let shopStuckCount = 0;
 
@@ -2569,7 +2569,7 @@ export function createPhaseRouter(options?: {
    * Uses the setMode hook to detect decision points, with a polling fallback
    * in case the hook fires before we start waiting.
    */
-  function waitForNextDecision(timeoutMs = 30000): Promise<PhaseState> {
+  function waitForNextDecision(timeoutMs = DECISION_TIMEOUT_MS): Promise<PhaseState> {
     return new Promise<PhaseState>((resolve, reject) => {
       // Check if the setMode hook already detected a decision point before
       // advanceToNextDecision() was called. In the browser, the game runs
@@ -2679,7 +2679,7 @@ export function createPhaseRouter(options?: {
                 tw =>
                   Number.isFinite(tw?.totalDuration)
                   && (tw.totalDuration ?? 0) > 0
-                  && (tw.totalDuration ?? 0) < 600_000
+                  && (tw.totalDuration ?? 0) < INFINITE_TWEEN_SENTINEL_MS
                   && !tw.paused
                   && (tw.isPlaying?.() ?? true),
               );

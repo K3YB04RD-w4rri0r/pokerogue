@@ -18,8 +18,8 @@ die() { printf '\033[1;31mERROR:\033[0m %s\n' "$1" >&2; exit 1; }
 
 step "Toolchain checks"
 command -v node >/dev/null || die "node not found — install Node >= 24.9 (https://nodejs.org, nvm, or a tarball)"
-NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]')
-[ "$NODE_MAJOR" -ge 20 ] || die "node $(node -v) too old — the toolchain needs >= 24.9 (>=20 may work for the runtime, but install 24.9+ to match CI)"
+NODE_OK=$(node -p 'const [M,m]=process.versions.node.split(".").map(Number); M>24||(M===24&&m>=9)?1:0')
+[ "$NODE_OK" = 1 ] || die "node $(node -v) too old — the toolchain needs >= 24.9 (engines pin; Vite 7 itself needs >= 22.12)"
 if ! command -v pnpm >/dev/null; then
   echo "pnpm not found — enabling via corepack"
   corepack enable pnpm || die "corepack enable failed — install pnpm manually (npm i -g pnpm)"
@@ -33,13 +33,20 @@ step "Git submodules (game data: assets + locales)"
 git submodule update --init assets locales
 
 step "Node dependencies"
-pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+if ! pnpm install --frozen-lockfile; then
+  echo "WARNING: pnpm-lock.yaml is out of sync with package.json — falling back to a" >&2
+  echo "         lockfile-updating install. Review the pnpm-lock.yaml diff before committing." >&2
+  pnpm install
+fi
 
 step "Build the headless game bundle (dist/rl/cli.js)"
 pnpm rl:build
 
 step "Python dependencies"
-"$PY" -m pip install -q -r requirements-rl.txt
+if ! "$PY" -m pip install -q -r requirements-rl.txt; then
+  die "pip install failed — on externally-managed pythons (Debian 12+/Ubuntu 23.04+, PEP 668) \
+create a venv first:  $PY -m venv .venv && . .venv/bin/activate  (or conda), then re-run"
+fi
 if [ "$TRAIN" = 1 ]; then
   echo "installing training extras (sb3 + torch — pass a torch index-url via PIP_INDEX_URL for CPU/CUDA control)"
   "$PY" -m pip install -q stable-baselines3 sb3-contrib torch

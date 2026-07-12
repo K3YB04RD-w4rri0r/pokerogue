@@ -25,18 +25,18 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # for the sibling import below
 
-from rl.policy import PhaseRoutedPolicy, ScriptedSkipPolicy  # noqa: E402
-from rl.pokerogue_env import PokeRogueEnv  # noqa: E402
-
 from custom_agent import GreedyAttacker  # noqa: E402  our own agent, reused as a sub-policy
+
+from rl.pokerogue_env import PokeRogueEnv  # noqa: E402
+from rl.policy import PhaseRoutedPolicy, ScriptedSkipPolicy  # noqa: E402
 
 Predicate = Callable[[np.ndarray, np.ndarray, dict], bool]
 

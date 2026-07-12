@@ -20,6 +20,7 @@
 import { destroyHeadless, initHeadless, resetHeadless } from "#rl/headless-boot";
 // These types are safe to import (erased at runtime by TypeScript)
 import type { PhaseRouter, PhaseState } from "#rl/phase-router";
+import { MAX_STEPS_PER_WAVE } from "#rl/tunables";
 // IMPORTANT: Only headless-boot can be statically imported here.
 // All other game/RL imports must be dynamic (after initHeadless installs jsdom globals)
 // because they transitively import Phaser, which accesses `window` at load time.
@@ -326,7 +327,7 @@ async function runEpisode(
     dumpDeps = { buildGameState, encodeObservation };
   }
 
-  const MAX_STEPS = options.maxWaves * 50; // Safety limit: ~50 decisions per wave
+  const MAX_STEPS = options.maxWaves * MAX_STEPS_PER_WAVE; // Safety limit: ~50 decisions per wave
 
   try {
     while (stats.totalSteps < MAX_STEPS) {
@@ -524,7 +525,7 @@ async function runInteractiveEpisode(
   const { buildActionLabels } = await import("#rl/action-labels");
   const { EpisodeRewardTracker, buildTerminalGameState, resolveExecutedAction } = await import("#rl/episode-runtime");
 
-  const MAX_STEPS = options.maxWaves * 50;
+  const MAX_STEPS = options.maxWaves * MAX_STEPS_PER_WAVE;
   let step = 0;
 
   // --profile: accumulated per-section wall time (ms) for the step hot path
