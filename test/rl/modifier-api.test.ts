@@ -31,12 +31,12 @@ describe("RL Modifier API", () => {
 
   describe("getAvailableModifiers", () => {
     it("should return null when not in SelectModifierPhase", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       expect(getAvailableModifiers()).toBeNull();
     });
 
     it("should return reward modifiers during SelectModifierPhase", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       game.move.select(MoveId.FISSURE);
       await game.phaseInterceptor.to("SelectModifierPhase");
 
@@ -55,7 +55,7 @@ describe("RL Modifier API", () => {
     });
 
     it("should correctly identify targetKind for known modifier types", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       const customModifiers: CustomModifierSettings = {
         guaranteedModifierTypeFuncs: [modifierTypes.AMULET_COIN, modifierTypes.LEFTOVERS, modifierTypes.TM_ULTRA],
       };
@@ -78,7 +78,7 @@ describe("RL Modifier API", () => {
 
   describe("selectRewardModifier", () => {
     it("should apply a non-pokemon modifier and end the phase", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       const customModifiers: CustomModifierSettings = {
         guaranteedModifierTypeFuncs: [modifierTypes.AMULET_COIN],
       };
@@ -92,7 +92,7 @@ describe("RL Modifier API", () => {
     });
 
     it("should apply a pokemon modifier with pokemonIndex", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       const customModifiers: CustomModifierSettings = {
         guaranteedModifierTypeFuncs: [modifierTypes.LEFTOVERS],
       };
@@ -106,7 +106,7 @@ describe("RL Modifier API", () => {
     });
 
     it("should return error for invalid index", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       game.move.select(MoveId.FISSURE);
       await game.phaseInterceptor.to("SelectModifierPhase");
 
@@ -124,7 +124,7 @@ describe("RL Modifier API", () => {
 
   describe("skipModifiers", () => {
     it("should end the SelectModifierPhase", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       game.move.select(MoveId.FISSURE);
       await game.phaseInterceptor.to("SelectModifierPhase");
 
@@ -140,7 +140,7 @@ describe("RL Modifier API", () => {
 
   describe("rerollModifiers", () => {
     it("should deduct money on reroll", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       scene.money = 100000;
       game.move.select(MoveId.FISSURE);
       await game.phaseInterceptor.to("SelectModifierPhase");
@@ -155,7 +155,7 @@ describe("RL Modifier API", () => {
     });
 
     it("should fail when insufficient money", async () => {
-      await game.classicMode.startBattle([SpeciesId.ABRA]);
+      await game.classicMode.startBattle(SpeciesId.ABRA);
       scene.money = 0;
       game.move.select(MoveId.FISSURE);
       await game.phaseInterceptor.to("SelectModifierPhase");

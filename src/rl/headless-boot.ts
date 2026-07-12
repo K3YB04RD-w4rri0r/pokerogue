@@ -41,7 +41,7 @@ export interface HeadlessConfig {
    * coverage-corpus generator to force rare game situations. Persist for the
    * process lifetime — in-process resets keep them.
    */
-  overrides?: Record<string, unknown>;
+  overrides?: Record<string, unknown> | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -560,8 +560,11 @@ async function createScene(
     try {
       const { UiMode } = await import("#enums/ui-mode");
       const starterHandler = scene.ui?.handlers?.[UiMode.STARTER_SELECT];
-      if (starterHandler && typeof (starterHandler as Record<string, unknown>).clearStarterPreferences === "function") {
-        (starterHandler as { clearStarterPreferences: () => void }).clearStarterPreferences();
+      if (
+        starterHandler
+        && typeof (starterHandler as unknown as Record<string, unknown>).clearStarterPreferences === "function"
+      ) {
+        (starterHandler as unknown as { clearStarterPreferences: () => void }).clearStarterPreferences();
       }
     } catch {
       // UI handlers may not be initialized on first run; safe to skip

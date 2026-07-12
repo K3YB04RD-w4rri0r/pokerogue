@@ -805,7 +805,7 @@ async function main(): Promise<void> {
     let initMs = bootTime;
     let router = createPhaseRouter({
       verbose: options.verbose,
-      starterSpecies,
+      ...(starterSpecies !== undefined ? { starterSpecies } : {}),
       enemyControlled: options.enemyControlled,
     });
 
@@ -870,7 +870,7 @@ async function main(): Promise<void> {
       }
       router = createPhaseRouter({
         verbose: options.verbose,
-        starterSpecies,
+        ...(starterSpecies !== undefined ? { starterSpecies } : {}),
         enemyControlled: options.enemyControlled,
       });
       initMs = Date.now() - resetStart;
@@ -979,7 +979,7 @@ async function main(): Promise<void> {
   } else {
     const router = createPhaseRouter({
       verbose: options.verbose,
-      starterSpecies,
+      ...(starterSpecies !== undefined ? { starterSpecies } : {}),
       enemyControlled: options.enemyControlled,
     });
     // Auto mode: run with default action picker

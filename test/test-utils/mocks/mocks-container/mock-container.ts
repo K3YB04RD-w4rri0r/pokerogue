@@ -265,7 +265,7 @@ export class MockContainer implements MockGameObject {
    */
   protected trackChild(item: MockGameObject): void {
     const tracked = item as MockGameObject & {
-      __rlParent?: MockContainer;
+      __rlParent?: MockContainer | undefined;
       __rlDetachWrapped?: boolean;
       destroy?: (...args: unknown[]) => unknown;
     };
@@ -325,8 +325,8 @@ export class MockContainer implements MockGameObject {
       if (index !== -1) {
         this.list.splice(index, 1);
       }
-      if ((item as { __rlParent?: MockContainer }).__rlParent === this) {
-        (item as { __rlParent?: MockContainer }).__rlParent = undefined;
+      if ((item as { __rlParent?: MockContainer | undefined }).__rlParent === this) {
+        (item as { __rlParent?: MockContainer | undefined }).__rlParent = undefined;
       }
       if (destroyChild) {
         item.destroy?.();

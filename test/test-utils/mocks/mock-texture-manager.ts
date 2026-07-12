@@ -15,7 +15,7 @@ import { MockTexture } from "#test/test-utils/mocks/mocks-container/mock-texture
  */
 export class MockTextureManager {
   private textures: Map<string, any>;
-  private scene;
+  public scene;
   public add;
   public displayList;
 

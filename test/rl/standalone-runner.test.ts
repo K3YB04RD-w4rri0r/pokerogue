@@ -33,7 +33,7 @@ describe("Standalone Runner", () => {
       .startingWave(1)
       .moveset(MoveId.TACKLE);
 
-    await game.classicMode.startBattle([SpeciesId.MEWTWO]);
+    await game.classicMode.startBattle(SpeciesId.MEWTWO);
 
     // Wave 1
     game.move.select(MoveId.TACKLE);

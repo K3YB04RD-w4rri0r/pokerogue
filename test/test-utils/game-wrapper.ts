@@ -76,7 +76,7 @@ export class GameWrapper {
    * Furthermore, this also makes testing any form of Phaser-related infrastructure absolutely
    * infeasible, and must be revisited before a multi-scene breakup can be considered.
    */
-  private injectMandatory(): void {
+  public injectMandatory(): void {
     this.game.config = {
       seed: ["test"],
       gameVersion: version,
