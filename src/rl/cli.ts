@@ -20,10 +20,15 @@
 import { destroyHeadless, initHeadless, resetHeadless } from "#rl/headless-boot";
 // These types are safe to import (erased at runtime by TypeScript)
 import type { PhaseRouter, PhaseState } from "#rl/phase-router";
-import { MAX_STEPS_PER_WAVE } from "#rl/tunables";
-// IMPORTANT: Only headless-boot can be statically imported here.
-// All other game/RL imports must be dynamic (after initHeadless installs jsdom globals)
-// because they transitively import Phaser, which accesses `window` at load time.
+// rewards.ts is jsdom-safe (its only game imports are a plain enum and an
+// erased type) and is needed before boot for --reward-config validation +
+// the resolved-config echo in the ready handshake.
+import { DEFAULT_REWARD_CONFIG, REMOVED_REWARD_KEYS } from "#rl/rewards";
+import { MAX_STEPS_PER_WAVE, NO_PROGRESS_LIMIT } from "#rl/tunables";
+// IMPORTANT: Only headless-boot, rewards and tunables can be statically
+// imported here. All other game/RL imports must be dynamic (after initHeadless
+// installs jsdom globals) because they transitively import Phaser, which
+// accesses `window` at load time.
 import fs from "node:fs";
 
 // ─── Argument Parsing ──────────────────────────────────────────────
@@ -126,6 +131,18 @@ Options:
         const parsed = JSON.parse(text);
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
           throw new Error("must be a JSON object of RewardConfig overrides");
+        }
+        // Unknown keys are a hard error: a silently-ignored key means the
+        // run trains at the DEFAULT weight for whatever the user meant to
+        // set (the exact failure the moneyGained -> moneyGainedLog rename
+        // must not reproduce).
+        for (const key of Object.keys(parsed)) {
+          if (key in REMOVED_REWARD_KEYS) {
+            throw new Error(`reward key "${key}" was removed: ${REMOVED_REWARD_KEYS[key]}`);
+          }
+          if (!(key in DEFAULT_REWARD_CONFIG)) {
+            throw new Error(`unknown reward key "${key}" (see RewardConfig in src/rl/rewards.ts)`);
+          }
         }
         options.rewardConfig = parsed as Record<string, number>;
       } catch (err) {
@@ -552,10 +569,18 @@ async function runInteractiveEpisode(
   const tracker = new EpisodeRewardTracker(options.rewardConfig ?? undefined);
   currentTracker = tracker; // router's onGameOver hook targets this episode
 
-  // Set when the episode ends by a cap (wave or step backstop): the final
-  // done message then carries the true final observation/reward so the
-  // learner's truncation bootstrap uses V(s_final), not V(zeros).
+  // Set when the episode ends by a cap (wave or step backstop) or livelock:
+  // the final done message then carries the true final observation/reward so
+  // the learner's truncation bootstrap uses V(s_final), not V(zeros).
   let capPayload: Record<string, unknown> | null = null;
+
+  // No-progress livelock guard (reward v2 [RD2]), mirroring the rendered
+  // bridge: consecutive already-seen observations charge stallStepPenalty
+  // past the grace window and end the episode (reason "livelock", reported
+  // TERMINATED by the client) at NO_PROGRESS_LIMIT. The Python env keeps its
+  // own copy as a defense-in-depth backstop; this guard trips first.
+  const seenObs = new Set<string>();
+  let noProgress = 0;
 
   try {
     while (true) {
@@ -583,7 +608,7 @@ async function runInteractiveEpisode(
       // snapshot stands in: all deltas zero, only terminal/fled/tier apply.
       const tReward = now();
       const terminal = state.phase === DecisionPhase.GAME_OVER || router.isGameOver();
-      const reward = tracker.rewardOnArrival(step, terminal, router.isVictory());
+      let reward = tracker.rewardOnArrival(step, terminal, router.isVictory());
       prof.reward += now() - tReward;
 
       // Check for game over (arrives as a 'title' phase after GameOverPhase → TitlePhase)
@@ -639,17 +664,44 @@ async function runInteractiveEpisode(
       const obs = encodeObservation(gameState, { fogOfWar: options.fogOfWar });
       prof.encode += now() - tEncode;
       const wave = (gameState as { battle?: { wave_index?: number } }).battle?.wave_index ?? 0;
+      const obsB64 = obsToBase64(obs);
+
+      // No-progress guard: checked after the obs encode, BEFORE the cap check
+      // (same evaluation point as the bridge, so both transports label a
+      // co-firing step identically). Repeats past the grace window charge
+      // stallStepPenalty into THIS step's reward [RD2].
+      if (seenObs.has(obsB64)) {
+        noProgress++;
+      } else {
+        seenObs.add(obsB64);
+        noProgress = 0;
+      }
+      reward += tracker.stallStepAdjustment(noProgress);
+      if (noProgress >= NO_PROGRESS_LIMIT) {
+        capPayload = {
+          reason: "livelock",
+          livelockTruncation: noProgress,
+          reward: tracker.endEpisodeReward(reward, "livelock"),
+          obsB64,
+          mask: state.actionMask,
+          wave,
+          ...(options.lean ? {} : { gameState }),
+        };
+        break;
+      }
 
       // REAL wave cap (+ the old step count as a safety backstop): end the
-      // episode as truncated at a genuine decision state. wave > maxWaves
-      // fires at the first decision of wave N+1, so the episode plays
-      // THROUGH wave N. Before this check, --waves was a step cap only
-      // (waves*50) and capped episodes ended with a zero observation.
+      // episode at a genuine decision state. wave > maxWaves fires at the
+      // first decision of wave N+1, so the episode plays THROUGH wave N.
+      // wave_cap pays the clean-ratio waveCapReached bonus and is reported
+      // TERMINATED by the client (the surrogate win under a cap [RD5]);
+      // step_cap stays a plain unpenalized truncation.
       if (wave > options.maxWaves || step >= MAX_STEPS) {
+        const reason = wave > options.maxWaves ? "wave_cap" : "step_cap";
         capPayload = {
-          reason: wave > options.maxWaves ? "wave_cap" : "step_cap",
-          reward,
-          obsB64: obsToBase64(obs),
+          reason,
+          reward: tracker.endEpisodeReward(reward, reason),
+          obsB64,
           mask: state.actionMask,
           wave,
           ...(options.lean ? {} : { gameState }),
@@ -668,7 +720,7 @@ async function runInteractiveEpisode(
         ...(options.lean ? {} : { gameState }),
         metadata: state.metadata,
         reward,
-        obsB64: obsToBase64(obs),
+        obsB64,
         mask: state.actionMask,
         wave,
       });
@@ -717,7 +769,7 @@ async function runInteractiveEpisode(
           phase: state.phase,
           wave,
           gameState,
-          obsB64: obsToBase64(obs),
+          obsB64,
           actionMask: state.actionMask,
           validActions: state.validActions,
           chosenAction: action,
@@ -867,8 +919,14 @@ async function main(): Promise<void> {
         bootTime: initMs,
         obsDim: OBSERVATION_DIM,
         actionDim: ACTION_SPACE_SIZE,
-        protocolVersion: 5,
-        ...(options.rewardConfig ? { rewardConfig: options.rewardConfig } : {}),
+        // v6: reward v2 — done reasons carry terminal semantics (livelock/
+        // wave_cap => terminated + stallPenalty/waveCapReached inside the
+        // reward field). Version skew is NOT graceful (an old client would
+        // bootstrap on top of the penalties), so the handshake must refuse.
+        protocolVersion: 6,
+        // RESOLVED reward config (defaults + overrides): the Python backstop
+        // reads stallPenalty from here instead of duplicating the default.
+        rewardConfig: { ...DEFAULT_REWARD_CONFIG, ...(options.rewardConfig ?? {}) },
       });
       await runInteractiveEpisode(
         router,

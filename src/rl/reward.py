@@ -4,9 +4,10 @@ Bring-your-own reward for the PokeRogue RL environment.
 Two ways to shape reward, in increasing order of control:
 
 1. **Reweight the built-in reward** (no Python needed): the TS
-   ``RewardCalculator`` (src/rl/rewards.ts, 16 weighted components) is the
-   default. Set weights from the run config's ``reward:`` section, or
-   ``PokeRogueEnv(reward_config={...})``. The env reports that reward per
+   ``RewardCalculator`` (src/rl/rewards.ts, 20 weighted components, reward
+   v2 — see src/rl/docs/REWARD_V2.md) is the default. Set weights from the
+   run config's ``reward:`` section, or ``PokeRogueEnv(reward_config={...})``
+   (unknown/removed keys are a hard error). The env reports that reward per
    step. Use this when the built-in components are the right *shape* and you
    only want to retune magnitudes.
 
@@ -203,13 +204,15 @@ class CustomReward(gym.Wrapper):
         # empty dict, e.g. a full-HP prev vs 0 "now" → spurious HP penalty).
         # Skip the transition reward on that path; keep_terminal still applies.
         reward = self._reward_fn(self._prev_state, cur, info) if cur else 0.0
-        # keep_terminal ADDS the env's ±win/lose bonus, which only exists on a
-        # true termination (game over). A truncation (wave/step cap, timeout)
-        # carries NO terminal bonus — its env_reward is the final transition's
-        # shaped reward, and adding it would double-count that step against the
-        # user's own reward_fn for the same transition.
+        # keep_terminal ADDS the env's terminal payment. Since reward v2,
+        # terminated=True covers game over (±runWon/runLost), the wave cap
+        # (+waveCapReached x clean-ratio: the surrogate win) AND livelock
+        # (stallPenalty) — all embedded in the final env_reward alongside that
+        # step's shaped reward, so adding env_reward also re-counts the final
+        # transition's shaping against your reward_fn (small vs the terminal
+        # scale). step_cap/timeout stay truncated with no terminal payment.
         if self._keep_terminal and terminated:
-            reward += float(env_reward)  # env_reward carries the terminal bonus
+            reward += float(env_reward)  # env_reward carries the terminal payment
         self._prev_state = cur
         return obs, reward, terminated, truncated, info
 

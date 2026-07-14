@@ -200,6 +200,20 @@ verdict confirmed. Full ledger: campaign artifacts. The load-bearing ones:
   port-poll startup (the "Local:" stdout scan could block forever), relay +
   browser-console evidence capture, deterministic evolution scenario.
 
+## Post-campaign follow-up: reward v2 (2026-07-14)
+
+The open reward-design findings (RD2 stall-beats-losing, RD4 money
+non-stationarity, RD5 dead terminal signals, RD6 chip-heal farming, RD7
+non-potential shaping, RD10 reroll fishing) were closed by a redesign of the
+reward function — protocolVersion 6, `docs/REWARD_V2.md`. The design was
+adversarially reviewed by a five-lens panel BEFORE implementation; the review
+overturned three mechanisms of the first draft (discount-eroded lump stall
+penalty → per-step stall pricing; ungated wave-cap bonus → clean-advance-ratio
+scaling; per-delta log money → cumulative telescoping log). The six findings
+carry `resolution` fields in `rl-substance-findings-2026-07.json`. v1 eval
+numbers (the table above) are NOT comparable to v2 rewards — ppo_v10 is the
+first checkpoint trained and evaluated on v2.
+
 ## Deferred roadmap (not this campaign)
 
 - Player-side `seenPlayerPartyMemberIds` so fog-of-war works under the enemy

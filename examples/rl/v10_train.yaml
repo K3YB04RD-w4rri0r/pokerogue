@@ -1,0 +1,22 @@
+# ppo_v10: first training run on reward v2 (protocol 6) + the verified engine.
+#
+#   python3 examples/rl/train_maskable_ppo.py --config examples/rl/v10_train.yaml
+#
+# Mirrors first_train.yaml's scope (fixed seed family, 20 waves, default
+# reward weights, full information) so the learning-curve SHAPE is comparable
+# to ppo_v9_first — reward MAGNITUDES are not comparable across v1/v2
+# (see src/rl/docs/REWARD_V2.md: cumulative-log money, stall pricing,
+# clean-ratio cap bonus, new-low damage).
+
+seed: v10-train-1
+waves: 20
+
+env:
+  lean: true          # TS-side encoding (fast path)
+  fog_of_war: false   # full information — the oracle baseline trains first
+  respawn_every: 50   # recycle the node process periodically
+
+train:
+  timesteps: 200000
+  seed: 7             # seeded MaskablePPO for reproducibility
+  save: models/ppo_v10_first.zip

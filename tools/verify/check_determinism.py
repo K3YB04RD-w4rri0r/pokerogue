@@ -235,7 +235,7 @@ def main() -> int:
                     boot_timeout=180,
                     step_timeout=60,
                 )
-                if r["result"] not in ("game_over", "step_cap") or r["errors"]:
+                if r["result"] not in ("game_over", "step_cap", "wave_cap", "livelock") or r["errors"]:
                     sys.exit(f"interactive episode did not finish cleanly: {r['result']} {r['errors']}")
                 (dump_dir / f"{args.seed}.jsonl").rename(dump)
             print(f"run complete -> {dump.name}")

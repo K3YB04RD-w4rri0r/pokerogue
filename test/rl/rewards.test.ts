@@ -142,12 +142,47 @@ describe("RewardCalculator", () => {
     expect(r).toBeCloseTo(DEFAULT_REWARD_CONFIG.ranAway + TP, 9);
   });
 
-  it("rewards money gained but not money spent", () => {
-    const gained = step(calc, snap({ money: 1000 }), snap({ money: 1500 }));
-    expect(gained).toBeCloseTo(DEFAULT_REWARD_CONFIG.moneyGained * 500 + TP, 9);
+  it("[RD4] money gains pay on the CUMULATIVE log scale and telescope", () => {
+    // First gain: G goes 0 -> 500
+    const first = step(calc, snap({ money: 1000 }), snap({ money: 1500 }));
+    expect(first).toBeCloseTo(DEFAULT_REWARD_CONFIG.moneyGainedLog * Math.log1p(500) + TP, 9);
 
+    // Second gain: G goes 500 -> 1000 — pays only the log INCREMENT
+    const second = step(calc, snap({ money: 1500 }), snap({ money: 2500 }));
+    expect(second).toBeCloseTo(DEFAULT_REWARD_CONFIG.moneyGainedLog * (Math.log1p(1500) - Math.log1p(500)) + TP, 9);
+  });
+
+  it("[RD4] splitting income across steps pays exactly the same as one lump", () => {
+    // Five gains of 100 (the Golden-Punch per-hit pattern)...
+    let split = 0;
+    for (let i = 0; i < 5; i++) {
+      split += step(calc, snap({ money: 1000 + 100 * i }), snap({ money: 1000 + 100 * (i + 1) }));
+    }
+    // ...equal one gain of 500 (per-delta log paid the split ~3.7x more)
+    const lumpCalc = new RewardCalculator();
+    const lump = step(lumpCalc, snap({ money: 1000 }), snap({ money: 1500 }));
+    expect(split - 5 * TP).toBeCloseTo(lump - TP, 9);
+    expect(split - 5 * TP).toBeCloseTo(DEFAULT_REWARD_CONFIG.moneyGainedLog * Math.log1p(500), 9);
+  });
+
+  it("[RD10] money spent is priced per delta on the log scale", () => {
     const spent = step(calc, snap({ money: 1500 }), snap({ money: 800 }));
-    expect(spent).toBeCloseTo(TP, 9);
+    expect(spent).toBeCloseTo(DEFAULT_REWARD_CONFIG.moneySpentLog * Math.log1p(700) + TP, 9);
+  });
+
+  it("[RD10] pins the wave-50 first-reroll penalty above the tier-bonus fishing upside", () => {
+    // Real reroll cost curve: 250 * ceil(wave/10) * 2^rerollCount
+    // (select-modifier-phase.ts getRerollCost) -> wave 41-50 first reroll = 1250.
+    const reroll = step(calc, snap({ money: 2000 }), snap({ money: 750 }));
+    const penalty = DEFAULT_REWARD_CONFIG.moneySpentLog * Math.log1p(1250);
+    expect(reroll).toBeCloseTo(penalty + TP, 9);
+    expect(penalty).toBeCloseTo(-0.3565, 3);
+    // A reroll's EXPECTED upside is E[best-tier improvement] * modifierTierBonus,
+    // well under 0.1 with common-heavy tier weights (modifierSelected pays
+    // regardless of tier, so only the tier-bonus delta is at stake). Pin the
+    // penalty above that so reroll-fishing EV stays negative from the first
+    // reroll at every wave — this stops the coefficient drifting under it [RD10].
+    expect(Math.abs(penalty)).toBeGreaterThan(0.1);
   });
 
   it("[RB3] rewards catches from party growth and ignores party shrinkage", () => {
@@ -181,7 +216,7 @@ describe("RewardCalculator", () => {
     expect(r).toBeCloseTo(TP, 9);
   });
 
-  it("shaped rewards apply positive deltas when configured", () => {
+  it("[RD7] shaped rewards apply SIGNED deltas when configured", () => {
     const shaped = new RewardCalculator({ statBoostReward: 0.1, statusInflictionReward: 0.5 });
     const r = step(
       shaped,
@@ -190,13 +225,28 @@ describe("RewardCalculator", () => {
     );
     expect(r).toBeCloseTo(0.1 * 4 + 0.5 * 1 + TP, 9);
 
-    // Negative deltas (stat drops, status cured) contribute nothing
+    // Negative deltas CHARGE BACK (potential-based): losing the boosts /
+    // status being cured undoes the credit, so boost -> switch -> re-boost
+    // and status -> cure -> re-inflict cycles net ~0 instead of farming.
     const drop = step(
       shaped,
       snap({ playerStatStageSum: 4, enemyStatusCount: 1 }),
       snap({ playerStatStageSum: 0, enemyStatusCount: 0 }),
     );
-    expect(drop).toBeCloseTo(TP, 9);
+    expect(drop).toBeCloseTo(-(0.1 * 4 + 0.5 * 1) + TP, 9);
+  });
+
+  it("[RD7] terminal transitions charge back the held shaping potentials", () => {
+    const shaped = new RewardCalculator({ statBoostReward: 0.1, statusInflictionReward: 0.5 });
+    // Phi is unchanged across the transition (delta 0) but the episode ends —
+    // Phi(absorbing)=0, so the held potential is charged back.
+    const r = step(
+      shaped,
+      snap({ playerStatStageSum: 4, enemyStatusCount: 1 }),
+      snap({ playerStatStageSum: 4, enemyStatusCount: 1 }),
+      { terminated: true, victory: true },
+    );
+    expect(r).toBeCloseTo(DEFAULT_REWARD_CONFIG.runWon - (0.1 * 4 + 0.5 * 1) + TP, 9);
   });
 
   it("compares HP arrays over the shared prefix when party sizes differ", () => {
@@ -227,7 +277,15 @@ describe("RewardCalculator", () => {
 
     const s = calc.snapshot(
       [mon(50, 100, [2, -1, 0, 3], null), mon(10, 0, [0, 0, 0, 0], null)], // maxHp 0 -> ratio 0
-      [mon(80, 100, [0, 0], 2), mon(100, 100, [0, 0], 0), mon(100, 100, [0, 0], null)],
+      [
+        mon(80, 100, [0, 0], 2),
+        mon(100, 100, [0, 0], 0),
+        mon(100, 100, [0, 0], null),
+        // FAINT (7) is technically a StatusEffect and fainted mons linger in
+        // trainer parties — neither may count as "statused" [RD7]:
+        mon(0, 100, [0, 0], 7),
+        mon(0, 100, [0, 0], 2), // statused but dead — dead mons don't count
+      ],
       3,
       1,
       12,
@@ -235,9 +293,10 @@ describe("RewardCalculator", () => {
     );
 
     expect(s.playerHpRatios).toEqual([0.5, 0]);
-    expect(s.enemyHpRatios).toEqual([0.8, 1, 1]);
+    expect(s.enemyHpRatios).toEqual([0.8, 1, 1, 0, 0]);
+    expect(s.enemyMaxHps).toEqual([100, 100, 100, 100, 100]);
     expect(s.playerStatStageSum).toBe(5); // only positive stages: 2 + 3
-    expect(s.enemyStatusCount).toBe(1); // effect 0 and null don't count
+    expect(s.enemyStatusCount).toBe(1); // effect 0/null/FAINT/dead don't count
     expect(s.enemyFaints).toBe(3);
     expect(s.playerFaints).toBe(1);
     expect(s.waveIndex).toBe(12);
@@ -250,5 +309,105 @@ describe("RewardCalculator", () => {
     expect(calc.getConfig().turnPenalty).toBe(-1);
     expect(calc.getConfig().enemyKo).toBe(DEFAULT_REWARD_CONFIG.enemyKo);
     expect(calc.computeReward(snap(), false, false, false, -1)).toBe(-1);
+  });
+});
+
+describe("RewardCalculator — new-low damage tracking [RD6]", () => {
+  const D = DEFAULT_REWARD_CONFIG.hpDamageDealt;
+  /** Id-carrying snapshot: enemy i keeps id 100+i across snapshots. */
+  const idSnap = (ratios: number[], maxHps: number[], over: Partial<StateSnapshot> = {}): StateSnapshot =>
+    snap({
+      enemyHpRatios: ratios,
+      enemyIds: ratios.map((_, i) => 100 + i),
+      enemyMaxHps: maxHps,
+      ...over,
+    });
+
+  let calc: RewardCalculator;
+  beforeEach(() => {
+    calc = new RewardCalculator();
+  });
+
+  it("pays new damage but never re-pays HP re-dealt after an enemy heal", () => {
+    // 1.0 -> 0.6: new low, pays 0.4
+    expect(step(calc, idSnap([1], [100]), idSnap([0.6], [100]))).toBeCloseTo(0.4 * D + TP, 9);
+    // heal to full: nothing (and the 0.6 minimum is remembered)
+    expect(step(calc, idSnap([0.6], [100]), idSnap([1], [100]))).toBeCloseTo(TP, 9);
+    // re-damage to 0.7 — ABOVE the tracked minimum: v1 paid +0.3 here again
+    // (the chip-heal farm); v2 pays nothing.
+    expect(step(calc, idSnap([1], [100]), idSnap([0.7], [100]))).toBeCloseTo(TP, 9);
+    // below the minimum: pays only the new-low part (0.6 -> 0.5)
+    expect(step(calc, idSnap([0.7], [100]), idSnap([0.5], [100]))).toBeCloseTo(0.1 * D + TP, 9);
+  });
+
+  it("rebases without paying when maxHp changes (form change, not damage)", () => {
+    // maxHp doubles, hp preserved: ratio halves with no damage dealt
+    expect(step(calc, idSnap([0.5], [100]), idSnap([0.25], [200]))).toBeCloseTo(TP, 9);
+    // subsequent real damage pays from the rebased minimum
+    expect(step(calc, idSnap([0.25], [200]), idSnap([0.15], [200]))).toBeCloseTo(0.1 * D + TP, 9);
+  });
+
+  it("reset() clears the min-map and the cumulative money total", () => {
+    step(calc, idSnap([1], [100]), idSnap([0.5], [100]));
+    step(calc, snap({ money: 0 }), snap({ money: 100 }));
+    calc.reset();
+    // Same enemy id pays fresh from its pre ratio after reset
+    expect(step(calc, idSnap([1], [100]), idSnap([0.6], [100]))).toBeCloseTo(0.4 * D + TP, 9);
+    // Money telescoping restarts at G=0
+    expect(step(calc, snap({ money: 0 }), snap({ money: 100 }))).toBeCloseTo(
+      DEFAULT_REWARD_CONFIG.moneyGainedLog * Math.log1p(100) + TP,
+      9,
+    );
+  });
+});
+
+describe("RewardCalculator — episode-end adjustments (reward v2)", () => {
+  let calc: RewardCalculator;
+  beforeEach(() => {
+    calc = new RewardCalculator();
+  });
+
+  it("[RD2] livelock ends pay stallPenalty; step_cap pays nothing (plain truncation)", () => {
+    expect(calc.episodeEndAdjustment("livelock", null)).toBeCloseTo(DEFAULT_REWARD_CONFIG.stallPenalty, 9);
+    expect(calc.episodeEndAdjustment("step_cap", null)).toBe(0);
+  });
+
+  it("[RD5] wave_cap scales waveCapReached by the clean advance ratio", () => {
+    // 4 genuine clears + 1 fled advance = 4/5 of the bonus
+    for (let w = 1; w <= 4; w++) {
+      step(calc, snap({ waveIndex: w }), snap({ waveIndex: w + 1 }));
+    }
+    step(calc, snap({ waveIndex: 5 }), snap({ waveIndex: 6 }), { fled: true });
+    expect(calc.episodeEndAdjustment("wave_cap", null)).toBeCloseTo(DEFAULT_REWARD_CONFIG.waveCapReached * 0.8, 9);
+  });
+
+  it("[RD5] wave_cap with no recorded advances pays the full bonus", () => {
+    expect(calc.episodeEndAdjustment("wave_cap", null)).toBeCloseTo(DEFAULT_REWARD_CONFIG.waveCapReached, 9);
+  });
+
+  it("[RD7] terminated ends charge back held shaping potential from the final snapshot", () => {
+    const shaped = new RewardCalculator({ statBoostReward: 0.1, statusInflictionReward: 0.5 });
+    expect(shaped.episodeEndAdjustment("livelock", snap({ playerStatStageSum: 6, enemyStatusCount: 2 }))).toBeCloseTo(
+      DEFAULT_REWARD_CONFIG.stallPenalty - 0.1 * 6 - 0.5 * 2,
+      9,
+    );
+  });
+
+  it("[RD2] stallStepAdjustment charges only past the grace window", () => {
+    expect(calc.stallStepAdjustment(0, 5)).toBe(0);
+    expect(calc.stallStepAdjustment(5, 5)).toBe(0);
+    expect(calc.stallStepAdjustment(6, 5)).toBeCloseTo(DEFAULT_REWARD_CONFIG.stallStepPenalty, 9);
+  });
+
+  it("[RD2] ordering invariant: a detected stall is strictly worse than a worst-case wipe", () => {
+    const cfg = DEFAULT_REWARD_CONFIG;
+    // Detected stall: 35 charged repeat-steps (grace 5 of 40) + terminal lump
+    const stall = 35 * cfg.stallStepPenalty + cfg.stallPenalty + 40 * cfg.turnPenalty;
+    // Worst fighting loss: full 6-mon wipe from full HP
+    const worstLoss = cfg.runLost + 6 * cfg.playerKo + 6 * cfg.hpDamageTaken;
+    expect(stall).toBeLessThan(worstLoss);
+    // And the surrogate win must dominate both
+    expect(cfg.waveCapReached).toBeGreaterThan(0);
+    expect(worstLoss).toBeLessThan(0);
   });
 });

@@ -63,16 +63,20 @@ DEFAULT_CLI = _resolve_default_cli()
 # Setup phases auto-played by reset(); check_switch is left to the agent.
 SETUP_PHASES = {"title", "select_gender", "starter"}
 
-PROTOCOL_VERSION = 5  # v9 observation: 69 curated tags, 60-dim moves, 6991 dims
+# v6: reward v2 — obs layout unchanged (v9 obs: 69 curated tags, 60-dim moves,
+# 6991 dims) but the WIRE REWARD SEMANTICS changed: livelock/wave_cap done
+# reasons are terminal and their reward embeds stallPenalty/waveCapReached.
+# Version skew is not graceful (a v5 client would bootstrap V(s_final) on top
+# of the embedded penalty, diverging toward stallPenalty/(1-gamma)), hence the
+# handshake bump rather than a docs note.
+PROTOCOL_VERSION = 6
 
 # Phase-agnostic no-progress backstop. A no-op self-loop (in ANY decision phase)
-# revisits already-seen observations without producing new ones; the step cap
-# only bounds it after waves*50 steps, which is thousands on a deep run. If the
-# game yields NO new observation for this many consecutive decisions it is
-# livelocked — truncate gracefully. Set high enough that legitimate play (which
-# keeps producing new states: HP, turn counters, stat stages, PP, wave all move)
-# never trips it, and above the TS-side shop guard so that guard resolves the
-# common case first. This is a last-resort floor, not the primary mechanism.
+# revisits already-seen observations without producing new ones. Since protocol
+# v6 the CLI runs the SAME guard engine-side (charging stallStepPenalty at the
+# offending steps and ending the episode with reason "livelock" BEFORE sending
+# the 40th repeat), so this client-side copy is defense in depth — it can only
+# fire against a CLI whose guard is broken. Keep the limits equal.
 NO_PROGRESS_LIMIT = 40
 
 
@@ -154,6 +158,9 @@ class PokeRogueEnv(gym.Env):
         self._episodes_since_spawn = 0
         # Partial RewardConfig overrides (see src/rl/rewards.ts for fields)
         self._reward_config = reward_config
+        # RESOLVED reward config echoed by the CLI's ready handshake
+        # (defaults + overrides) — the backstop reads stallPenalty from it.
+        self._ready_reward_config: dict = {}
         # Game overrides (DefaultOverrides keys, e.g. BATTLE_STYLE_OVERRIDE).
         # NOTE: Mystery Encounters are PERMANENTLY disabled in this environment
         # (their option phases are outside the 58-action interface). The
@@ -244,6 +251,7 @@ class PokeRogueEnv(gym.Env):
             self._episodes_since_spawn = 0
         self._episodes_since_spawn += 1
         self._check_versions(ready)
+        self._ready_reward_config = ready.get("rewardConfig") or {}
 
         msg = self._next_decision()
         while msg.get("type") == "state" and msg.get("phase") in SETUP_PHASES:
@@ -306,8 +314,16 @@ class PokeRogueEnv(gym.Env):
             return obs, 0.0, False, True, info
         mtype = msg.get("type")
 
-        terminated = mtype == "game_over"
-        truncated = mtype in ("done", "error")
+        # Reward v2 terminal mapping: livelock (stallPenalty inside reward —
+        # under truncation the final obs IS the repeated obs and V(stall)
+        # self-bootstraps toward stallPenalty/(1-gamma)) and wave_cap (the
+        # clean-ratio waveCapReached bonus stands in for continuation value;
+        # bootstrapping on top would double-count) are TERMINATED. step_cap
+        # stays truncated with no penalty: a pure compute-budget artifact,
+        # invisible to the observation, so SB3 bootstraps V(s_final).
+        reason = msg.get("reason")
+        terminated = mtype == "game_over" or (mtype == "done" and reason in ("livelock", "wave_cap"))
+        truncated = not terminated and mtype in ("done", "error")
         reward = float(msg.get("reward", 0.0))
 
         if terminated or truncated:
@@ -344,15 +360,21 @@ class PokeRogueEnv(gym.Env):
             self._seen_obs.add(obs_key)
             self._no_progress = 0
         if self._no_progress >= NO_PROGRESS_LIMIT:
-            # Mid-episode truncation: the CLI is still waiting for an action (no
-            # `done` was sent), so reap + respawn on the next reset — exactly
-            # like the step-timeout path — rather than desync the reset protocol.
+            # Defense-in-depth backstop (a v6 CLI's own guard trips first —
+            # see NO_PROGRESS_LIMIT). Mid-episode: the CLI is still waiting
+            # for an action (no `done` was sent), so reap + respawn on the
+            # next reset — exactly like the step-timeout path — rather than
+            # desync the reset protocol. Mirrors the CLI's livelock ending:
+            # TERMINATED with stallPenalty (read from the ready handshake's
+            # resolved reward config), keeping V(stall) bounded instead of
+            # self-bootstrapping through the repeated final observation.
             self._reap()
             self._needs_reset = True
             info = self._info_from(msg)
             info["livelock_truncation"] = self._no_progress
+            info["done_reason"] = "livelock"
             self.last_info = info
-            return obs, reward, False, True, info
+            return obs, reward + self._stall_penalty(), True, False, info
 
         self.last_info = self._info_from(msg)
         return obs, reward, False, False, self.last_info
@@ -537,10 +559,25 @@ class PokeRogueEnv(gym.Env):
         }
         if msg.get("type") == "game_over":
             info["victory"] = bool(msg.get("victory"))
+        # Episode-end taxonomy for eval/verify tooling: wave_cap (surrogate
+        # win), livelock (stall), step_cap (budget), lifecycle-command.
+        if msg.get("type") == "done":
+            info["done_reason"] = msg.get("reason")
+            if "livelockTruncation" in msg:
+                info["livelock_truncation"] = msg.get("livelockTruncation")
         if self._invalid_action_count:
             info["invalid_action_count"] = self._invalid_action_count
             info["last_warning"] = self._last_warning
         return info
+
+    def _stall_penalty(self) -> float:
+        """stallPenalty from the CLI's resolved reward config (ready echo),
+        falling back to the user's reward_config, then the rewards.ts default."""
+        cfg = self._ready_reward_config or self._reward_config or {}
+        try:
+            return float(cfg.get("stallPenalty", -50.0))
+        except (TypeError, ValueError):
+            return -50.0
 
     def _kill_group(self, sig: int) -> None:
         """Signal the node process GROUP (start_new_session) — falls back to

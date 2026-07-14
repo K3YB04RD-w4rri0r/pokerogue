@@ -38,10 +38,23 @@ export const INFINITE_TWEEN_SENTINEL_MS = 600_000;
 export const MAX_STEPS_PER_WAVE = 50;
 
 /**
- * Rendered transport: consecutive identical-observation steps before the
- * bridge declares a livelock and ends the session.
+ * Consecutive already-seen-observation decisions before a transport (headless
+ * CLI or rendered bridge) declares a livelock and ends the episode as
+ * TERMINATED with the stallPenalty (reward v2). The Python env keeps its own
+ * copy of this limit as a defense-in-depth backstop; a v6 CLI always trips
+ * first (it checks before sending the state).
  */
 export const NO_PROGRESS_LIMIT = 40;
+
+/**
+ * Repeated-observation decisions tolerated before stallStepPenalty starts
+ * being charged per decision (reward v2 [RD2]). The per-step charge exists
+ * because a lump penalty 40 steps out is discounted to ~0.67x at gamma=0.99,
+ * which left stalling preferable to a worst-case loss. Legitimate play
+ * produces novel observations (HP/PP/turn counters move), so exceeding even
+ * a few consecutive repeats means a no-op loop.
+ */
+export const STALL_GRACE_STEPS = 5;
 
 /** Rendered transport: time-scale applied to cinematic sequences (evolution,
  *  egg hatching) so watching an agent doesn't stall on animations. */

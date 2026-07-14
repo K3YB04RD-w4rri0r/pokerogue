@@ -51,14 +51,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
-# Keys of the TS RewardConfig (src/rl/rewards.ts) — used for a warning-level
-# typo check on the `reward:` section (unknown keys are ignored TS-side).
+# Keys of the TS RewardConfig (src/rl/rewards.ts, reward v2). Unknown keys in
+# the `reward:` section are a HARD error: a silently-ignored key means the run
+# trains at the default weight for whatever the user meant to set.
 REWARD_CONFIG_KEYS = frozenset({
     "hpDamageDealt", "hpDamageTaken", "enemyKo", "playerKo", "waveCleared",
-    "bossWaveCleared", "runWon", "runLost", "ranAway", "moneyGained",
+    "bossWaveCleared", "runWon", "runLost", "ranAway",
+    "moneyGainedLog", "moneySpentLog",
     "pokemonCaught", "modifierSelected", "modifierTierBonus", "turnPenalty",
+    "stallStepPenalty", "stallPenalty", "waveCapReached",
     "statBoostReward", "statusInflictionReward",
 })
+
+# Reward keys removed by the v2 redesign -> migration message. Mirrors
+# REMOVED_REWARD_KEYS in src/rl/rewards.ts.
+REMOVED_REWARD_KEYS = {
+    "moneyGained": "renamed to moneyGainedLog (cumulative log scale — retune the weight, linear 0.01 ≈ log 0.2)",
+}
 
 # PokeRogueEnv constructor kwargs accepted in the `env:` section.
 # Known train: section keys (consumed by examples/rl/train_maskable_ppo.py).
@@ -226,9 +235,13 @@ def _validate(cfg: RunConfig) -> None:
         for name in cfg.pokeballs:
             if name not in POKEBALL_NAMES:
                 raise RunConfigError(f"pokeballs key {name!r} not one of {POKEBALL_NAMES}")
+    for key in sorted(set(cfg.reward) & set(REMOVED_REWARD_KEYS)):
+        raise RunConfigError(f"reward key {key!r} was removed: {REMOVED_REWARD_KEYS[key]}")
     unknown_reward = set(cfg.reward) - REWARD_CONFIG_KEYS
     if unknown_reward:
-        warnings.warn(f"run config: unknown reward keys {sorted(unknown_reward)} (ignored by rewards.ts)", stacklevel=2)
+        # Hard error (was a warning): the CLI now also rejects unknown keys,
+        # so failing here gives the better message before the process spawns.
+        raise RunConfigError(f"reward section: unknown RewardConfig keys {sorted(unknown_reward)} (see src/rl/rewards.ts)")
     unknown_env = set(cfg.env) - ENV_KWARG_KEYS
     if unknown_env:
         raise RunConfigError(f"env section: unknown PokeRogueEnv kwargs {sorted(unknown_env)}")

@@ -22,7 +22,7 @@ import { globalScene } from "#app/global-scene";
 import { getAvailableModifiers } from "#rl/modifier-api";
 import type { PhaseState } from "#rl/phase-router";
 import { DecisionPhase } from "#rl/phase-router";
-import type { RewardConfig, StateSnapshot } from "#rl/rewards";
+import type { EpisodeEndReason, RewardConfig, StateSnapshot } from "#rl/rewards";
 import { RewardCalculator } from "#rl/rewards";
 import {
   ACTION_BUY_SHOP_START,
@@ -32,6 +32,7 @@ import {
   MAX_REWARD_OPTIONS,
   MAX_SHOP_OPTIONS,
 } from "#rl/spaces";
+import { STALL_GRACE_STEPS } from "#rl/tunables";
 
 /** Setup phases auto-played by the drivers (never surfaced to the agent as decisions). */
 export const SETUP_PHASES: ReadonlySet<string> = new Set([
@@ -192,5 +193,26 @@ export class EpisodeRewardTracker {
     this.calc.savePreActionSnapshot(this.lastSnapshot);
     this.lastFled = executed === ACTION_RUN;
     this.lastTier = state.phase === DecisionPhase.SELECT_MODIFIER ? getModifierTier(executed) : -1;
+  }
+
+  /**
+   * Extra penalty for a decision whose observation repeats an already-seen
+   * one (reward v2 [RD2]): 0 through STALL_GRACE_STEPS consecutive repeats,
+   * stallStepPenalty per decision beyond. Both transports add this to the
+   * reward they report for the arriving state.
+   */
+  stallStepAdjustment(consecutiveRepeats: number): number {
+    return this.calc.stallStepAdjustment(consecutiveRepeats, STALL_GRACE_STEPS);
+  }
+
+  /**
+   * Final reward for an episode ending by cap or livelock (reward v2):
+   * stallPenalty on livelock, clean-ratio-scaled waveCapReached on wave_cap,
+   * nothing on step_cap — plus the shaping-potential chargeback (when shaping
+   * weights are enabled) on the terminated reasons. The scene is still live
+   * on these paths, so the final snapshot is taken here.
+   */
+  endEpisodeReward(baseReward: number, reason: EpisodeEndReason): number {
+    return baseReward + this.calc.episodeEndAdjustment(reason, this.takeSnapshot());
   }
 }

@@ -174,15 +174,18 @@ custom Python-side reward as a `gym.RewardWrapper` over `info["game_state"]`.
 **Where the reward lives — two levels of control:**
 
 1. **Reweight the built-in reward** (no code): `src/rl/rewards.ts`
-   (`RewardCalculator`, 16 weighted components) is the DEFAULT, a sane
-   documented baseline — not "the one true reward." Retune any component's
-   magnitude via the `reward:` section of a run config / `--reward-config`
+   (`RewardCalculator`, 20 weighted components — reward v2, see
+   `docs/REWARD_V2.md`) is the DEFAULT, a sane documented baseline — not
+   "the one true reward." Retune any component's magnitude via the
+   `reward:` section of a run config / `--reward-config`
    / `PokeRogueEnv(reward_config=...)`; set a weight to 0 to drop a
-   component. Both transports report it per step. Note the default's
-   editorial choices (all overridable): money is rewarded linearly
-   (unbounded — cap it yourself if you don't want economy-focus), a
-   faint/KO is counted by BOTH its HP-delta and the ±KO event (dense +
-   sparse shaping), and only the once-per-shop reward *pick* scores, not
+   component (unknown or removed keys are a hard error). Both transports
+   report it per step. Note the default's editorial choices (all
+   overridable): money gains pay on a CUMULATIVE log scale (a bounded
+   tiebreaker; spending is priced per-delta), enemy damage pays only
+   new-low HP per enemy, a faint/KO is counted by BOTH its HP-delta and
+   the ±KO event (dense + sparse shaping), stalling is priced at the
+   stalling steps, and only the once-per-shop reward *pick* scores, not
    repeated buys.
 
 2. **Write your own reward in Python** (`src/rl/reward.py`): implement a
@@ -322,11 +325,13 @@ prompt — type `h` for the list (inspect modifiers, field, party, etc.). `q` qu
 
 ## Developer reference
 
-- **Observation:** 6,991 float32 dims (protocolVersion 5 / obs v9). The TypeScript
+- **Observation:** 6,991 float32 dims (protocolVersion 6 / obs v9 — v6 changed
+  the wire REWARD semantics, not the layout). The TypeScript
   encoder (`spaces.ts`) is the wire authority; `observation.py` mirrors it bitwise.
   Layout reference: `docs/OBS_V9_LAYOUT.md`; audit trail:
   `docs/AUDIT_FINDINGS_P1.md`, `docs/SUFFICIENCY_MATRIX.md`.
-- **Reward:** `rewards.ts` (14 base + shaped components).
+- **Reward:** `rewards.ts` (reward v2: 18 base + 2 shaped components,
+  exploit-hardened — `docs/REWARD_V2.md`).
 - **Verify everything:** `pnpm rl:verify` — build, TS+Python parity (bitwise),
   determinism, a deep-coverage corpus, and an in-process soak. See
   `docs/VERIFICATION.md`.

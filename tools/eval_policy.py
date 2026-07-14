@@ -37,24 +37,27 @@ def run_episode(env: PokeRogueEnv, policy, seed: str) -> dict:
             break
     gs = info.get("game_state") or {}
     wave = ((gs.get("battle") or {}).get("wave_index")) or info.get("wave")
+    done_reason = info.get("done_reason")
     return {
         "reward": total,
         "steps": steps,
         "wave": wave,
-        # env sets info["victory"] only on real game_over; a wave-budget
-        # stop is truncated (no victory key) — keep the three outcomes
-        # distinguishable in metrics
+        # env sets info["victory"] only on a real game_over win (wave 200);
+        # under a wave cap the surrogate win is done_reason == "wave_cap"
+        # (terminated since reward v2, with the waveCapReached bonus inside).
         "victory": bool(info.get("victory")),
         "terminated": terminated,
         "truncated": truncated,
+        # Episode-end reason from the done payload (reward v2): wave_cap |
+        # step_cap | livelock | lifecycle-command | None (game_over).
+        "done_reason": done_reason,
         # A protocol error (step timeout / CLI died) surfaces as truncated with
         # info["protocol_error"] and a partial reward — NOT a real budget stop.
         # Flag it so the stats can exclude it instead of folding it into budget%.
         "error": bool(info.get("protocol_error")),
-        # A livelock truncation (no-progress backstop fired) is a POLICY
-        # failure, not a completed horizon — folding it into budget% would
-        # read "survived the budget" for a policy that got stuck.
-        "livelock": bool(info.get("livelock_truncation")),
+        # A livelock ending (CLI guard or env backstop) is a POLICY failure,
+        # not a completed horizon — kept out of both win% and budget%.
+        "livelock": done_reason == "livelock" or bool(info.get("livelock_truncation")),
     }
 
 
@@ -83,8 +86,9 @@ def main() -> int:
             outcome = (
                 "error" if r["error"]
                 else "win" if r["victory"]
-                else "loss" if r["terminated"]
+                else "cap" if r["done_reason"] == "wave_cap"
                 else "livelock" if r["livelock"]
+                else "loss" if r["terminated"]
                 else "budget"
             )
             print(
@@ -97,7 +101,7 @@ def main() -> int:
 
     print(
         f"\n{'policy':<40} {'mean_reward':>12} {'±sem':>7} {'median':>9} {'mean_wave':>10} "
-        f"{'win%':>6} {'budget%':>8} {'lvlk':>5} {'err':>4}"
+        f"{'win%':>6} {'cap%':>6} {'budget%':>8} {'lvlk':>5} {'err':>4}"
     )
     for name, runs in results.items():
         # Exclude protocol-error episodes from every statistic — their partial
@@ -112,7 +116,12 @@ def main() -> int:
         waves = [r["wave"] for r in valid if r["wave"] is not None]
         denom = len(valid)
         wins = (sum(1 for r in valid if r["victory"]) / denom) if denom else float("nan")
+        # cap% — surrogate wins (reached the wave cap; terminated with the
+        # clean-ratio waveCapReached bonus since reward v2)
+        caps = (sum(1 for r in valid if r["done_reason"] == "wave_cap") / denom) if denom else float("nan")
         livelocks = sum(1 for r in valid if r["livelock"])
+        # budget% — step_cap (or other unpenalized truncations): ran out of
+        # step budget without stalling; wave caps are counted in cap% now.
         budget = (sum(1 for r in valid if r["truncated"] and not r["livelock"]) / denom) if denom else float("nan")
         mean_reward = statistics.mean(rewards) if rewards else float("nan")
         # Roguelike returns are heavy-tailed; a mean over ~10 episodes without
@@ -122,12 +131,15 @@ def main() -> int:
         mean_wave = statistics.mean(waves) if waves else float("nan")
         print(
             f"{name:<40} {mean_reward:>12.2f} {sem:>7.2f} {median_reward:>9.2f} "
-            f"{mean_wave:>10.1f} {100 * wins:>5.0f}% {100 * budget:>7.0f}% {livelocks:>5} {errors:>4}"
+            f"{mean_wave:>10.1f} {100 * wins:>5.0f}% {100 * caps:>5.0f}% {100 * budget:>7.0f}% {livelocks:>5} {errors:>4}"
         )
         if excluded:
             print(f"    excluded (protocol errors) seeds: {[f'{args.seed_prefix}-{i}' for i in excluded]}")
     if args.waves < 200:
-        print(f"\nnote: win%% requires reaching wave 200; under --waves {args.waves} it is structurally 0.")
+        print(
+            f"\nnote: win%% requires reaching wave 200; under --waves {args.waves} it is structurally 0 — "
+            "cap%% (wave cap reached, paid the waveCapReached bonus) is the surrogate win rate."
+        )
     return 0
 
 

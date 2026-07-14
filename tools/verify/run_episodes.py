@@ -103,7 +103,12 @@ def run_episode(
             if mtype == "done":
                 if result["result"] == "incomplete":
                     # done carries reason since the B1 fix: wave_cap | step_cap
+                    # | livelock (reward v2 CLI guard)
                     result["result"] = msg.get("reason", "step_cap")
+                # Cap/livelock payloads carry the FINAL step's reward (never
+                # sent as a state message) — without this the ±terminal
+                # payments of reward v2 were missing from the tally.
+                result["total_reward"] += float(msg.get("reward", 0.0))
                 result["steps"] = int(msg.get("steps", result["steps"]))
                 break
             if mtype != "state":
@@ -204,7 +209,10 @@ def main() -> int:
             all_phases[p] = all_phases.get(p, 0) + c
 
         ok = (
-            r["result"] in ("game_over", "step_cap", "wave_cap")
+            # livelock is a COMPLETE episode too (reward v2: the CLI guard
+            # ends it with terminal semantics) — a stuck masked-random policy
+            # is a policy outcome, not a harness failure.
+            r["result"] in ("game_over", "step_cap", "wave_cap", "livelock")
             and not r["unexpected_warnings"]
             and not r["errors"]
             and r["probes_acknowledged"] == r["probes_sent"]

@@ -43,6 +43,7 @@ import { applyOverrideValues, deriveTrainerIds } from "#rl/apply-overrides";
 import { buildTerminalGameState, EpisodeRewardTracker, resolveExecutedAction, SETUP_PHASES } from "#rl/episode-runtime";
 import type { PhaseRouter, PhaseState } from "#rl/phase-router";
 import { createPhaseRouter, DecisionPhase, parseStarterCsv } from "#rl/phase-router";
+import { DEFAULT_REWARD_CONFIG, REMOVED_REWARD_KEYS } from "#rl/rewards";
 import { ACTION_SPACE_SIZE, encodeObservation, OBSERVATION_DIM } from "#rl/spaces";
 import { buildGameState as buildFullGameState } from "#rl/state-builder";
 import { CINEMATIC_TIMESCALE, DECISION_TIMEOUT_MS, EVOLUTION_ASSET_RACE_MS, NO_PROGRESS_LIMIT } from "#rl/tunables";
@@ -123,11 +124,24 @@ function parseUrlParams(): UrlParams {
   const rawRewardConfig = params.get("rewardConfig");
   if (rawRewardConfig) {
     try {
-      const parsed = JSON.parse(rawRewardConfig);
+      const parsed = JSON.parse(rawRewardConfig) as Record<string, number>;
       if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
         throw new Error("must be a JSON object");
       }
-      rewardConfig = parsed as Record<string, number>;
+      // Unknown keys are dropped LOUDLY (the rendered page shouldn't brick,
+      // but a silently-ignored key would train/report at default weights —
+      // the exact failure the moneyGained -> moneyGainedLog rename must not
+      // reproduce). Mirrors the headless CLI, which hard-exits instead.
+      for (const key of Object.keys(parsed)) {
+        if (key in REMOVED_REWARD_KEYS) {
+          console.error(`[RL Bridge] Removed reward key "${key}" DROPPED: ${REMOVED_REWARD_KEYS[key]}`);
+          delete parsed[key];
+        } else if (!(key in DEFAULT_REWARD_CONFIG)) {
+          console.error(`[RL Bridge] Unknown reward key "${key}" DROPPED (see RewardConfig in src/rl/rewards.ts)`);
+          delete parsed[key];
+        }
+      }
+      rewardConfig = parsed;
     } catch (err) {
       console.warn(`[RL Bridge] Invalid &rewardConfig (ignored): ${err}`);
     }
@@ -731,9 +745,12 @@ async function startBridge(): Promise<void> {
     type: "ready",
     // Same guard triple the headless CLI sends: lets clients reject a
     // stale browser bundle instead of silently mis-encoding (audit B3)
-    protocolVersion: 5,
+    protocolVersion: 6,
     obsDim: OBSERVATION_DIM,
     actionDim: ACTION_SPACE_SIZE,
+    // Resolved reward config (defaults + URL overrides), mirroring the CLI:
+    // clients read stallPenalty etc. from here instead of duplicating values.
+    rewardConfig: { ...DEFAULT_REWARD_CONFIG, ...(urlParams.rewardConfig ?? {}) },
   });
   console.log("[RL Bridge] Sent 'ready', waiting for Python 'start' signal...");
 
@@ -888,7 +905,7 @@ async function startBridge(): Promise<void> {
 
       // Reward earned by the previous action (0 on the very first state) —
       // same bookkeeping the headless CLI uses.
-      const reward = tracker.rewardOnArrival(step, false, false);
+      let reward = tracker.rewardOnArrival(step, false, false);
 
       // Build state payload
       const actionLabels = buildActionLabels(state);
@@ -901,20 +918,22 @@ async function startBridge(): Promise<void> {
       const obs = encodeObservation(gameState, { fogOfWar: urlParams.fogOfWar });
       const obsB64 = obsToBase64(obs);
 
-      // No-progress backstop: a no-op self-loop (any phase) revisits already-seen
-      // observations. If no new one appears for NO_PROGRESS_LIMIT consecutive
-      // decisions, truncate gracefully via the existing cap path.
+      // No-progress guard (reward v2 [RD2]), same evaluation point as the
+      // headless CLI: repeats past the grace window charge stallStepPenalty
+      // into this step's reward; NO_PROGRESS_LIMIT consecutive repeats end
+      // the episode (reason "livelock" => terminated + stallPenalty).
       if (seenObs.has(obsB64)) {
         noProgress++;
       } else {
         seenObs.add(obsB64);
         noProgress = 0;
       }
+      reward += tracker.stallStepAdjustment(noProgress);
       if (noProgress >= NO_PROGRESS_LIMIT) {
         capPayload = {
           reason: "livelock",
           livelockTruncation: noProgress,
-          reward,
+          reward: tracker.endEpisodeReward(reward, "livelock"),
           obsB64,
           mask: state.actionMask,
           wave,
@@ -924,13 +943,16 @@ async function startBridge(): Promise<void> {
       }
 
       // REAL wave cap (+ N*50 step backstop), matching the headless CLI: end
-      // as truncated at a genuine decision state so the final observation is
-      // real, not zeros. null waves = unbounded (watching mode).
+      // at a genuine decision state so the final observation is real, not
+      // zeros. wave_cap pays the clean-ratio waveCapReached bonus (reported
+      // terminated by the client); step_cap stays a plain truncation.
+      // null waves = unbounded (watching mode).
       if (urlParams.waves !== null && (wave > urlParams.waves || (maxSteps !== null && step >= maxSteps))) {
+        const reason = wave > urlParams.waves ? "wave_cap" : "step_cap";
         capPayload = {
-          reason: wave > urlParams.waves ? "wave_cap" : "step_cap",
-          reward,
-          obsB64: obsToBase64(obs),
+          reason,
+          reward: tracker.endEpisodeReward(reward, reason),
+          obsB64,
           mask: state.actionMask,
           wave,
           gameState,

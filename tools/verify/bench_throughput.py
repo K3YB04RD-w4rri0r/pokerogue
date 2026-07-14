@@ -87,7 +87,7 @@ def bench_episode(seed: str, waves: int, action_seed: str) -> dict:
                 continue
             if mtype == "done":
                 if out["result"] == "incomplete":
-                    out["result"] = "step_cap"
+                    out["result"] = msg.get("reason", "step_cap")
                 break
             if mtype != "state":
                 continue
@@ -170,7 +170,7 @@ def bench_inprocess(
                     continue
                 if mtype in ("done", "error"):
                     if result == "incomplete":
-                        result = "step_cap" if mtype == "done" else "error"
+                        result = msg.get("reason", "step_cap") if mtype == "done" else "error"
                     break
                 if mtype != "state":
                     continue

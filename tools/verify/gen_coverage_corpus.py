@@ -137,7 +137,7 @@ def run_scenario(name: str, spec: dict, out_dir: Path) -> tuple[bool, list[str]]
         # budget was wrongly marked failed and its records dropped (asserts then
         # ran on an empty list and failed). Only router_timeout/hang/incomplete
         # are genuine failures.
-        if r["result"] not in ("game_over", "step_cap", "wave_cap") or r["errors"]:
+        if r["result"] not in ("game_over", "step_cap", "wave_cap", "livelock") or r["errors"]:
             ok = False
             notes.append(f"{seed}: episode failed ({r['result']}, errors={r['errors'][:2]})")
             continue
