@@ -58,6 +58,103 @@
     "ACTION_BUY_SHOP_START": 40,
     "ACTION_PARTY_TARGET_START": 52
   },
+  "block_layout": [
+    {
+      "name": "player_0",
+      "base": 0,
+      "dim": 513
+    },
+    {
+      "name": "player_1",
+      "base": 513,
+      "dim": 513
+    },
+    {
+      "name": "enemy_0",
+      "base": 1026,
+      "dim": 513
+    },
+    {
+      "name": "enemy_1",
+      "base": 1539,
+      "dim": 513
+    },
+    {
+      "name": "player_2",
+      "base": 2052,
+      "dim": 513
+    },
+    {
+      "name": "player_3",
+      "base": 2565,
+      "dim": 513
+    },
+    {
+      "name": "player_4",
+      "base": 3078,
+      "dim": 513
+    },
+    {
+      "name": "player_5",
+      "base": 3591,
+      "dim": 513
+    },
+    {
+      "name": "enemy_2",
+      "base": 4104,
+      "dim": 513
+    },
+    {
+      "name": "enemy_3",
+      "base": 4617,
+      "dim": 513
+    },
+    {
+      "name": "enemy_4",
+      "base": 5130,
+      "dim": 513
+    },
+    {
+      "name": "enemy_5",
+      "base": 5643,
+      "dim": 513
+    },
+    {
+      "name": "field",
+      "base": 6156,
+      "dim": 102
+    },
+    {
+      "name": "battle",
+      "base": 6258,
+      "dim": 40
+    },
+    {
+      "name": "modifier_phase",
+      "base": 6298,
+      "dim": 363
+    },
+    {
+      "name": "modifier_inventory",
+      "base": 6661,
+      "dim": 220
+    },
+    {
+      "name": "derived",
+      "base": 6881,
+      "dim": 28
+    },
+    {
+      "name": "learn_move",
+      "base": 6909,
+      "dim": 66
+    },
+    {
+      "name": "phase_indicator",
+      "base": 6975,
+      "dim": 16
+    }
+  ],
   "phase_index_map": {
     "command": 0,
     "enemy_command": 0,

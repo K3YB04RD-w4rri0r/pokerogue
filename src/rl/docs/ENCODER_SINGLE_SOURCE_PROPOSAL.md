@@ -1,6 +1,16 @@
 # Proposal: single-sourcing the dual encoders (data-first codegen)
 
-Status: **Phase 1 IMPLEMENTED (2026-07-14, owner-approved).** Phase 2 not started.
+Status: **Phase 1 + Phase 2 IMPLEMENTED (2026-07-14, owner-approved).**
+
+Phase 2 landed as VERIFY, not GENERATE (same reasoning as the enums refinement below):
+`feature_names.py` turned out to be already programmatic over the single-sourced tables — its
+hand-written residue is the SUB-BLOCK ORDER, i.e. logic, and logic in this design is guarded,
+not generated. Two new gates bind it: (a) the sync test emits a `block_layout` manifest
+(name/base/dim in encoder write order) and `check_generated_sync.py` requires
+`feature_names.BLOCK_RANGES` to match it exactly; (b) `tools/verify/check_layout_names.py`
+(rl-verify V-2b) runs 9 differential probes — perturb one input field of the full fixture,
+re-encode, and every changed dimension's NAME must reference that field. A re-ordered sub-block
+lights up unrelated names and fails. This is the Python analog of the TS layout canary.
 Scope: engineering only — no observation-design changes, no dim/layout changes, bitwise-identical output.
 
 Implementation notes (deltas from the plan below):

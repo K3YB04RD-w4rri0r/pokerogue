@@ -31,6 +31,9 @@ step "V-2 generated-data sync (hand-written enums vs encoder-data.json)"
 # hand-written Python mirrors. See docs/ENCODER_SINGLE_SOURCE_PROPOSAL.md.
 "$PY" tools/verify/check_generated_sync.py
 
+step "V-2b layout name probes (feature_names vs actual encoder order)"
+(cd tools/verify && "$PY" check_layout_names.py)
+
 step "V1 build"
 pnpm rl:build
 

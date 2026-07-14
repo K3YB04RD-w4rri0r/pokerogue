@@ -31,6 +31,11 @@ ACTION_SPACE: dict[str, int] = _RAW["action_space"]
 ENUMS: dict[str, dict[str, int]] = _RAW["enums"]
 STRING_ENUMS: dict[str, dict[str, str]] = _RAW["string_enums"]
 
+# Top-level block layout in encoder write order: [{name, base, dim}, ...]
+# tiling [0, OBSERVATION_DIM) exactly. feature_names.BLOCK_RANGES is verified
+# against this by tools/verify/check_generated_sync.py.
+BLOCK_LAYOUT: list[dict] = _RAW["block_layout"]
+
 # Index maps / orderings (order is load-bearing for one-hot layouts)
 PHASE_INDEX_MAP: dict[str, int] = _RAW["phase_index_map"]
 CURATED_VOLATILE_TAGS: list[str] = _RAW["curated_volatile_tags"]

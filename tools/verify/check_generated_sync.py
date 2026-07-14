@@ -108,6 +108,19 @@ def main() -> int:
     # Loaded tables really are the generated objects (no re-divergence path)
     check("observation dims from generated data", __import__("rl.observation", fromlist=["OBSERVATION_DIM"]).OBSERVATION_DIM == encoder_data.DIMS["OBSERVATION_DIM"])
 
+    # feature_names' block ranges vs the TS-emitted layout manifest (Phase 2):
+    # the name table's top-level structure must tile the vector exactly as
+    # the encoder writes it.
+    from rl import feature_names  # noqa: PLC0415
+
+    manifest = [(b["name"], b["base"], b["dim"]) for b in encoder_data.BLOCK_LAYOUT]
+    ranges = [(label, start, size) for (label, start, size) in feature_names.BLOCK_RANGES]
+    check(
+        f"feature_names.BLOCK_RANGES == TS block_layout ({len(manifest)} blocks)",
+        ranges == manifest,
+        f"first diff: {next(((a, b) for a, b in zip(ranges, manifest, strict=False) if a != b), (len(ranges), len(manifest)))}",
+    )
+
     if FAILURES:
         print(f"\nGENERATED-DATA SYNC: FAIL ({len(FAILURES)})")
         return 1

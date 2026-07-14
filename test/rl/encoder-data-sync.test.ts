@@ -137,6 +137,28 @@ function buildPayload(): Record<string, unknown> {
       ACTION_BUY_SHOP_START: spaces.ACTION_BUY_SHOP_START,
       ACTION_PARTY_TARGET_START: spaces.ACTION_PARTY_TARGET_START,
     },
+    // Top-level block layout in ENCODER WRITE ORDER (encodeObservation):
+    // 12 pokemon slots, then field/battle/modifier/inventory/derived/
+    // learn-move/phase. feature_names.BLOCK_RANGES must match exactly
+    // (checked by tools/verify/check_generated_sync.py).
+    block_layout: (() => {
+      const blocks: [string, number][] = [
+        ...spaces.POKEMON_SLOT_KEYS.map((k): [string, number] => [k, spaces.POKEMON_BLOCK_DIM]),
+        ["field", spaces.FIELD_STATE_DIM],
+        ["battle", spaces.BATTLE_META_DIM],
+        ["modifier_phase", spaces.MODIFIER_PHASE_DIM],
+        ["modifier_inventory", spaces.MODIFIER_INVENTORY_DIM],
+        ["derived", spaces.DERIVED_FIELDS_DIM],
+        ["learn_move", spaces.LEARN_MOVE_BLOCK_DIM],
+        ["phase_indicator", spaces.PHASE_INDICATOR_DIM],
+      ];
+      let base = 0;
+      return blocks.map(([name, dim]) => {
+        const entry = { name, base, dim };
+        base += dim;
+        return entry;
+      });
+    })(),
     phase_index_map: spaces.PHASE_INDEX_MAP,
     curated_volatile_tags: spaces.CURATED_VOLATILE_TAGS,
     arena_tag_order: spaces.ARENA_TAG_ORDER,
@@ -217,5 +239,12 @@ describe("encoder-data single-source gate", () => {
     expect(payload.curated_volatile_tags).toHaveLength(spaces.NUM_CURATED_TAGS);
     expect(payload.arena_tag_order).toHaveLength(spaces.NUM_ARENA_TAG_TYPES);
     expect(payload.stage_multipliers).toHaveLength(13);
+    // block layout must tile [0, OBSERVATION_DIM) exactly
+    const blocks = payload.block_layout as { name: string; base: number; dim: number }[];
+    const end = blocks.reduce((pos, b) => {
+      expect(b.base).toBe(pos);
+      return pos + b.dim;
+    }, 0);
+    expect(end).toBe(spaces.OBSERVATION_DIM);
   });
 });
