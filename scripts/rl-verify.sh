@@ -104,8 +104,13 @@ if [ "$MODE" != "quick" ]; then
   step "V12 throughput bench (per-process)"
   "$PY" tools/verify/bench_throughput.py --episodes 3 --waves 8 --out "$ART/bench.json"
 
+  # 300 eps @ waves 12 (was 100 @ 4): a real training run died at ~episode
+  # 500 / waves 20 — a soak an order of magnitude below the operating point
+  # cannot catch lifecycle bugs. Node stderr is captured for post-mortems
+  # (the original death was undiagnosable: stderr had gone to DEVNULL).
   step "V12b in-process soak (wrapper policy: recycle every 50)"
-  "$PY" tools/verify/bench_throughput.py --inprocess --soak 100 --waves 4 --recycle-every 50 \
+  "$PY" tools/verify/bench_throughput.py --inprocess --soak 300 --waves 12 --recycle-every 50 \
+    --stderr-log "$ART/soak-node-stderr.log" \
     --out "$ART/soak-inprocess.json"
 fi
 
