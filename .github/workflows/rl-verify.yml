@@ -101,3 +101,51 @@ jobs:
       - name: Run the RL full verification suite
         if: github.event_name != 'pull_request'
         run: bash scripts/rl-verify.sh full
+
+  # Rendered-transport E2E (vite dev server + real browser via playwright):
+  # determinism, evolution, shop and cross-transport equivalence scenarios —
+  # previously only ever run manually. Nightly/dispatch only: a full browser
+  # boot per scenario is too heavy for the PR gate, and CI boxes run the game
+  # at a few fps. (Same schedule caveat as above: the cron is inert until
+  # this file lands on the default branch — use workflow_dispatch meanwhile.)
+  rl-rendered-e2e:
+    name: RL rendered E2E (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout (with game-data submodules)
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Node + pnpm
+        uses: ./.github/actions/setup-deps
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-rl.txt
+
+      - name: Install python dependencies + playwright chromium
+        run: |
+          pip install -r requirements-rl.txt playwright
+          playwright install --with-deps chromium
+
+      - name: Run all rendered scenarios
+        run: python tools/verify/check_rendered.py --scenario all
+
+      # The harness writes its own evidence: relay stdout + per-scenario
+      # browser console logs — the exact artifacts that diagnosed the G9 wedge.
+      - name: Upload rendered evidence on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-e2e-evidence
+          path: |
+            .rl-verify/browser-*.log
+            .rl-verify/vite-relay.log
+          if-no-files-found: ignore
+          retention-days: 14
