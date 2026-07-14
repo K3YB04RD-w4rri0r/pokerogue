@@ -204,7 +204,13 @@ def scenario_evolution(pw, port: int) -> None:
         "&seed=verify-rendered-evo&starters=CATERPIE&override=STARTING_LEVEL_OVERRIDE%3D6"
         "&override=ENEMY_SPECIES_OVERRIDE%3D129&override=ENEMY_LEVEL_OVERRIDE%3D1"  # 129 = SpeciesId.MAGIKARP (raw enum value)
         "&override=XP_MULTIPLIER_OVERRIDE%3D100"  # a lv-1 kill alone would never level Caterpie to 7
-        "&override=MOVESET_OVERRIDE%3D33"  # 33 = MoveId.TACKLE: pins slot 0 so first-legal = attack (starter moveset ORDER diverges headless-vs-rendered — see campaign report)
+        # 33 = MoveId.TACKLE: pins slot 0 so first-legal = attack. The historical
+        # headless-vs-rendered order divergence is RESOLVED (trainer-id seeding +
+        # override-instance fixes; see campaign report) — the override stays so the
+        # scenario premise doesn't depend on moveset-generation internals: RL
+        # starter movesets are AI-generated with seeded-RANDOM slot order
+        # (ai-moveset-gen.ts fillInRemainingMovesetSlots), not learnset order.
+        "&override=MOVESET_OVERRIDE%3D33"
     )
     trace, gs, errors = run_session(pw, port, q, FirstLegalPolicy(), 10, "C")
     timed_out = any(x[0] == "terminal" and x[1] == "error" for x in trace)

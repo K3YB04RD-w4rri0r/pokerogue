@@ -190,10 +190,28 @@ verdict confirmed. Full ledger: campaign artifacts. The load-bearing ones:
   MYSTERY_ENCOUNTER_RATE_OVERRIDE belt-and-suspenders.
 - **Starter moveset ORDER diverges headless-vs-rendered for the same seed**
   (observed: slot 0 = Tackle headless, String Shot rendered, seed
-  verify-rendered-evo with STARTING_LEVEL_OVERRIDE=6). The reset-observation
-  equivalence check passes, so the divergence is in a post-reset generation
-  draw. FLAGGED — root cause not yet isolated; scenario made
-  moveset-independent meanwhile.
+  verify-rendered-evo with STARTING_LEVEL_OVERRIDE=6). FLAGGED at the time;
+  scenario made moveset-independent meanwhile. **RESOLVED 2026-07-14**:
+  - Mechanism: RL starters never take the UI's deterministic learnset-order
+    path. Both transports go through `executeTitleAction`, where the starter
+    arrives with an EMPTY moveset (`tryPopulateMoveset([])` is a no-op,
+    select-starter-phase.ts:74) and the fallback (phase-router.ts:2570)
+    regenerates it via the AI generator (`ai-moveset-gen.ts`
+    `fillInRemainingMovesetSlots`), whose slot order is a weighted
+    `randSeedInt` draw on the global stream — i.e. order is a pure function
+    of RNG stream position at that instant, re-anchored by the
+    phase-router re-sow (phase-router.ts:2550) before the fallback runs.
+  - The historical divergence was transport-dependent stream position, made
+    possible by two since-fixed campaign bugs (either sufficient):
+    Math.random trainer ids per process (fixed eb73e2a7f6e) and rendered
+    runtime overrides silently inert (fixed e06c8ec32e7).
+  - Verified healed empirically: 5 seed/starter combinations (CATERPIE x2
+    seeds, BULBASAUR, SQUIRTLE, PIDGEY) produce identical slot order on both
+    transports; the cross-transport equivalence gate (byte-identical reset
+    obs, which encodes move slots) guards this permanently.
+  - Note kept: RL starters get AI-generated (seeded-random-weighted)
+    movesets, not the human game's learnset order — deterministic per seed,
+    but a semantic difference from the UI path.
 - **Pick-cancel modifier farming** reproduced live by a first-legal policy
   (+0.49 per bounce) — fixed via applied-gated modifier bonus.
 - The rendered gate's wedge diagnosis also hardened the harness itself:
