@@ -1,7 +1,21 @@
 # Proposal: single-sourcing the dual encoders (data-first codegen)
 
-Status: **PROPOSAL — awaiting owner approval. No implementation yet.**
+Status: **Phase 1 IMPLEMENTED (2026-07-14, owner-approved).** Phase 2 not started.
 Scope: engineering only — no observation-design changes, no dim/layout changes, bitwise-identical output.
+
+Implementation notes (deltas from the plan below):
+- The emitter is `test/rl/encoder-data-sync.test.ts` (the repo's golden-file idiom:
+  `UPDATE_RL_ENCODER_DATA=1` regenerates `src/rl/generated/encoder-data.json`; the same test IS
+  the staleness gate and runs inside the ordinary vitest stage). No new tooling was added —
+  tsx/vite-node don't exist in this repo, vitest resolves the TS aliases for free.
+- Python loads the JSON via `src/rl/encoder_data.py` (no generated .py module needed).
+- REFINEMENT: `enums.py`'s public IntEnum classes and string-vocab lists stay hand-written —
+  regenerating them risks silent public-API renames for zero drift benefit. Instead
+  `tools/verify/check_generated_sync.py` (rl-verify stage V-2) asserts every hand member exists
+  TS-side with the same value (one documented Python-only sentinel: `MultiHitType.NA`).
+- Pre-refactor drift audit: ALL ~30 tables matched TS exactly (the mirror was healthy; the
+  refactor changed provenance, not values). Stale doc copies fixed: `observation.py` v7
+  docstring, `state_schema.py` (now imports the generated dims), flag-count comments.
 
 ## Problem
 

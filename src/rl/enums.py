@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+from . import encoder_data
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. NUMERIC IntEnums (mirror TS enums exactly)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -609,47 +611,10 @@ POSITIONAL_TAG_STR_TO_ID: dict[str, int] = {
 # v9: 7 TURN_END-transient tags cut (FLINCHED/PROTECTED/ENDURING/
 # HELPING_HAND/MAGIC_COAT/POWDER/CENTER_OF_ATTENTION) — they lapse before
 # every decision boundary. Must match spaces.ts CURATED_VOLATILE_TAGS.
-CURATED_VOLATILE_TAGS: list[str] = [
-    "CONFUSED", "INFATUATED", "SEEDED", "TRAPPED",
-    "ENCORE", "SUBSTITUTE", "DISABLED",
-    "TAUNT", "TORMENT", "HEAL_BLOCK", "INGRAIN", "AQUA_RING",
-    "FLYING", "UNDERGROUND", "UNDERWATER", "CHARGING", "RECHARGING",
-    "FRENZY", "PERISH_SONG", "DESTINY_BOND", "CURSED", "SALT_CURED",
-    "OCTOLOCK", "DROWSY", "STOCKPILING", "MINIMIZED", "IMPRISON",
-    # v2 additions (v9-kept)
-    "SLOW_START",           # Regigigas halved ATK/SPD for 5 turns
-    "UNBURDEN",             # Doubled speed after item loss
-    "RECEIVE_DOUBLE_DAMAGE",  # Tar Shot — 2x fire damage
-    "FLOATING",             # Magnet Rise/Telekinesis — ground immunity
-    "ALWAYS_CRIT",          # Laser Focus — guaranteed crit next turn
-    # v3: 9 additional tags from audit
-    "GRUDGE",               # If holder faints, attacker's move loses all PP
-    "ICE_FACE",             # Eiscue form — absorbs one physical hit
-    "DISGUISE",             # Mimikyu form — absorbs one hit
-    "NO_RETREAT",           # Can't switch but got +1 all stats
-    "THROAT_CHOPPED",       # Can't use sound-based moves for 2 turns
-    "SYRUP_BOMB",           # -1 Speed per turn for 3 turns
-    "COMMANDED",            # Commander ability — merged into ally
-    "BURNED_UP",            # Lost Fire type after Burn Up
-    "DOUBLE_SHOCKED",       # Lost Electric type after Double Shock
-    # v8: 28 additional tags (must match spaces.ts CURATED_VOLATILE_TAGS order)
-    "BIND", "WRAP", "CLAMP", "FIRE_SPIN", "WHIRLPOOL", "MAGMA_STORM",
-    "SAND_TOMB", "SNAP_TRAP", "THUNDER_CAGE", "INFESTATION",  # partial-trap family
-    "CHARGED", "CRIT_BOOST", "DRAGON_CHEER", "FIRE_BOOST", "GORILLA_TACTICS",
-    "HIDDEN", "IGNORE_ACCURACY", "IGNORE_DARK", "IGNORE_FLYING", "IGNORE_GHOST",
-    "NIGHTMARE", "PROTOSYNTHESIS", "QUARK_DRIVE", "SUPREME_OVERLORD",
-    "TAR_SHOT", "TELEKINESIS", "TRUANT", "ALWAYS_GET_HIT",
-]
+CURATED_VOLATILE_TAGS: list[str] = encoder_data.CURATED_VOLATILE_TAGS
 
 # 28 arena tag types in spaces.ts order (lines 232-261)
-ARENA_TAG_ORDER: list[str] = [
-    "MUD_SPORT", "WATER_SPORT", "SPIKES", "TOXIC_SPIKES", "MIST",
-    "STEALTH_ROCK", "STICKY_WEB", "TRICK_ROOM", "GRAVITY", "REFLECT",
-    "LIGHT_SCREEN", "AURORA_VEIL", "QUICK_GUARD", "WIDE_GUARD", "MAT_BLOCK",
-    "CRAFTY_SHIELD", "TAILWIND", "HAPPY_HOUR", "SAFEGUARD", "NO_CRIT",
-    "IMPRISON", "ION_DELUGE", "FIRE_GRASS_PLEDGE", "WATER_FIRE_PLEDGE",
-    "GRASS_WATER_PLEDGE", "FAIRY_LOCK", "NEUTRALIZING_GAS", "PENDING_HEAL",
-]
+ARENA_TAG_ORDER: list[str] = encoder_data.ARENA_TAG_ORDER
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. SAFE LOOKUP FUNCTIONS
@@ -745,9 +710,4 @@ DIMS: dict[str, int] = {
 }
 
 # Pokemon slot keys in observation order (matches spaces.ts POKEMON_SLOT_KEYS)
-POKEMON_SLOT_KEYS: list[str] = [
-    "player_0", "player_1",  # active player (2)
-    "enemy_0", "enemy_1",    # active enemy (2)
-    "player_2", "player_3", "player_4", "player_5",  # player bench (4)
-    "enemy_2", "enemy_3", "enemy_4", "enemy_5",      # enemy bench (4)
-]
+POKEMON_SLOT_KEYS: list[str] = encoder_data.POKEMON_SLOT_KEYS

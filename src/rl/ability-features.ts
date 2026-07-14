@@ -22,8 +22,8 @@
  * Generated from 6 mapper outputs. See /tmp/ability-work/schema.md for full spec.
  */
 
-/** Must match FEATURE_DIM in spaces.ts */
-const FEATURE_DIM = 40;
+/** Must match ABILITY_FEATURE_DIM in spaces.ts */
+export const FEATURE_DIM = 40;
 
 // Default feature vector for unknown/out-of-range ability IDs
 // prettier-ignore

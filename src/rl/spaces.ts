@@ -266,10 +266,10 @@ export const MODIFIER_PHASE_DIM = 363;
 // ─── Modifier Inventory Block ────────────────────────────────────────
 
 /** Max held items encoded per active Pokemon slot */
-const MAX_HELD_ITEMS_ENCODED = 2;
+export const MAX_HELD_ITEMS_ENCODED = 2;
 
 /** Dims per held item slot: valid(1) + features(20) + stack_ratio(1) = 22 */
-const HELD_ITEM_SLOT_DIM = 1 + MODIFIER_FEATURE_DIM + 1; // 22
+export const HELD_ITEM_SLOT_DIM = 1 + MODIFIER_FEATURE_DIM + 1; // 22
 
 /**
  * Held items:    4 × (1 + 2 × 22) = 4 × 45 = 180
@@ -396,10 +396,15 @@ export const ARENA_TAG_ORDER: ArenaTagType[] = [
   ArenaTagType.PENDING_HEAL,
 ];
 
-const ARENA_TAG_INDEX_MAP = new Map<ArenaTagType, number>();
-for (let i = 0; i < ARENA_TAG_ORDER.length; i++) {
-  ARENA_TAG_INDEX_MAP.set(ARENA_TAG_ORDER[i], i);
-}
+/** Key defensive/support tags whose remaining duration is encoded per side
+ *  (5 tags x 2 sides in the field block). */
+export const KEY_ARENA_TAGS: readonly ArenaTagType[] = [
+  ArenaTagType.REFLECT,
+  ArenaTagType.LIGHT_SCREEN,
+  ArenaTagType.AURORA_VEIL,
+  ArenaTagType.TAILWIND,
+  ArenaTagType.TRICK_ROOM,
+];
 
 // ─── Encoding Helpers ─────────────────────────────────────────────────
 
@@ -452,9 +457,9 @@ function sub(dict: Record<string, unknown>, key: string): Record<string, unknown
 // ─── Move Target Classification ─────────────────────────────────────
 
 /** Self/ally MoveTarget values: USER=0, NEAR_ALLY=10, ALLY=11, USER_OR_NEAR_ALLY=12, USER_AND_ALLIES=13, USER_SIDE=15, PARTY=18 */
-const SELF_ALLY_TARGETS = new Set([0, 10, 11, 12, 13, 15, 18]);
+export const SELF_ALLY_TARGETS = new Set([0, 10, 11, 12, 13, 15, 18]);
 /** Single-enemy MoveTarget values: OTHER=1, NEAR_OTHER=3, NEAR_ENEMY=5, ATTACKER=9 */
-const SINGLE_ENEMY_TARGETS = new Set([1, 3, 5, 9]);
+export const SINGLE_ENEMY_TARGETS = new Set([1, 3, 5, 9]);
 // Everything else is multi-target/field: ALL_OTHERS=2, ALL_NEAR_OTHERS=4, ALL_NEAR_ENEMIES=6,
 // RANDOM_NEAR_ENEMY=7, ALL_ENEMIES=8, ALL=14, ENEMY_SIDE=16, BOTH_SIDES=17, CURSE=19
 
@@ -463,7 +468,7 @@ const SINGLE_ENEMY_TARGETS = new Set([1, 3, 5, 9]);
  * (76 booleans; terrain_change — a scalar in v8 — is OR'd separately).
  * Exact provenance: OBS_V9_LAYOUT.md §1. Order irrelevant (pure OR).
  */
-const OTHER_EFFECT_FLAGS: string[] = [
+export const OTHER_EFFECT_FLAGS: string[] = [
   // base-section cuts (4)
   "self_switch",
   "is_ohko",
@@ -1045,16 +1050,8 @@ function encodeFieldFromDict(buf: Float32Array, offset: number, field: Record<st
   buf[pos++] = bool(field, "terrain_is_permanent") ? 1.0 : 0.0;
 
   // ── Arena tag remaining turns (10 dims: 5 tags × 2 sides) ──
-  // Key defensive/support tags whose remaining duration matters for strategy.
+  // KEY_ARENA_TAGS (module scope): duration-tracked defensive/support tags.
   // For each tag, look up turn_count from the arena_tags array by tag_type + side.
-  const KEY_ARENA_TAGS = [
-    ArenaTagType.REFLECT,
-    ArenaTagType.LIGHT_SCREEN,
-    ArenaTagType.AURORA_VEIL,
-    ArenaTagType.TAILWIND,
-    ArenaTagType.TRICK_ROOM,
-  ];
-
   // Build a map: "tagType:side" → turn_count for efficient lookup
   const tagTurnMap = new Map<string, number>();
   for (const tagObj of arenaTags) {
@@ -1148,9 +1145,8 @@ function encodeBattleFromDict(buf: Float32Array, offset: number, battle: Record<
 
   // pokeball counts (5 types)
   const pokeballCounts = sub(battle, "pokeball_counts");
-  const ballKeys = ["pokeball", "great_ball", "ultra_ball", "rogue_ball", "master_ball"];
   for (let i = 0; i < NUM_POKEBALL_TYPES; i++) {
-    buf[pos++] = clamp(num(pokeballCounts, ballKeys[i]) / 99, 0, 1);
+    buf[pos++] = clamp(num(pokeballCounts, POKEBALL_KEYS[i]) / 99, 0, 1);
   }
 
   // player_alive /6
@@ -1233,10 +1229,10 @@ function encodeBattleFromDict(buf: Float32Array, offset: number, battle: Record<
 // ─── Modifier Phase Encoding (from dict) ──────────────────────────────
 
 /** Dims per reward option: valid(1) + tier_onehot(6) + is_pokemon(1) + features(20) = 28 */
-const REWARD_OPTION_DIM = 28;
+export const REWARD_OPTION_DIM = 28;
 
 /** Dims per shop option: valid(1) + cost_ratio(1) + affordable(1) + features(20) = 23 */
-const SHOP_OPTION_DIM = 23;
+export const SHOP_OPTION_DIM = 23;
 
 function encodeModifierFromDict(
   buf: Float32Array,
@@ -1317,10 +1313,10 @@ function encodeModifierFromDict(
 // ─── Modifier Inventory Encoding (from dict) ────────────────────────
 
 /** Active Pokemon slot keys (same order as first 4 in POKEMON_SLOT_KEYS) */
-const ACTIVE_SLOT_KEYS = ["player_0", "player_1", "enemy_0", "enemy_1"];
+export const ACTIVE_SLOT_KEYS = ["player_0", "player_1", "enemy_0", "enemy_1"];
 
 /** Well-known party modifier_id strings for boolean presence flags */
-const PARTY_FLAG_IDS: readonly string[] = [
+export const PARTY_FLAG_IDS: readonly string[] = [
   "HEALING_CHARM", // HealingBoosterModifier
   "EXP_SHARE", // ExpShareModifier
   "BERRY_POUCH", // PreserveBerryModifier
@@ -1332,7 +1328,10 @@ const PARTY_FLAG_IDS: readonly string[] = [
 ];
 
 /** Known enemy modifier_id strings for aggregate encoding */
-const ENEMY_MOD_IDS: readonly string[] = [
+/** Pokeball count keys in PokeballType order (battle block). */
+export const POKEBALL_KEYS: readonly string[] = ["pokeball", "great_ball", "ultra_ball", "rogue_ball", "master_ball"];
+
+export const ENEMY_MOD_IDS: readonly string[] = [
   "ENEMY_DAMAGE_BOOSTER",
   "ENEMY_DAMAGE_REDUCTION",
   "ENEMY_HEAL",
@@ -1475,10 +1474,9 @@ function encodeModifierInventory(buf: Float32Array, offset: number, gameState: R
     }
   }
 
-  const enemyNormDivisors: readonly number[] = [50, 50, 20, 20, 20, 20, 20]; // per ENEMY_MOD_IDS order
   for (let i = 0; i < ENEMY_MOD_IDS.length; i++) {
     const stacks = enemyStackMap.get(ENEMY_MOD_IDS[i]) ?? 0;
-    buf[pos++] = clamp(stacks / enemyNormDivisors[i], 0, 1);
+    buf[pos++] = clamp(stacks / ENEMY_MOD_NORM_DIVISORS[i], 0, 1);
   }
 
   return MODIFIER_INVENTORY_DIM;
@@ -1496,7 +1494,10 @@ function encodeModifierInventory(buf: Float32Array, offset: number, gameState: R
  * STELLAR is neutral (1.0) vs everything.
  */
 // prettier-ignore
-const TYPE_EFFECTIVENESS: readonly (readonly number[])[] = [
+/** Normalization divisors for enemy modifier stacks, per ENEMY_MOD_IDS order. */
+export const ENEMY_MOD_NORM_DIVISORS: readonly number[] = [50, 50, 20, 20, 20, 20, 20];
+
+export const TYPE_EFFECTIVENESS: readonly (readonly number[])[] = [
   /*NORMAL  */ [1, 1, 1, 1, 1, 0.5, 1, 0, 0.5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
   /*FIGHTING*/ [2, 1, 0.5, 0.5, 1, 2, 0.5, 0, 2, 1, 1, 1, 1, 0.5, 2, 1, 2, 0.5, 1],
   /*FLYING  */ [1, 2, 1, 1, 1, 0.5, 2, 1, 0.5, 1, 1, 2, 0.5, 1, 1, 1, 1, 1, 1],
@@ -1519,7 +1520,21 @@ const TYPE_EFFECTIVENESS: readonly (readonly number[])[] = [
 ];
 
 /** Stat stage multipliers for stages -6..+6 (index = stage+6). Formula: positive=(2+s)/2, negative=2/(2+|s|) */
-const STAGE_MULTIPLIERS = [2 / 8, 2 / 7, 2 / 6, 2 / 5, 2 / 4, 2 / 3, 1, 3 / 2, 4 / 2, 5 / 2, 6 / 2, 7 / 2, 8 / 2]; // indices match stage+6
+export const STAGE_MULTIPLIERS = [
+  2 / 8,
+  2 / 7,
+  2 / 6,
+  2 / 5,
+  2 / 4,
+  2 / 3,
+  1,
+  3 / 2,
+  4 / 2,
+  5 / 2,
+  6 / 2,
+  7 / 2,
+  8 / 2,
+]; // indices match stage+6
 
 /**
  * Compute type effectiveness of attacking type vs all defending types.
@@ -1657,7 +1672,7 @@ function encodeDerivedFields(buf: Float32Array, offset: number, gameState: Recor
 // ─── Full Observation Encoder ─────────────────────────────────────────
 
 /** Ordered list of Pokemon slot keys in the GameState dict */
-const POKEMON_SLOT_KEYS = [
+export const POKEMON_SLOT_KEYS = [
   "player_0",
   "player_1", // active player (2)
   "enemy_0",

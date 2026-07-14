@@ -5,13 +5,14 @@ Converts the raw GameState JSON dict (364 fields, 35 TypedDicts) into typed
 dataclasses with all strings mapped to unique integers, then encodes into a
 fixed-size float32 observation vector compatible with spaces.ts (6,991 dims).
 
-Layout (6,991 float32):
-  Pokemon block:            771 dims x 12 slots = 9,252
-  Field block:              94
+Layout (6,991 float32, obs v9 — see docs/OBS_V9_LAYOUT.md):
+  Pokemon block:            513 dims x 12 slots = 6,156
+  Field block:              102
   Battle block:             40
-  Modifier phase block:     225
+  Modifier phase block:     363
   Modifier inventory block: 220
   Derived fields block:     28
+  Learn-move block:         66
   Phase block:              16
 
 Usage:
@@ -30,6 +31,7 @@ from dataclasses import field as dc_field
 
 import numpy as np
 
+from . import encoder_data
 from .enums import (
     ARENA_TAG_ORDER,
     CURATED_VOLATILE_TAGS,
@@ -48,44 +50,46 @@ from .enums import (
 # DIMENSION CONSTANTS (mirror spaces.ts)
 # ═══════════════════════════════════════════════════════════════════════════
 
-NUM_POKEMON_TYPES = 19
-NUM_STATUS_EFFECTS = 8
-NUM_WEATHER_TYPES = 10
-NUM_TERRAIN_TYPES = 5
-NUM_MOVE_CATEGORIES = 3
-NUM_BATTLE_TYPES = 4
-NUM_MODIFIER_TIERS = 6
-NUM_POKEBALL_TYPES = 5  # Tracked in pokeball_counts (0-4)
-NUM_CURATED_TAGS = 69   # v9: 7 TURN_END-transient tags cut (see OBS_V9_LAYOUT.md)
-NUM_ARENA_TAG_TYPES = 28
-MAX_MOVES = 4
-MAX_PARTY_SIZE = 6
-MAX_REWARD_OPTIONS = 3
-MAX_SHOP_OPTIONS = 12
-MAX_SHOP_OPTIONS_ENCODED = 12  # v9: all 12 shop options, natural (action-id) order
-MAX_HELD_ITEMS_ENCODED = 2   # Top-N held items encoded per active slot
+# All dims/caps single-sourced from spaces.ts via generated/encoder-data.json;
+# names kept as module attributes (feature_names.py and tools import them).
+_DIMS = encoder_data.DIMS
+_CAPS = encoder_data.CAPS
 
-ABILITY_FEATURE_DIM = 40     # v3: semantic features per ability (replaces ability_id/310)
-MODIFIER_FEATURE_DIM = 20    # v4: semantic features per modifier
-MOVE_BLOCK_DIM = 60           # v9: compact evidence keep-list (was 136)
-POKEMON_BLOCK_DIM = 513      # v9: 273 non-move (tags 69, +ai_type 3, +indicators 6) + 4*60 moves
-FIELD_STATE_DIM = 102        # v9: +8 positional tags (Wish/Future Sight per side)
-BATTLE_META_DIM = 40         # +9: game mode flags, inverse_battle
-MODIFIER_PHASE_DIM = 363     # v9: header(3) + reward(3*28) + shop(12*23)
-MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8)
-DERIVED_FIELDS_DIM = 28      # type effectiveness, STAB, speed ordering
-LEARN_MOVE_BLOCK_DIM = 66    # v9: offered move (60) + learner party-index one-hot (6)
-PHASE_INDICATOR_DIM = 16
-TOTAL_POKEMON_SLOTS = 12
-OBSERVATION_DIM = 6991       # 12*513 + 102 + 40 + 363 + 220 + 28 + 66 + 16
-ACTION_SPACE_SIZE = 58
+NUM_POKEMON_TYPES = _CAPS["NUM_POKEMON_TYPES"]
+NUM_STATUS_EFFECTS = _CAPS["NUM_STATUS_EFFECTS"]
+NUM_WEATHER_TYPES = _CAPS["NUM_WEATHER_TYPES"]
+NUM_TERRAIN_TYPES = _CAPS["NUM_TERRAIN_TYPES"]
+NUM_MOVE_CATEGORIES = _CAPS["NUM_MOVE_CATEGORIES"]
+NUM_BATTLE_TYPES = _CAPS["NUM_BATTLE_TYPES"]
+NUM_MODIFIER_TIERS = _CAPS["NUM_MODIFIER_TIERS"]
+NUM_POKEBALL_TYPES = _CAPS["NUM_POKEBALL_TYPES"]  # Tracked in pokeball_counts (0-4)
+NUM_CURATED_TAGS = _CAPS["NUM_CURATED_TAGS"]  # v9: 69 (see OBS_V9_LAYOUT.md)
+NUM_ARENA_TAG_TYPES = _CAPS["NUM_ARENA_TAG_TYPES"]
+MAX_MOVES = _CAPS["MAX_MOVES"]
+MAX_PARTY_SIZE = _CAPS["MAX_PARTY_SIZE"]
+MAX_REWARD_OPTIONS = _CAPS["MAX_REWARD_OPTIONS"]
+MAX_SHOP_OPTIONS = _CAPS["MAX_SHOP_OPTIONS"]
+MAX_SHOP_OPTIONS_ENCODED = _CAPS["MAX_SHOP_OPTIONS_ENCODED"]  # v9: all 12, natural order
+MAX_HELD_ITEMS_ENCODED = _DIMS["MAX_HELD_ITEMS_ENCODED"]  # Top-N held items per active slot
 
-# Held item slot dims: valid(1) + features(20) + stack_ratio(1) = 22
-HELD_ITEM_SLOT_DIM = 22
-# Reward option dims: valid(1) + tier_onehot(6) + is_pokemon(1) + features(20) = 28
-REWARD_OPTION_DIM = 28
-# Shop option dims: valid(1) + cost_ratio(1) + affordable(1) + features(20) = 23
-SHOP_OPTION_DIM = 23
+ABILITY_FEATURE_DIM = _DIMS["ABILITY_FEATURE_DIM"]  # 40 semantic features per ability
+MODIFIER_FEATURE_DIM = _DIMS["MODIFIER_FEATURE_DIM"]  # 20 semantic features per modifier
+MOVE_BLOCK_DIM = _DIMS["MOVE_BLOCK_DIM"]  # 60 (v9 compact evidence keep-list)
+POKEMON_BLOCK_DIM = _DIMS["POKEMON_BLOCK_DIM"]  # 513 = 273 non-move + 4*60 moves
+FIELD_STATE_DIM = _DIMS["FIELD_STATE_DIM"]  # 102 (v9: +8 positional tags)
+BATTLE_META_DIM = _DIMS["BATTLE_META_DIM"]  # 40
+MODIFIER_PHASE_DIM = _DIMS["MODIFIER_PHASE_DIM"]  # 363 = header(3) + 3*28 + 12*23
+MODIFIER_INVENTORY_DIM = _DIMS["MODIFIER_INVENTORY_DIM"]  # 220
+DERIVED_FIELDS_DIM = _DIMS["DERIVED_FIELDS_DIM"]  # 28
+LEARN_MOVE_BLOCK_DIM = _DIMS["LEARN_MOVE_BLOCK_DIM"]  # 66 = move(60) + learner one-hot(6)
+PHASE_INDICATOR_DIM = _DIMS["PHASE_INDICATOR_DIM"]  # 16
+TOTAL_POKEMON_SLOTS = _CAPS["TOTAL_POKEMON_SLOTS"]  # 12
+OBSERVATION_DIM = _DIMS["OBSERVATION_DIM"]  # 6991 = 12*513 + 102 + 40 + 363 + 220 + 28 + 66 + 16
+ACTION_SPACE_SIZE = encoder_data.ACTION_SPACE["ACTION_SPACE_SIZE"]  # 58
+
+HELD_ITEM_SLOT_DIM = _DIMS["HELD_ITEM_SLOT_DIM"]  # 22 = valid + features(20) + stack_ratio
+REWARD_OPTION_DIM = _DIMS["REWARD_OPTION_DIM"]  # 28 = valid + tier(6) + is_pokemon + features(20)
+SHOP_OPTION_DIM = _DIMS["SHOP_OPTION_DIM"]  # 23 = valid + cost_ratio + affordable + features(20)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PADDING LIMITS
@@ -1280,636 +1284,9 @@ def _write_one_hot(buf: np.ndarray, offset: int, size: int, index: int) -> None:
 # Defaults: [14-16]=0.333 (neutral 1x/3), [17-19]=1.0 (no reduction), rest=0.0
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Default feature vector: stat mults=0.333, damage reduction=1.0, rest=0
-_ABILITY_DEFAULT = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-
-# fmt: off
-_ABILITY_FEATURES: list = [
-#   0 NONE
-_ABILITY_DEFAULT,
-#   1 STENCH
-_ABILITY_DEFAULT,
-#   2 DRIZZLE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#   3 SPEED_BOOST
-_ABILITY_DEFAULT,
-#   4 BATTLE_ARMOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0],
-#   5 STURDY
-[0, 0, 0, 0, 0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#   6 DAMP
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#   7 LIMBER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#   8 SAND_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#   9 STATIC
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.429, 0.3, 0, 0, 0, 0, 0, 0, 0, 0],
-#  10 VOLT_ABSORB
-[0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  11 WATER_ABSORB
-[0, 0, 1.0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  12 OBLIVIOUS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  13 CLOUD_NINE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  14 COMPOUND_EYES
-_ABILITY_DEFAULT,
-#  15 INSOMNIA
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  16 COLOR_CHANGE
-_ABILITY_DEFAULT,
-#  17 IMMUNITY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  18 FLASH_FIRE
-[0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  19 SHIELD_DUST
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  20 OWN_TEMPO
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  21 SUCTION_CUPS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  22 INTIMIDATE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  23 SHADOW_TAG
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  24 ROUGH_SKIN
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.125, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  25 WONDER_GUARD
-[0, 0, 0, 0, 0, 0, 1.0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  26 LEVITATE
-[1.0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  27 EFFECT_SPORE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.143, 0.3, 0, 0, 0, 0, 0, 0, 0, 0],
-#  28 SYNCHRONIZE
-_ABILITY_DEFAULT,
-#  29 CLEAR_BODY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  30 NATURAL_CURE
-_ABILITY_DEFAULT,
-#  31 LIGHTNING_ROD
-[0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  32 SERENE_GRACE
-_ABILITY_DEFAULT,
-#  33 SWIFT_SWIM
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  34 CHLOROPHYLL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  35 ILLUMINATE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  36 TRACE
-_ABILITY_DEFAULT,
-#  37 HUGE_POWER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.667, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  38 POISON_POINT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.143, 0.3, 0, 0, 0, 0, 0, 0, 0, 0],
-#  39 INNER_FOCUS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  40 MAGMA_ARMOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  41 WATER_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  42 MAGNET_PULL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  43 SOUNDPROOF
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  44 RAIN_DISH
-_ABILITY_DEFAULT,
-#  45 SAND_STREAM
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.3, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  46 PRESSURE
-_ABILITY_DEFAULT,
-#  47 THICK_FAT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  48 EARLY_BIRD
-_ABILITY_DEFAULT,
-#  49 FLAME_BODY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.857, 0.3, 0, 0, 0, 0, 0, 0, 0, 0],
-#  50 RUN_AWAY
-_ABILITY_DEFAULT,
-#  51 KEEN_EYE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  52 HYPER_CUTTER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  53 PICKUP
-_ABILITY_DEFAULT,
-#  54 TRUANT
-_ABILITY_DEFAULT,
-#  55 HUSTLE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  56 CUTE_CHARM
-_ABILITY_DEFAULT,
-#  57 PLUS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.5, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  58 MINUS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.5, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  59 FORECAST
-_ABILITY_DEFAULT,
-#  60 STICKY_HOLD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  61 SHED_SKIN
-_ABILITY_DEFAULT,
-#  62 GUTS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  63 MARVEL_SCALE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  64 LIQUID_OOZE
-_ABILITY_DEFAULT,
-#  65 OVERGROW
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.579, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  66 BLAZE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.474, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  67 TORRENT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.526, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  68 SWARM
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.316, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  69 ROCK_HEAD
-_ABILITY_DEFAULT,
-#  70 DROUGHT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  71 ARENA_TRAP
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  72 VITAL_SPIRIT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  73 WHITE_SMOKE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  74 PURE_POWER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.667, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  75 SHELL_ARMOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0],
-#  76 AIR_LOCK
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  77 TANGLED_FEET
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  78 MOTOR_DRIVE
-[0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  79 RIVALRY
-_ABILITY_DEFAULT,
-#  80 STEADFAST
-_ABILITY_DEFAULT,
-#  81 SNOW_CLOAK
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  82 GLUTTONY
-_ABILITY_DEFAULT,
-#  83 ANGER_POINT
-_ABILITY_DEFAULT,
-#  84 UNBURDEN
-_ABILITY_DEFAULT,
-#  85 HEATPROOF
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  86 SIMPLE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0],
-#  87 DRY_SKIN
-[0, 0, 1.0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  88 DOWNLOAD
-_ABILITY_DEFAULT,
-#  89 IRON_FIST
-_ABILITY_DEFAULT,
-#  90 POISON_HEAL
-_ABILITY_DEFAULT,
-#  91 ADAPTABILITY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  92 SKILL_LINK
-_ABILITY_DEFAULT,
-#  93 HYDRATION
-_ABILITY_DEFAULT,
-#  94 SOLAR_POWER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.5, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  95 QUICK_FEET
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-#  96 NORMALIZE
-_ABILITY_DEFAULT,
-#  97 SNIPER
-_ABILITY_DEFAULT,
-#  98 MAGIC_GUARD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0],
-#  99 NO_GUARD
-_ABILITY_DEFAULT,
-# 100 STALL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1.0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 101 TECHNICIAN
-_ABILITY_DEFAULT,
-# 102 LEAF_GUARD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 103 KLUTZ
-_ABILITY_DEFAULT,
-# 104 MOLD_BREAKER
-[0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 105 SUPER_LUCK
-_ABILITY_DEFAULT,
-# 106 AFTERMATH
-_ABILITY_DEFAULT,
-# 107 ANTICIPATION
-_ABILITY_DEFAULT,
-# 108 FOREWARN
-_ABILITY_DEFAULT,
-# 109 UNAWARE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0],
-# 110 TINTED_LENS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0],
-# 111 FILTER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 0.75, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 112 SLOW_START
-_ABILITY_DEFAULT,
-# 113 SCRAPPY
-_ABILITY_DEFAULT,
-# 114 STORM_DRAIN
-[0, 0, 1.0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 115 ICE_BODY
-_ABILITY_DEFAULT,
-# 116 SOLID_ROCK
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 0.75, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 117 SNOW_WARNING
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.9, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 118 HONEY_GATHER
-_ABILITY_DEFAULT,
-# 119 FRISK
-_ABILITY_DEFAULT,
-# 120 RECKLESS
-_ABILITY_DEFAULT,
-# 121 MULTITYPE
-_ABILITY_DEFAULT,
-# 122 FLOWER_GIFT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.5, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 123 BAD_DREAMS
-_ABILITY_DEFAULT,
-# 124 PICKPOCKET
-_ABILITY_DEFAULT,
-# 125 SHEER_FORCE
-_ABILITY_DEFAULT,
-# 126 CONTRARY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1.0, 0, 0, 0, 0, 0, 0],
-# 127 UNNERVE
-_ABILITY_DEFAULT,
-# 128 DEFIANT
-_ABILITY_DEFAULT,
-# 129 DEFEATIST
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.167, 0.167, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 130 CURSED_BODY
-_ABILITY_DEFAULT,
-# 131 HEALER
-_ABILITY_DEFAULT,
-# 132 FRIEND_GUARD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 133 WEAK_ARMOR
-_ABILITY_DEFAULT,
-# 134 HEAVY_METAL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 135 LIGHT_METAL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 136 MULTISCALE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 0.5, 0.5, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 137 TOXIC_BOOST
-_ABILITY_DEFAULT,
-# 138 FLARE_BOOST
-_ABILITY_DEFAULT,
-# 139 HARVEST
-_ABILITY_DEFAULT,
-# 140 TELEPATHY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 141 MOODY
-_ABILITY_DEFAULT,
-# 142 OVERCOAT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 143 POISON_TOUCH
-_ABILITY_DEFAULT,
-# 144 REGENERATOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0],
-# 145 BIG_PECKS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 146 SAND_RUSH
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 147 WONDER_SKIN
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 148 ANALYTIC
-_ABILITY_DEFAULT,
-# 149 ILLUSION
-_ABILITY_DEFAULT,
-# 150 IMPOSTER
-_ABILITY_DEFAULT,
-# 151 INFILTRATOR
-_ABILITY_DEFAULT,
-# 152 MUMMY
-_ABILITY_DEFAULT,
-# 153 MOXIE
-_ABILITY_DEFAULT,
-# 154 JUSTIFIED
-_ABILITY_DEFAULT,
-# 155 RATTLED
-_ABILITY_DEFAULT,
-# 156 MAGIC_BOUNCE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 157 SAP_SIPPER
-[0, 0, 0, 0, 1.0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 158 PRANKSTER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.143, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 159 SAND_FORCE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.263, 0.52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 160 IRON_BARBS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.125, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 161 ZEN_MODE
-_ABILITY_DEFAULT,
-# 162 VICTORY_STAR
-_ABILITY_DEFAULT,
-# 163 TURBOBLAZE
-[0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 164 TERAVOLT
-[0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 165 AROMA_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 166 FLOWER_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 167 CHEEK_POUCH
-_ABILITY_DEFAULT,
-# 168 PROTEAN
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 169 FUR_COAT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 0.5, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 170 MAGICIAN
-_ABILITY_DEFAULT,
-# 171 BULLETPROOF
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 172 COMPETITIVE
-_ABILITY_DEFAULT,
-# 173 STRONG_JAW
-_ABILITY_DEFAULT,
-# 174 REFRIGERATE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.737, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 175 SWEET_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 176 STANCE_CHANGE
-_ABILITY_DEFAULT,
-# 177 GALE_WINGS
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.143, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 178 MEGA_LAUNCHER
-_ABILITY_DEFAULT,
-# 179 GRASS_PELT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 180 SYMBIOSIS
-_ABILITY_DEFAULT,
-# 181 TOUGH_CLAWS
-_ABILITY_DEFAULT,
-# 182 PIXILATE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.895, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 183 GOOEY
-_ABILITY_DEFAULT,
-# 184 AERILATE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.105, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 185 PARENTAL_BOND
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0],
-# 186 DARK_AURA
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.842, 0.533, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 187 FAIRY_AURA
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.895, 0.533, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 188 AURA_BREAK
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.842, 0.225, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 189 PRIMORDIAL_SEA
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 190 DESOLATE_LAND
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.7, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 191 DELTA_STREAM
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 192 STAMINA
-_ABILITY_DEFAULT,
-# 193 WIMP_OUT
-_ABILITY_DEFAULT,
-# 194 EMERGENCY_EXIT
-_ABILITY_DEFAULT,
-# 195 WATER_COMPACTION
-_ABILITY_DEFAULT,
-# 196 MERCILESS
-_ABILITY_DEFAULT,
-# 197 SHIELDS_DOWN
-_ABILITY_DEFAULT,
-# 198 STAKEOUT
-_ABILITY_DEFAULT,
-# 199 WATER_BUBBLE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.526, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 200 STEELWORKER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.421, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 201 BERSERK
-_ABILITY_DEFAULT,
-# 202 SLUSH_RUSH
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 203 LONG_REACH
-_ABILITY_DEFAULT,
-# 204 LIQUID_VOICE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.526, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 205 TRIAGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.429, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 206 GALVANIZE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0.632, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 207 SURGE_SURFER
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.667, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 208 SCHOOLING
-_ABILITY_DEFAULT,
-# 209 DISGUISE
-[0, 0, 0, 0, 0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 210 BATTLE_BOND
-_ABILITY_DEFAULT,
-# 211 POWER_CONSTRUCT
-_ABILITY_DEFAULT,
-# 212 CORROSION
-_ABILITY_DEFAULT,
-# 213 COMATOSE
-_ABILITY_DEFAULT,
-# 214 QUEENLY_MAJESTY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 215 INNARDS_OUT
-_ABILITY_DEFAULT,
-# 216 DANCER
-_ABILITY_DEFAULT,
-# 217 BATTERY
-_ABILITY_DEFAULT,
-# 218 FLUFFY
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 0.5, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 219 DAZZLING
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 220 SOUL_HEART
-_ABILITY_DEFAULT,
-# 221 TANGLING_HAIR
-_ABILITY_DEFAULT,
-# 222 RECEIVER
-_ABILITY_DEFAULT,
-# 223 POWER_OF_ALCHEMY
-_ABILITY_DEFAULT,
-# 224 BEAST_BOOST
-_ABILITY_DEFAULT,
-# 225 RKS_SYSTEM
-_ABILITY_DEFAULT,
-# 226 ELECTRIC_SURGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 227 PSYCHIC_SURGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.8, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 228 MISTY_SURGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.6, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 229 GRASSY_SURGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.4, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 230 FULL_METAL_BODY
-_ABILITY_DEFAULT,
-# 231 SHADOW_SHIELD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 0.5, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 232 PRISM_ARMOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 0.75, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 233 NEUROFORCE
-_ABILITY_DEFAULT,
-# 234 INTREPID_SWORD
-_ABILITY_DEFAULT,
-# 235 DAUNTLESS_SHIELD
-_ABILITY_DEFAULT,
-# 236 LIBERO
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 237 BALL_FETCH
-_ABILITY_DEFAULT,
-# 238 COTTON_DOWN
-_ABILITY_DEFAULT,
-# 239 PROPELLER_TAIL
-_ABILITY_DEFAULT,
-# 240 MIRROR_ARMOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 241 GULP_MISSILE
-_ABILITY_DEFAULT,
-# 242 STALWART
-_ABILITY_DEFAULT,
-# 243 STEAM_ENGINE
-_ABILITY_DEFAULT,
-# 244 PUNK_ROCK
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 0.5, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 245 SAND_SPIT
-_ABILITY_DEFAULT,
-# 246 ICE_SCALES
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 0.5, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 247 RIPEN
-_ABILITY_DEFAULT,
-# 248 ICE_FACE
-[0, 0, 0, 0, 0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 249 POWER_SPOT
-_ABILITY_DEFAULT,
-# 250 MIMICRY
-_ABILITY_DEFAULT,
-# 251 SCREEN_CLEANER
-_ABILITY_DEFAULT,
-# 252 STEELY_SPIRIT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.421, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 253 PERISH_BODY
-_ABILITY_DEFAULT,
-# 254 WANDERING_SPIRIT
-_ABILITY_DEFAULT,
-# 255 GORILLA_TACTICS
-_ABILITY_DEFAULT,
-# 256 NEUTRALIZING_GAS
-_ABILITY_DEFAULT,
-# 257 PASTEL_VEIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 258 HUNGER_SWITCH
-_ABILITY_DEFAULT,
-# 259 QUICK_DRAW
-_ABILITY_DEFAULT,
-# 260 UNSEEN_FIST
-_ABILITY_DEFAULT,
-# 261 CURIOUS_MEDICINE
-_ABILITY_DEFAULT,
-# 262 TRANSISTOR
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.632, 0.52, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 263 DRAGONS_MAW
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.789, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 264 CHILLING_NEIGH
-_ABILITY_DEFAULT,
-# 265 GRIM_NEIGH
-_ABILITY_DEFAULT,
-# 266 AS_ONE_GLASTRIER
-_ABILITY_DEFAULT,
-# 267 AS_ONE_SPECTRIER
-_ABILITY_DEFAULT,
-# 268 LINGERING_AROMA
-_ABILITY_DEFAULT,
-# 269 SEED_SOWER
-_ABILITY_DEFAULT,
-# 270 THERMAL_EXCHANGE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 271 ANGER_SHELL
-_ABILITY_DEFAULT,
-# 272 PURIFYING_SALT
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 273 WELL_BAKED_BODY
-[0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 274 WIND_RIDER
-[0, 0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 275 GUARD_DOG
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 276 ROCKY_PAYLOAD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0.263, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 277 WIND_POWER
-_ABILITY_DEFAULT,
-# 278 ZERO_TO_HERO
-_ABILITY_DEFAULT,
-# 279 COMMANDER
-_ABILITY_DEFAULT,
-# 280 ELECTROMORPHOSIS
-_ABILITY_DEFAULT,
-# 281 PROTOSYNTHESIS
-_ABILITY_DEFAULT,
-# 282 QUARK_DRIVE
-_ABILITY_DEFAULT,
-# 283 GOOD_AS_GOLD
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0],
-# 284 VESSEL_OF_RUIN
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 285 SWORD_OF_RUIN
-_ABILITY_DEFAULT,
-# 286 TABLETS_OF_RUIN
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 287 BEADS_OF_RUIN
-_ABILITY_DEFAULT,
-# 288 ORICHALCUM_PULSE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0, 0.444, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 289 HADRON_ENGINE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.333, 0.444, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 290 OPPORTUNIST
-_ABILITY_DEFAULT,
-# 291 CUD_CHEW
-_ABILITY_DEFAULT,
-# 292 SHARPNESS
-_ABILITY_DEFAULT,
-# 293 SUPREME_OVERLORD
-_ABILITY_DEFAULT,
-# 294 COSTAR
-_ABILITY_DEFAULT,
-# 295 TOXIC_DEBRIS
-_ABILITY_DEFAULT,
-# 296 ARMOR_TAIL
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 297 EARTH_EATER
-[1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 298 MYCELIUM_MIGHT
-[0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, -1.0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 299 MINDS_EYE
-[0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 300 SUPERSWEET_SYRUP
-_ABILITY_DEFAULT,
-# 301 HOSPITALITY
-_ABILITY_DEFAULT,
-# 302 TOXIC_CHAIN
-_ABILITY_DEFAULT,
-# 303 EMBODY_ASPECT_T
-_ABILITY_DEFAULT,
-# 304 EMBODY_ASPECT_W
-_ABILITY_DEFAULT,
-# 305 EMBODY_ASPECT_H
-_ABILITY_DEFAULT,
-# 306 EMBODY_ASPECT_C
-_ABILITY_DEFAULT,
-# 307 TERA_SHIFT
-_ABILITY_DEFAULT,
-# 308 TERA_SHELL
-[0, 0, 0, 0, 0, 0, 0, 1.0, 0, 1.0, 0, 0, 0, 0, 0.333, 0.333, 0.333, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-# 309 TERAFORM_ZERO
-_ABILITY_DEFAULT,
-# 310 POISON_PUPPETEER
-_ABILITY_DEFAULT,
-]
-# fmt: on
-
+# 311 x 40 semantic ability features: single-sourced from
+# ability-features.ts via generated/encoder-data.json.
+_ABILITY_FEATURES: list = encoder_data.ABILITY_FEATURES
 _NUM_ABILITIES = len(_ABILITY_FEATURES)  # 311
 
 
@@ -1924,40 +1301,12 @@ def _encode_ability_features(ability_id: int, buf: np.ndarray, pos: int) -> int:
     return pos + ABILITY_FEATURE_DIM
 
 
-_SELF_ALLY_TARGETS = {0, 10, 11, 12, 13, 15, 18}
-_SINGLE_ENEMY_TARGETS = {1, 3, 5, 9}
-
-
-
-# v8 boolean flags folded into the v9 has_other_effect catch-all (76
-# booleans; terrain_change is OR'd separately). Mirrors spaces.ts
-# OTHER_EFFECT_FLAGS exactly — see docs/OBS_V9_LAYOUT.md §1.
-_OTHER_EFFECT_FLAGS = (
-    "self_switch", "is_ohko", "is_charging", "is_sacrifice",
-    "is_recharge", "is_frenzy", "is_typeless", "creates_substitute",
-    "suppresses_ability", "has_variable_type", "has_variable_category",
-    "bypass_burn_penalty", "ignores_stat_stages", "removes_arena_tags",
-    "sets_hazard", "sets_screen", "arena_tag_self_side",
-    "applies_continuous_damage", "is_user_hp_damage", "is_target_half_hp",
-    "is_counter_damage", "is_level_damage", "is_delayed_attack",
-    "post_victory_stat_boost", "hides_user", "hides_target",
-    "check_all_hits", "affected_by_gravity",
-    "removes_item", "steals_berry", "copies_stats", "inverts_stats",
-    "resets_stats", "swaps_stat_stages", "steals_stat_boosts",
-    "averages_stats", "swaps_single_stat", "shifts_own_stat", "splits_hp",
-    "reduces_pp", "revives_ally", "copies_last_move", "calls_random_move",
-    "calls_moveset_move", "copies_move_temp", "copies_move_perm",
-    "copies_ability", "swaps_abilities", "changes_ability", "gives_ability",
-    "suppresses_if_acted", "bypass_redirect", "forces_target_next",
-    "forces_target_last", "has_conditional_priority", "cures_party_status",
-    "transfers_status", "heals_status", "removes_battler_tag",
-    "removes_substitutes", "transforms_into_target", "is_curse", "is_wish",
-    "is_destiny_bond", "swaps_arena_tags", "clears_weather",
-    "clears_terrain", "has_variable_target", "resists_last_type",
-    "has_variable_accuracy", "uses_alt_stat", "overrides_type_chart",
-    "scatters_money", "survives_at_1hp", "matches_user_hp",
-    "hp_cost_stat_boost",
-)
+# Move-target classes + the v9 has_other_effect OR-set (76 booleans;
+# terrain_change is OR'd separately): single-sourced from spaces.ts via
+# generated/encoder-data.json — see docs/OBS_V9_LAYOUT.md §1.
+_SELF_ALLY_TARGETS = encoder_data.SELF_ALLY_TARGETS
+_SINGLE_ENEMY_TARGETS = encoder_data.SINGLE_ENEMY_TARGETS
+_OTHER_EFFECT_FLAGS = encoder_data.OTHER_EFFECT_FLAGS
 
 
 def _multi_hit_count(multi_hit_type: int) -> int:
@@ -2223,7 +1572,7 @@ def _encode_pokemon(
         pos += MOVE_BLOCK_DIM
 
 
-_KEY_ARENA_TAGS = ["REFLECT", "LIGHT_SCREEN", "AURORA_VEIL", "TAILWIND", "TRICK_ROOM"]
+_KEY_ARENA_TAGS = encoder_data.KEY_ARENA_TAGS
 
 
 def _encode_field(buf: np.ndarray, offset: int, fld: ObsField) -> None:
@@ -2387,161 +1736,15 @@ def _encode_battle(buf: np.ndarray, offset: int, battle: ObsBattle, phase: ObsPh
 # 20-dim feature vector per modifier_id. Static features at indices 0-7, 12-16.
 # Dynamic slots (8-11, 17-19) are always 0.0 in this table; filled at encode time.
 #
-# Layout: [is_damage_boost, is_stat_boost, is_healing, is_survival, is_speed_priority,
-#          is_status_effect, is_economy, is_berry,
-#          0, 0, 0, 0,  # dynamic target slots
-#          boost_magnitude, proc_chance_base, is_per_turn, is_on_hit, is_on_faint,
-#          0, 0, 0]      # dynamic stack/duration
-
-def _mf(d, s, h, sv, sp, se, ec, b, mag, proc, turn, hit, faint):
-    return [d, s, h, sv, sp, se, ec, b, 0, 0, 0, 0, mag, proc, turn, hit, faint, 0, 0, 0]
-
-_MODIFIER_FEATURES: dict[str, list] = {
-    # Held items (A-L)
-    "ATTACK_TYPE_BOOSTER":    _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0, 0, 0),
-    "BASE_STAT_BOOSTER":      _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.10,  0,    0, 0, 0),
-    "BERRY":                  _mf(0, 0, 0, 0, 0, 0, 0, 1, 0.50,  0,    0, 0, 0),
-    "QUICK_CLAW":             _mf(0, 0, 0, 0, 1, 0, 0, 0, 0.10,  0.10, 0, 0, 0),
-    "GRIP_CLAW":              _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.10,  0.10, 0, 1, 0),
-    "SCOPE_LENS":             _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0,    0, 0, 0),
-    "GOLDEN_PUNCH":           _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.50,  0,    0, 1, 0),
-    "EVIOLITE":               _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "EVOLUTION_TRACKER_GIMMIGHOUL": _mf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    "MYSTICAL_ROCK":          _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0, 0, 0),
-    "KINGS_ROCK":             _mf(0, 0, 0, 0, 0, 1, 0, 0, 0.10,  0.10, 0, 1, 0),
-    "SHELL_BELL":             _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0,    0, 1, 0),
-    # Held items (M-W)
-    "MINI_BLACK_HOLE":        _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    1, 0, 0),
-    "MULTI_LENS":             _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 1, 0),
-    "MYSTERY_ENCOUNTER_MACHO_BRACE": _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0),
-    "MYSTERY_ENCOUNTER_OLD_GATEAU": _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.20, 0, 0, 0, 0),
-    "MYSTERY_ENCOUNTER_SHUCKLE_JUICE": _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.10, 0, 0, 0, 0),
-    "FOCUS_BAND":             _mf(0, 0, 0, 1, 0, 0, 0, 0, 0.10,  0.10, 0, 0, 0),
-    "SPECIES_STAT_BOOSTER":   _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "RARE_SPECIES_STAT_BOOSTER": _mf(1, 1, 0, 0, 0, 0, 0, 0, 1.0, 0,   0, 0, 0),
-    "REVIVER_SEED":           _mf(0, 0, 0, 1, 0, 0, 0, 0, 0.50,  0,    0, 0, 1),
-    "LEFTOVERS":              _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.0625, 0,   1, 0, 0),
-    "SOUL_DEW":               _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.10,  0,    0, 0, 0),
-    "LEEK":                   _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.667, 0,    0, 0, 0),
-    "TOXIC_ORB":              _mf(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    1, 0, 0),
-    "FLAME_ORB":              _mf(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    1, 0, 0),
-    "WHITE_HERB":             _mf(0, 1, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "WIDE_LENS":              _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.05,  0,    0, 0, 0),
-    "GOLDEN_EGG":             _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "LUCKY_EGG":              _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.50,  0,    0, 0, 0),
-    "SOOTHE_BELL":            _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "BATON":                  _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "FORM_CHANGE_ITEM":       _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "RARE_FORM_CHANGE_ITEM":  _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    # Party-wide modifiers
-    "MAP":                    _mf(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0, 0, 0),
-    "MEGA_BRACELET":          _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "DYNAMAX_BAND":           _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "TERA_ORB":               _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "CANDY_JAR":              _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "BERRY_POUCH":            _mf(0, 0, 0, 0, 0, 0, 0, 1, 0.30,  0.30, 0, 0, 0),
-    "OVAL_CHARM":             _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "HEALING_CHARM":          _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "EXP_CHARM":              _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.25,  0,    0, 0, 0),
-    "SUPER_EXP_CHARM":        _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.60,  0,    0, 0, 0),
-    "GOLDEN_EXP_CHARM":       _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "EXP_SHARE":              _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "EXP_BALANCE":            _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "AMULET_COIN":            _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.20,  0,    0, 0, 0),
-    "COIN_CASE":              _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.10,  0,    1, 0, 0),
-    "ABILITY_CHARM":          _mf(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0, 0, 0),
-    "SHINY_CHARM":            _mf(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0, 0, 0),
-    "CATCHING_CHARM":         _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "LOCK_CAPSULE":           _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "MYSTERY_ENCOUNTER_BLACK_SLUDGE": _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.25, 0, 0, 0, 0),
-    "MYSTERY_ENCOUNTER_GOLDEN_BUG_NET": _mf(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    "IV_SCANNER":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0, 0, 0),
-    "GOLDEN_POKEBALL":        _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    # Lapsing modifiers
-    "LURE":                   _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 0, 0),
-    "SUPER_LURE":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 0, 0),
-    "MAX_LURE":               _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 0, 0),
-    "TEMP_STAT_STAGE_BOOSTER": _mf(0, 1, 0, 0, 0, 0, 0, 0, 0.20, 0,   0, 0, 0),
-    "DIRE_HIT":               _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.333, 0,   0, 0, 0),
-    "SILVER_POKEBALL":        _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,   0, 0, 0),
-    # Enemy modifiers
-    "ENEMY_DAMAGE_BOOSTER":   _mf(1, 0, 0, 0, 0, 0, 0, 0, 0.05,  0,    0, 0, 0),
-    "ENEMY_DAMAGE_REDUCTION": _mf(0, 0, 0, 1, 0, 0, 0, 0, 0.025, 0,    0, 0, 0),
-    "ENEMY_HEAL":             _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.02,  0,    1, 0, 0),
-    "ENEMY_ATTACK_POISON_CHANCE": _mf(0, 0, 0, 0, 0, 1, 0, 0, 0.05, 0.05, 0, 1, 0),
-    "ENEMY_ATTACK_PARALYZE_CHANCE": _mf(0, 0, 0, 0, 0, 1, 0, 0, 0.025, 0.025, 0, 1, 0),
-    "ENEMY_ATTACK_BURN_CHANCE": _mf(0, 0, 0, 0, 0, 1, 0, 0, 0.05, 0.05, 0, 1, 0),
-    "ENEMY_STATUS_EFFECT_HEAL_CHANCE": _mf(0, 0, 0, 0, 0, 1, 0, 0, 0.025, 0.025, 1, 0, 0),
-    "ENEMY_ENDURE_CHANCE":    _mf(0, 0, 0, 1, 0, 0, 0, 0, 0.02,  0.02, 0, 0, 0),
-    "ENEMY_FUSED_CHANCE":     _mf(0, 0, 0, 0, 0, 0, 0, 0, 0,     0,    0, 0, 0),
-    # Consumables (reward/shop encoding only)
-    "POKEBALL":               _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.20,  0,    0, 0, 0),
-    "GREAT_BALL":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.40,  0,    0, 0, 0),
-    "ULTRA_BALL":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.60,  0,    0, 0, 0),
-    "ROGUE_BALL":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.80,  0,    0, 0, 0),
-    "MASTER_BALL":            _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "VOUCHER":                _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.33,  0,    0, 0, 0),
-    "VOUCHER_PLUS":           _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.67,  0,    0, 0, 0),
-    "VOUCHER_PREMIUM":        _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "NUGGET":                 _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.33,  0,    0, 0, 0),
-    "BIG_NUGGET":             _mf(0, 0, 0, 0, 0, 0, 1, 0, 0.67,  0,    0, 0, 0),
-    "RELIC_GOLD":             _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "POTION":                 _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.05,  0,    0, 0, 0),
-    "SUPER_POTION":           _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.125, 0,    0, 0, 0),
-    "HYPER_POTION":           _mf(0, 0, 1, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "MAX_POTION":             _mf(0, 0, 1, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "FULL_RESTORE":           _mf(0, 0, 1, 0, 0, 1, 0, 0, 1.0,   0,    0, 0, 0),
-    "REVIVE":                 _mf(0, 0, 1, 1, 0, 0, 0, 0, 0.50,  0,    0, 0, 1),
-    "MAX_REVIVE":             _mf(0, 0, 1, 1, 0, 0, 0, 0, 1.0,   0,    0, 0, 1),
-    "SACRED_ASH":             _mf(0, 0, 1, 1, 0, 0, 0, 0, 1.0,   0,    0, 0, 1),
-    "FULL_HEAL":              _mf(0, 0, 0, 0, 0, 1, 0, 0, 1.0,   0,    0, 0, 0),
-    "RARE_CANDY":             _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "RARER_CANDY":            _mf(0, 0, 0, 0, 0, 0, 1, 0, 1.0,   0,    0, 0, 0),
-    "ETHER":                  _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 0, 0),
-    "MAX_ETHER":              _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "ELIXIR":                 _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.25,  0,    0, 0, 0),
-    "MAX_ELIXIR":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "PP_UP":                  _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.33,  0,    0, 0, 0),
-    "PP_MAX":                 _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "MINT":                   _mf(0, 1, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "TERA_SHARD":             _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "EVOLUTION_ITEM":         _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "RARE_EVOLUTION_ITEM":    _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "TM_COMMON":              _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.33,  0,    0, 0, 0),
-    "TM_GREAT":               _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.67,  0,    0, 0, 0),
-    "TM_ULTRA":               _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-    "MEMORY_MUSHROOM":        _mf(0, 0, 0, 0, 0, 0, 0, 0, 0.50,  0,    0, 0, 0),
-    "DNA_SPLICERS":           _mf(0, 0, 0, 0, 0, 0, 0, 0, 1.0,   0,    0, 0, 0),
-}
-
-_DEFAULT_MODIFIER_FEATURES = [0.0] * MODIFIER_FEATURE_DIM
-
-# RL priority ordering for held item sorting (higher = more important)
-_PRIORITY_KEYS = [0, 3, 2, 1, 4, 5, 7, 6]  # damage > survival > healing > stat > speed > status > berry > economy
-
-# Party modifier_id flags (8 boolean presence flags)
-_PARTY_FLAG_IDS = [
-    "HEALING_CHARM",
-    "EXP_SHARE",
-    "BERRY_POUCH",
-    "AMULET_COIN",  # also matches COIN_CASE via modifier_class check
-    "LOCK_CAPSULE",
-    "GOLDEN_POKEBALL",
-    "MEGA_BRACELET",
-    "TERA_ORB",
-]
-
-# Known enemy modifier_id strings for aggregate encoding
-_ENEMY_MOD_IDS = [
-    "ENEMY_DAMAGE_BOOSTER",
-    "ENEMY_DAMAGE_REDUCTION",
-    "ENEMY_HEAL",
-    "ENEMY_ATTACK_POISON_CHANCE",
-    "ENEMY_ATTACK_PARALYZE_CHANCE",
-    "ENEMY_ATTACK_BURN_CHANCE",
-    "ENEMY_STATUS_EFFECT_HEAL_CHANCE",
-]
-_ENEMY_NORM_DIVISORS = [50, 50, 20, 20, 20, 20, 20]
+# Modifier feature vectors (20 dims per modifier id), held-item priority
+# order, party/enemy modifier vocab + divisors: single-sourced from
+# modifier-features.ts / spaces.ts via generated/encoder-data.json.
+_MODIFIER_FEATURES: dict[str, list] = encoder_data.MODIFIER_FEATURES
+_DEFAULT_MODIFIER_FEATURES = encoder_data.DEFAULT_MODIFIER_FEATURES
+_PRIORITY_KEYS = encoder_data.MODIFIER_PRIORITY_KEYS
+_PARTY_FLAG_IDS = encoder_data.PARTY_FLAG_IDS
+_ENEMY_MOD_IDS = encoder_data.ENEMY_MOD_IDS
+_ENEMY_NORM_DIVISORS = encoder_data.ENEMY_MOD_NORM_DIVISORS
 
 
 def _get_modifier_id_str(modifier_type_id: int) -> str:
@@ -2662,35 +1865,10 @@ def _encode_phase(buf: np.ndarray, offset: int, phase: ObsPhase) -> None:
         buf[offset + pid] = 1.0
 
 
-# ── Type effectiveness chart (19x19) ────────────────────────────────────
-# Rows = attacking type, Columns = defending type.
-# Same as spaces.ts TYPE_EFFECTIVENESS.
-
-_TYPE_EFFECTIVENESS = [
-    #NOR FIG FLY PSN GND RCK BUG GHO STL FIR WAT GRS ELC PSY ICE DRG DRK FAI STR
-    [1,  1,  1,  1,  1, .5,  1,  0, .5,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1],  # NORMAL
-    [2,  1, .5, .5,  1,  2, .5,  0,  2,  1,  1,  1,  1, .5,  2,  1,  2, .5,  1],  # FIGHTING
-    [1,  2,  1,  1,  1, .5,  2,  1, .5,  1,  1,  2, .5,  1,  1,  1,  1,  1,  1],  # FLYING
-    [1,  1,  1, .5, .5, .5,  1, .5,  0,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1],  # POISON
-    [1,  1,  0,  2,  1,  2, .5,  1,  2,  2,  1, .5,  2,  1,  1,  1,  1,  1,  1],  # GROUND
-    [1, .5,  2,  1, .5,  1,  2,  1, .5,  2,  1,  1,  1,  1,  2,  1,  1,  1,  1],  # ROCK
-    [1, .5, .5, .5,  1,  1,  1, .5, .5, .5,  1,  2,  1,  2,  1,  1,  2, .5,  1],  # BUG
-    [0,  1,  1,  1,  1,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1,  1, .5,  1,  1],  # GHOST
-    [1,  1,  1,  1,  1,  2,  1,  1, .5, .5, .5,  1, .5,  1,  2,  1,  1,  2,  1],  # STEEL
-    [1,  1,  1,  1,  1, .5,  2,  1,  2, .5, .5,  2,  1,  1,  2, .5,  1,  1,  1],  # FIRE
-    [1,  1,  1,  1,  2,  2,  1,  1,  1,  2, .5, .5,  1,  1,  1, .5,  1,  1,  1],  # WATER
-    [1,  1, .5, .5,  2,  2, .5,  1, .5, .5,  2, .5,  1,  1,  1, .5,  1,  1,  1],  # GRASS
-    [1,  1,  2,  1,  0,  1,  1,  1,  1,  1,  2, .5, .5,  1,  1, .5,  1,  1,  1],  # ELECTRIC
-    [1,  2,  1,  2,  1,  1,  1,  1, .5,  1,  1,  1,  1, .5,  1,  1,  0,  1,  1],  # PSYCHIC
-    [1,  1,  2,  1,  2,  1,  1,  1, .5, .5, .5,  2,  1,  1, .5,  2,  1,  1,  1],  # ICE
-    [1,  1,  1,  1,  1,  1,  1,  1, .5,  1,  1,  1,  1,  1,  1,  2,  1,  0,  1],  # DRAGON
-    [1, .5,  1,  1,  1,  1,  1,  2,  1,  1,  1,  1,  1,  2,  1,  1, .5, .5,  1],  # DARK
-    [1,  2,  1, .5,  1,  1,  1,  1, .5, .5,  1,  1,  1,  1,  1,  2,  2,  1,  1],  # FAIRY
-    [1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1,  1],  # STELLAR
-]
-
-# Stage multipliers for stages -6..+6 (index = stage+6)
-_STAGE_MULTIPLIERS = [2/8, 2/7, 2/6, 2/5, 2/4, 2/3, 1, 3/2, 4/2, 5/2, 6/2, 7/2, 8/2]
+# ── Type effectiveness chart (19x19) + stage multipliers ─────────────────
+# Single-sourced from spaces.ts via generated/encoder-data.json.
+_TYPE_EFFECTIVENESS = encoder_data.TYPE_EFFECTIVENESS
+_STAGE_MULTIPLIERS = encoder_data.STAGE_MULTIPLIERS
 
 
 def _compute_type_effectiveness(atk_type: int, def_types: list) -> float:

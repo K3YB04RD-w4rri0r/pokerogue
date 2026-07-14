@@ -9,7 +9,7 @@ Design goals:
   - Human-readable: every field has a clear name and comment.
   - JSON-serializable: only int, float, bool, str, None, list, and dict.
   - Complete: captures everything an optimal agent could need, including
-    fields the current Float32 vector encoding (spaces.ts, 9,875 dims) omits.
+    fields the current Float32 vector encoding (spaces.ts, 6,991 dims, obs v9) omits.
   - Typed: uses typing.TypedDict so agents get IDE autocomplete and
     static-analysis support out of the box.
 
@@ -35,6 +35,7 @@ from typing import TypedDict
 # ---------------------------------------------------------------------------
 # Constants — mirror the TypeScript enum counts in spaces.ts / enums/
 # ---------------------------------------------------------------------------
+from . import encoder_data as _DIMS_SRC
 
 NUM_POKEMON_TYPES = 19       # PokemonType: NORMAL=0 .. STELLAR=18, UNKNOWN=-1
 NUM_STATUS_EFFECTS = 8       # StatusEffect: NONE=0 .. FAINT=7
@@ -44,7 +45,7 @@ NUM_EFFECTIVE_STATS = 5      # ATK, DEF, SPATK, SPDEF, SPD (nature-affected)
 NUM_WEATHER_TYPES = 10       # WeatherType: NONE=0 .. STRONG_WINDS=9
 NUM_TERRAIN_TYPES = 5        # TerrainType: NONE=0 .. PSYCHIC=4
 NUM_ARENA_TAG_TYPES = 28     # ArenaTagType values excluding NONE
-NUM_CURATED_TAGS = 48        # Strategically important volatile tags encoded as binary flags
+NUM_CURATED_TAGS = _DIMS_SRC.CAPS["NUM_CURATED_TAGS"]  # curated volatile tags (69, obs v9)
 NUM_MOVE_CATEGORIES = 3      # MoveCategory: PHYSICAL=0, SPECIAL=1, STATUS=2
 NUM_BATTLE_TYPES = 4         # BattleType: WILD=0, TRAINER=1, CLEAR=2, MYSTERY_ENCOUNTER=3
 NUM_MODIFIER_TIERS = 6       # ModifierTier: COMMON=0 .. LUXURY=5
@@ -59,19 +60,21 @@ MAX_REWARD_OPTIONS = 3       # Free reward slots after a battle
 MAX_SHOP_OPTIONS = 12        # Purchasable shop slots
 ACTION_SPACE_SIZE = 58       # Total discrete actions
 
-# ─── Observation Vector Layout (mirrors spaces.ts) ───
-ABILITY_FEATURE_DIM = 40     # Semantic features per ability (v3: replaces ability_id/310)
-MODIFIER_FEATURE_DIM = 20   # Semantic features per modifier (v4: 20-dim feature vector)
-MOVE_BLOCK_DIM = 132         # Dims per move slot (v7: +46 MoveAttr boolean flags)
-POKEMON_BLOCK_DIM = 771      # 243 non-move + 4*132 moves (v7: MoveAttr boolean flags)
-FIELD_STATE_DIM = 94         # Weather/terrain/arena tags/turns
-BATTLE_META_DIM = 40         # Wave/turn/money/score/pokeballs/capabilities/game_mode_flags
-MODIFIER_PHASE_DIM = 225     # v4: header(3) + reward(3*28) + shop(6*23)
-MODIFIER_INVENTORY_DIM = 220 # v4: held(4*45) + party(9) + lapsing(23) + enemy(8)
-DERIVED_FIELDS_DIM = 28      # Type effectiveness, STAB, speed ordering
-PHASE_INDICATOR_DIM = 16     # One-hot over DecisionPhase
-TOTAL_POKEMON_SLOTS = 12     # 2 active + 4 bench per side
-OBSERVATION_DIM = 6991  # v9 (was stale v7 9875; observation.py is the mirror authority)       # 12*771 + 94 + 40 + 225 + 220 + 28 + 16
+# ─── Observation Vector Layout (single-sourced from generated/encoder-data.json,
+#     which is emitted from spaces.ts — see docs/ENCODER_SINGLE_SOURCE_PROPOSAL.md) ───
+ABILITY_FEATURE_DIM = _DIMS_SRC.DIMS["ABILITY_FEATURE_DIM"]      # semantic features per ability
+MODIFIER_FEATURE_DIM = _DIMS_SRC.DIMS["MODIFIER_FEATURE_DIM"]    # semantic features per modifier
+MOVE_BLOCK_DIM = _DIMS_SRC.DIMS["MOVE_BLOCK_DIM"]                # dims per move slot (60, obs v9)
+POKEMON_BLOCK_DIM = _DIMS_SRC.DIMS["POKEMON_BLOCK_DIM"]          # 513 = 273 non-move + 4*60 moves
+FIELD_STATE_DIM = _DIMS_SRC.DIMS["FIELD_STATE_DIM"]              # 102
+BATTLE_META_DIM = _DIMS_SRC.DIMS["BATTLE_META_DIM"]              # 40
+MODIFIER_PHASE_DIM = _DIMS_SRC.DIMS["MODIFIER_PHASE_DIM"]        # 363
+MODIFIER_INVENTORY_DIM = _DIMS_SRC.DIMS["MODIFIER_INVENTORY_DIM"]  # 220
+DERIVED_FIELDS_DIM = _DIMS_SRC.DIMS["DERIVED_FIELDS_DIM"]        # 28
+LEARN_MOVE_BLOCK_DIM = _DIMS_SRC.DIMS["LEARN_MOVE_BLOCK_DIM"]    # 66
+PHASE_INDICATOR_DIM = _DIMS_SRC.DIMS["PHASE_INDICATOR_DIM"]      # 16
+TOTAL_POKEMON_SLOTS = _DIMS_SRC.CAPS["TOTAL_POKEMON_SLOTS"]      # 12
+OBSERVATION_DIM = _DIMS_SRC.DIMS["OBSERVATION_DIM"]              # 6991 (obs v9)
 
 # Move target enum values (MoveTarget) for reference
 MOVE_TARGET_USER = 0

@@ -38,7 +38,10 @@
       "!!*.css",
       "!!*.html",
       // this file is too big
-      "!src/data/balance/tm-species-map.ts"
+      "!src/data/balance/tm-species-map.ts",
+      // generated artifact (emitted by test/rl/encoder-data-sync.test.ts, byte-compared
+      // against regeneration) — formatter churn would break the staleness gate
+      "!src/rl/generated/encoder-data.json"
     ]
   },
   "assist": {

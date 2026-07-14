@@ -198,7 +198,7 @@ MODIFIER_FEATURES["DNA_SPLICERS"] = f(0, 0, 0, 0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0);
 // ═══════════════════════════════════════════════════════════════════════
 
 /** RL priority ordering for held item sorting (higher priority first) */
-const PRIORITY_KEYS: readonly number[] = [0, 3, 2, 1, 4, 5, 7, 6]; // is_damage > survival > healing > stat > speed > status > berry > economy
+export const PRIORITY_KEYS: readonly number[] = [0, 3, 2, 1, 4, 5, 7, 6]; // is_damage > survival > healing > stat > speed > status > berry > economy
 
 /**
  * Sort held items by RL importance using category flags.

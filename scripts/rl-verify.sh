@@ -25,6 +25,12 @@ step "V-1 python lint (ruff)"
 # order) are the bug-catching part.
 "$PY" -m ruff check src/rl tools examples/rl
 
+step "V-2 generated-data sync (hand-written enums vs encoder-data.json)"
+# The generated JSON's own staleness vs the TS source is gated inside V11
+# (test/rl/encoder-data-sync.test.ts); this stage covers the residual
+# hand-written Python mirrors. See docs/ENCODER_SINGLE_SOURCE_PROPOSAL.md.
+"$PY" tools/verify/check_generated_sync.py
+
 step "V1 build"
 pnpm rl:build
 
