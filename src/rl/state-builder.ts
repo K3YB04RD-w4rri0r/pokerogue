@@ -11,7 +11,7 @@ import type { AttackMoveResult } from "#app/@types/attack-move-result";
 import type { TurnMove } from "#app/@types/turn-move";
 import { MAX_TERAS_PER_ARENA } from "#app/constants";
 import { globalScene } from "#app/global-scene";
-import type { ArenaTag } from "#data/arena-tag";
+import type { ArenaTag, EntryHazardTag } from "#data/arena-tag";
 import type { BattlerTag } from "#data/battler-tags";
 // BattlerTag subclass imports for instanceof checks
 import {
@@ -30,16 +30,21 @@ import { getLevelTotalExp } from "#data/exp";
 import { getNatureStatMultiplier } from "#data/nature";
 import type { PokemonBattleData, PokemonTurnData, PokemonWaveData } from "#data/pokemon/pokemon-data";
 import { DelayedAttackTag, WishTag } from "#data/positional-tags/positional-tag";
+import type { TerrainType } from "#data/terrain";
 import { ArenaTagSide } from "#enums/arena-tag-side";
 import { ArenaTagType } from "#enums/arena-tag-type";
 import { BattleType } from "#enums/battle-type";
+import { BattlerTagType } from "#enums/battler-tag-type";
 import { BiomeId } from "#enums/biome-id";
 import { Challenges } from "#enums/challenges";
 import { MoveFlags } from "#enums/move-flags";
 import { MoveTarget } from "#enums/move-target";
-import { EFFECTIVE_STATS } from "#enums/stat";
+import type { MultiHitType } from "#enums/multi-hit-type";
+import type { PokemonType } from "#enums/pokemon-type";
+import { EFFECTIVE_STATS, type PermanentStat, type Stat, type TempBattleStat } from "#enums/stat";
 import { StatusEffect } from "#enums/status-effect";
-import type { Pokemon } from "#field/pokemon";
+import type { WeatherType } from "#enums/weather-type";
+import type { EnemyPokemon, Pokemon } from "#field/pokemon";
 import type { PersistentModifier } from "#modifiers/modifier";
 // Modifier subclass imports for instanceof checks
 import {
@@ -56,10 +61,83 @@ import {
   TempStatStageBoosterModifier,
   TurnStatusEffectModifier,
 } from "#modifiers/modifier";
+import type { AddBattlerTagAttr } from "#moves/move";
 import type { PokemonMove } from "#moves/pokemon-move";
 import { getAvailableModifiers } from "#rl/modifier-api";
 import type { PhaseState } from "#rl/phase-router";
 import { getLegalBallTypes } from "#rl/phase-router";
+
+// ─── Structural views of private/protected game internals ────────────
+// The serializer reads a handful of fields the game does not expose
+// publicly. Each interface documents exactly which class/field it mirrors
+// (file:line at time of writing) so a game-side rename is one greppable fix
+// here — and tsc now checks every USAGE site against these declared shapes
+// (the old `as any` casts checked nothing).
+
+/** private healRatio of HitHealAttr (move.ts:2736) / HealAttr (move.ts:2345) */
+interface HealRatioFields {
+  readonly healRatio: number;
+}
+/** private damageRatio of RecoilAttr (move.ts:2098) */
+interface RecoilFields {
+  readonly damageRatio: number;
+}
+/** private fields of MultiHitAttr (move.ts:2838, 2840) */
+interface MultiHitFields {
+  readonly intrinsicMultiHitType: MultiHitType;
+  readonly multiHitType: MultiHitType;
+}
+/** private selfSwitch of ForceSwitchOutAttr (move.ts:7042) */
+interface SelfSwitchFields {
+  readonly selfSwitch: boolean;
+}
+/** private damage of FixedDamageAttr (move.ts:1863) */
+interface FixedDamageFields {
+  readonly damage: number;
+}
+/** private weatherType of WeatherChangeAttr (move.ts) */
+interface WeatherFields {
+  readonly weatherType: WeatherType;
+}
+/** private terrainType of TerrainChangeAttr (move.ts) */
+interface TerrainFields {
+  readonly terrainType: TerrainType;
+}
+/** protected fields of StatBoosterModifier (modifier.ts:1120, 1122) */
+interface StatBoosterModifierFields {
+  stats: Stat[];
+  multiplier: number;
+}
+/** protected stat of BaseStatModifier (modifier.ts:813) */
+interface BaseStatModifierFields {
+  stat: PermanentStat;
+}
+/** protected stageIncrement of CritBoosterModifier (modifier.ts:1312) */
+interface CritBoosterModifierFields {
+  stageIncrement: number;
+}
+/** private effect of TurnStatusEffectModifier (modifier.ts:1667) — only
+ *  assigned for TOXIC_ORB/FLAME_ORB, undefined otherwise */
+interface TurnStatusEffectModifierFields {
+  effect: StatusEffect | undefined;
+}
+/** private fields of TempStatStageBoosterModifier (modifier.ts:495, 497) */
+interface TempStatStageBoosterModifierFields {
+  stat: TempBattleStat;
+  boost: number;
+}
+/** Duck-typed OPTIONAL probes over arbitrary PersistentModifiers — the
+ *  generic fallbacks in buildPartyModifier probe with `!== undefined`. */
+interface PartyModifierDuckFields {
+  moveType?: PokemonType;
+  stat?: Stat;
+  effect?: StatusEffect;
+}
+/** private enemyModifiers of BattleScene (battle-scene.ts:297); undefined
+ *  before scene setup, hence the load-bearing `?? []` at the use site. */
+interface EnemyModifierSource {
+  enemyModifiers: PersistentModifier[] | undefined;
+}
 
 // ─── Empty State Factories ───────────────────────────────────────────
 
@@ -334,7 +412,7 @@ function getHazardLayers(tagType: ArenaTagType, side: ArenaTagSide): number {
   }
   for (const tag of arena.tags) {
     if (tag.tagType === tagType && (tag.side === side || tag.side === ArenaTagSide.BOTH)) {
-      return (tag as any).layers ?? 1;
+      return (tag as EntryHazardTag).layers ?? 1;
     }
   }
   return 0;
@@ -386,7 +464,7 @@ function buildTurnData(td: PokemonTurnData | null | undefined): Record<string, u
     switched_in_this_turn: td.switchedInThisTurn ?? false,
     stat_stages_increased: td.statStagesIncreased ?? false,
     stat_stages_decreased: td.statStagesDecreased ?? false,
-    berries_eaten: (td as any).berriesEaten ?? [],
+    berries_eaten: td.berriesEaten ?? [],
     move_effectiveness: td.moveEffectiveness ?? 0,
     hits_left: td.hitsLeft ?? 0,
     single_hit_damage_dealt: td.singleHitDamageDealt ?? 0,
@@ -497,21 +575,22 @@ function buildHeldItem(modifier: PokemonHeldItemModifier): Record<string, unknow
       result.type_id = modifier.moveType;
     }
     if (modifier instanceof StatBoosterModifier) {
-      result.stat_ids = (modifier as any).stats ? Array.from((modifier as any).stats) : null;
-      result.stat_boost_multiplier = (modifier as any).multiplier ?? null;
+      const fields = modifier as unknown as StatBoosterModifierFields;
+      result.stat_ids = fields.stats ? Array.from(fields.stats) : null;
+      result.stat_boost_multiplier = fields.multiplier ?? null;
     }
     if (modifier instanceof BaseStatModifier) {
-      result.stat_id = (modifier as any).stat ?? null;
+      result.stat_id = (modifier as unknown as BaseStatModifierFields).stat ?? null;
     }
     if (modifier instanceof CritBoosterModifier) {
-      result.crit_stage_increment = (modifier as any).stageIncrement ?? null;
+      result.crit_stage_increment = (modifier as unknown as CritBoosterModifierFields).stageIncrement ?? null;
     }
     if (modifier instanceof BerryModifier) {
       result.berry_type = modifier.berryType;
       result.consumed = modifier.consumed;
     }
     if (modifier instanceof TurnStatusEffectModifier) {
-      result.status_effect = (modifier as any).effect ?? null;
+      result.status_effect = (modifier as unknown as TurnStatusEffectModifierFields).effect ?? null;
     }
     if (modifier instanceof PokemonBaseStatTotalModifier) {
       result.stat_modifier = modifier.statModifier;
@@ -559,7 +638,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const statusAttrs = move.getAttrs("StatusEffectAttr");
       if (statusAttrs.length > 0) {
-        statusEffect = (statusAttrs[0] as any).effect ?? StatusEffect.NONE;
+        statusEffect = statusAttrs[0].effect ?? StatusEffect.NONE;
       }
     } catch {
       /* ignore */
@@ -570,12 +649,12 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const statChangeAttrs = move.getAttrs("StatStageChangeAttr");
       for (const attr of statChangeAttrs) {
-        const chance = (attr as any).options?.effectChanceOverride ?? (move.chance > 0 ? move.chance : 100);
-        for (const statId of (attr as any).stats ?? []) {
+        const chance = attr.effectChanceOverride ?? (move.chance > 0 ? move.chance : 100);
+        for (const statId of attr.stats ?? []) {
           statChanges.push({
             stat_id: statId,
-            stages: (attr as any).stages ?? 0,
-            self_target: !!(attr as any).selfTarget,
+            stages: attr.stages ?? 0,
+            self_target: !!attr.selfTarget,
             chance,
           });
         }
@@ -589,7 +668,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const hitHealAttrs = move.getAttrs("HitHealAttr");
       if (hitHealAttrs.length > 0) {
-        drainRatio = (hitHealAttrs[0] as any).healRatio ?? 0.5;
+        drainRatio = (hitHealAttrs[0] as unknown as HealRatioFields).healRatio ?? 0.5;
       }
     } catch {
       /* ignore */
@@ -600,7 +679,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const recoilAttrs = move.getAttrs("RecoilAttr");
       if (recoilAttrs.length > 0) {
-        recoilRatio = (recoilAttrs[0] as any).damageRatio ?? 0.25;
+        recoilRatio = (recoilAttrs[0] as unknown as RecoilFields).damageRatio ?? 0.25;
       }
     } catch {
       /* ignore */
@@ -611,7 +690,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const healAttrs = move.getAttrs("HealAttr");
       if (healAttrs.length > 0) {
-        healRatio = (healAttrs[0] as any).healRatio ?? 0.5;
+        healRatio = (healAttrs[0] as unknown as HealRatioFields).healRatio ?? 0.5;
       }
     } catch {
       /* ignore */
@@ -624,7 +703,8 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
       const multiHitAttrs = move.getAttrs("MultiHitAttr");
       if (multiHitAttrs.length > 0) {
         isMultiHit = true;
-        multiHitType = (multiHitAttrs[0] as any).intrinsicMultiHitType ?? (multiHitAttrs[0] as any).multiHitType ?? -1;
+        const mh = multiHitAttrs[0] as unknown as MultiHitFields;
+        multiHitType = mh.intrinsicMultiHitType ?? mh.multiHitType ?? -1;
       }
     } catch {
       /* ignore */
@@ -651,7 +731,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const forceSwitchAttrs = move.getAttrs("ForceSwitchOutAttr");
       for (const attr of forceSwitchAttrs) {
-        if ((attr as any).selfSwitch) {
+        if ((attr as unknown as SelfSwitchFields).selfSwitch) {
           selfSwitch = true;
         } else {
           forceSwitch = true;
@@ -682,7 +762,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const fixedDmgAttrs = move.getAttrs("FixedDamageAttr");
       if (fixedDmgAttrs.length > 0) {
-        fixedDamage = (fixedDmgAttrs[0] as any).damage ?? 0;
+        fixedDamage = (fixedDmgAttrs[0] as unknown as FixedDamageFields).damage ?? 0;
       }
     } catch {
       /* ignore */
@@ -709,7 +789,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const weatherAttrs = move.getAttrs("WeatherChangeAttr");
       if (weatherAttrs.length > 0) {
-        weatherChange = (weatherAttrs[0] as any).weatherType ?? 0;
+        weatherChange = (weatherAttrs[0] as unknown as WeatherFields).weatherType ?? 0;
       }
     } catch {
       /* ignore */
@@ -719,7 +799,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const terrainAttrs = move.getAttrs("TerrainChangeAttr");
       if (terrainAttrs.length > 0) {
-        terrainChange = (terrainAttrs[0] as any).terrainType ?? 0;
+        terrainChange = (terrainAttrs[0] as unknown as TerrainFields).terrainType ?? 0;
       }
     } catch {
       /* ignore */
@@ -735,7 +815,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
     try {
       const arenaTagAttrs = move.getAttrs("AddArenaTagAttr");
       if (arenaTagAttrs.length > 0) {
-        const tagType = (arenaTagAttrs[0] as any).tagType as string;
+        const tagType = arenaTagAttrs[0].tagType;
         // The side a tag lands on is determined by the move's TARGET
         // (screens: USER_SIDE, hazards: ENEMY_SIDE, Trick Room: BOTH_SIDES).
         // The attr's `selfSideTarget` constructor param is NOT that semantic —
@@ -751,8 +831,8 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
         ]);
         // Screens: self-side damage reduction
         const SCREEN_TAGS = new Set([ArenaTagType.REFLECT, ArenaTagType.LIGHT_SCREEN, ArenaTagType.AURORA_VEIL]);
-        setsHazard = HAZARD_TAGS.has(tagType as ArenaTagType);
-        setsScreen = SCREEN_TAGS.has(tagType as ArenaTagType);
+        setsHazard = HAZARD_TAGS.has(tagType);
+        setsScreen = SCREEN_TAGS.has(tagType);
       }
     } catch {
       /* ignore */
@@ -768,9 +848,9 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
       const isFlinchOrConfuseOrRecharge = (a: unknown): boolean => {
         try {
           return (
-            (move.hasAttr("FlinchAttr") && (a as any).tagType === "FLINCHED")
-            || (move.hasAttr("ConfuseAttr") && (a as any).tagType === "CONFUSED")
-            || (move.hasAttr("RechargeAttr") && (a as any).tagType === "RECHARGING")
+            (move.hasAttr("FlinchAttr") && (a as AddBattlerTagAttr).tagType === BattlerTagType.FLINCHED)
+            || (move.hasAttr("ConfuseAttr") && (a as AddBattlerTagAttr).tagType === BattlerTagType.CONFUSED)
+            || (move.hasAttr("RechargeAttr") && (a as AddBattlerTagAttr).tagType === BattlerTagType.RECHARGING)
           );
         } catch {
           return false;
@@ -787,7 +867,7 @@ function buildMoveSlot(pokemonMove: PokemonMove | null | undefined, pokemon: Pok
       ]);
       const CONTINUOUS_DAMAGE_TAGS = new Set(["SEEDED", "SALT_CURED", "CURSED", "NIGHTMARE", "PERISH_SONG"]);
       for (const attr of battlerTagAttrs) {
-        const tagType = String((attr as any).tagType ?? "");
+        const tagType = String(attr.tagType ?? "");
         if (isFlinchOrConfuseOrRecharge(attr)) {
           continue;
         }
@@ -1108,7 +1188,7 @@ function buildPokemonState(
     const moveQueue = hasSummonData ? safe(() => (pokemon.summonData.moveQueue ?? []).map(buildQueuedMove), []) : [];
 
     // Boss detection
-    const isBoss = "bossSegments" in pokemon && (pokemon as any).bossSegments > 0;
+    const isBoss = "bossSegments" in pokemon && (pokemon as EnemyPokemon).bossSegments > 0;
 
     // Held items
     const heldItems = safe(() => pokemon.getHeldItems().map(buildHeldItem), []);
@@ -1189,11 +1269,11 @@ function buildPokemonState(
       pokeball: pokemon.pokeball ?? 0,
       volatile_tags: volatileTags,
       is_boss: isBoss,
-      boss_segments: isBoss ? ((pokemon as any).bossSegments ?? 0) : 0,
-      boss_segment_index: isBoss ? ((pokemon as any).bossSegmentIndex ?? 0) : 0,
+      boss_segments: isBoss ? ((pokemon as EnemyPokemon).bossSegments ?? 0) : 0,
+      boss_segment_index: isBoss ? ((pokemon as EnemyPokemon).bossSegmentIndex ?? 0) : 0,
       // null = unknown controller (players / enemy-view opponents): both
       // encoders map it to an all-zero one-hot instead of asserting RANDOM.
-      ai_type: (pokemon as any).aiType ?? null,
+      ai_type: (pokemon as EnemyPokemon).aiType ?? null,
       is_fusion: !!pokemon.fusionSpecies,
       fusion_species_id: pokemon.fusionSpecies?.speciesId ?? null,
       is_on_field: safe(() => pokemon.isOnField(), false),
@@ -1237,7 +1317,7 @@ function buildArenaTagDict(tag: ArenaTag): Record<string, unknown> {
     tag_type: tag.tagType,
     side: tag.side,
     turn_count: tag.turnCount ?? 0,
-    layers: (tag as any).layers ?? 1,
+    layers: (tag as EntryHazardTag).layers ?? 1,
     source_id: tag.sourceId ?? null,
   };
 }
@@ -1518,7 +1598,7 @@ function buildBattleState(): Record<string, unknown> {
       seed: globalScene.seed ?? "",
       trainer: buildTrainerInfo(battle?.trainer),
       mystery_encounter: mysteryEncounter,
-      battle_style: (globalScene as any).battleStyle ?? 0,
+      battle_style: globalScene.battleStyle ?? 0,
       time_of_day: safe(() => arena?.getTimeOfDay() ?? 0, 0),
       player_faints_biome: arena?.playerFaints ?? 0,
       money_scattered: battle?.moneyScattered ?? 0,
@@ -1527,25 +1607,25 @@ function buildBattleState(): Record<string, unknown> {
       reroll_count: safe(() => {
         const phase = globalScene.phaseManager?.getCurrentPhase();
         if (phase?.is("SelectModifierPhase")) {
-          return (phase as any).getRerollCount?.() ?? 0;
+          return phase.getRerollCount() ?? 0;
         }
         return 0;
       }, 0),
       failed_run_away: globalScene.currentBattle?.failedRunAway ?? false,
       has_no_shop: globalScene.gameMode?.hasNoShop ?? false,
       has_trainers: globalScene.gameMode?.hasTrainers ?? true,
-      is_spliced_only: (globalScene.gameMode as any)?.isSplicedOnly ?? false,
+      is_spliced_only: globalScene.gameMode?.isSplicedOnly ?? false,
       seen_enemy_count: battle?.seenEnemyPartyMemberIds?.size ?? 0,
       enemy_switch_counter: battle?.enemySwitchCounter ?? 0,
-      offset_gym: (globalScene as any)?.offsetGym ?? false,
+      offset_gym: globalScene?.offsetGym ?? false,
       is_classic: globalScene.gameMode?.isClassic ?? false,
       is_endless: globalScene.gameMode?.isEndless ?? false,
       is_daily: globalScene.gameMode?.isDaily ?? false,
-      is_challenge: (globalScene.gameMode as any)?.isChallenge ?? false,
+      is_challenge: globalScene.gameMode?.isChallenge ?? false,
       has_mystery_encounters: globalScene.gameMode?.hasMysteryEncounters ?? false,
       has_short_biomes: globalScene.gameMode?.hasShortBiomes ?? false,
       has_random_biomes: globalScene.gameMode?.hasRandomBiomes ?? false,
-      has_random_bosses: (globalScene.gameMode as any)?.hasRandomBosses ?? false,
+      has_random_bosses: globalScene.gameMode?.hasRandomBosses ?? false,
       inverse_battle: challenges.some(
         c => (c.challenge_type as number) === Challenges.INVERSE_BATTLE && (c.value as number) > 0,
       ),
@@ -1623,19 +1703,20 @@ function buildPartyModifier(modifier: PersistentModifier): Record<string, unknow
     }
     // TempStatStageBoosterModifier has .stat
     if (modifier instanceof TempStatStageBoosterModifier) {
-      result.stat_id = (modifier as any).stat ?? null;
+      result.stat_id = (modifier as unknown as TempStatStageBoosterModifierFields).stat ?? null;
     }
+    const duck = modifier as unknown as PartyModifierDuckFields;
     // AttackTypeBoosterModifier has .moveType (on held items; check for party-level too)
-    if ((modifier as any).moveType !== undefined) {
-      result.type_id = (modifier as any).moveType ?? null;
+    if (duck.moveType !== undefined) {
+      result.type_id = duck.moveType ?? null;
     }
     // Generic stat access for any modifier with a .stat property
-    if (result.stat_id === null && (modifier as any).stat !== undefined) {
-      result.stat_id = (modifier as any).stat ?? null;
+    if (result.stat_id === null && duck.stat !== undefined) {
+      result.stat_id = duck.stat ?? null;
     }
     // Generic effect access for any modifier with an .effect property
-    if (result.status_effect === null && (modifier as any).effect !== undefined) {
-      result.status_effect = (modifier as any).effect ?? null;
+    if (result.status_effect === null && duck.effect !== undefined) {
+      result.status_effect = duck.effect ?? null;
     }
   } catch {
     /* ignore subclass extraction errors */
@@ -1652,14 +1733,15 @@ function buildLapsingModifier(modifier: LapsingPersistentModifier): Record<strin
     modifier_id: modifier.type?.id ?? "",
     name: modifier.type?.name ?? "",
     stack_count: modifier.stackCount ?? 0,
-    battles_remaining: (modifier as any).battleCount ?? 0,
+    battles_remaining: modifier.getBattleCount() ?? 0,
     stat_id: null,
     boost: null,
   };
 
   if (modifier instanceof TempStatStageBoosterModifier) {
-    result.stat_id = (modifier as any).stat ?? null;
-    result.boost = (modifier as any).boost ?? null;
+    const fields = modifier as unknown as TempStatStageBoosterModifierFields;
+    result.stat_id = fields.stat ?? null;
+    result.boost = fields.boost ?? null;
   }
 
   return result;
@@ -1698,7 +1780,7 @@ function buildModifierInventory(): Record<string, unknown> {
 
     // Enemy modifiers
     const enemyModifiers: Record<string, unknown>[] = [];
-    for (const mod of (globalScene as any).enemyModifiers ?? []) {
+    for (const mod of (globalScene as unknown as EnemyModifierSource).enemyModifiers ?? []) {
       try {
         enemyModifiers.push(buildPartyModifier(mod));
       } catch {
@@ -1753,7 +1835,7 @@ function buildPhaseInfo(phaseState: PhaseState | null): Record<string, unknown> 
     valid_actions: phaseState.validActions ?? [],
     learn_move_id: (meta.learnMoveId as number) ?? null,
     learn_move_name: (meta.newMoveName as string) ?? null,
-    learn_move_stats: meta.learnMoveStats ? buildMoveSlot(meta.learnMoveStats as any, null) : null,
+    learn_move_stats: meta.learnMoveStats ? buildMoveSlot(meta.learnMoveStats as PokemonMove, null) : null,
     learn_move_party_index: (meta.learnMovePartyIndex as number) ?? null,
     learn_move_current: (meta.currentMoveNames as string[]) ?? null,
     biome_options: (meta.biomeNames as string[]) ?? null,
