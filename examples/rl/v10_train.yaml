@@ -15,8 +15,10 @@ env:
   lean: true          # TS-side encoding (fast path)
   fog_of_war: false   # full information — the oracle baseline trains first
   respawn_every: 50   # recycle the node process periodically
+  stderr_log: .rl-verify/train-v10-cli-stderr.log  # post-mortem for CLI deaths
 
 train:
   timesteps: 200000
-  seed: 7             # seeded MaskablePPO for reproducibility
+  seed: 7                  # seeded MaskablePPO for reproducibility
+  checkpoint_every: 25000  # a crash must not lose the whole run
   save: models/ppo_v10_first.zip

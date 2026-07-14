@@ -235,24 +235,60 @@ class PokeRogueEnv(gym.Env):
         self._episode += 1
 
         recycle_due = self._respawn_every > 0 and self._episodes_since_spawn >= self._respawn_every
-        ready = None
-        if not self._respawn and not recycle_due and self._proc is not None and self._proc.poll() is None:
-            # In-process reset (~3ms vs ~2s respawn): the CLI waits for a
-            # lifecycle command after each episode's `done`.
-            try:
-                self._send_raw({"cmd": "reset", "seed": game_seed, "waves": self._waves})
+        # Boot + setup-drive with ONE respawn retry: the step path already
+        # recovers from a dying CLI (fresh process on the next reset), but a
+        # death DURING setup raised straight out of reset() and killed the
+        # whole training run (observed at step ~75k: EOF mid-setup on a
+        # reused process). One clean respawn covers that window; a second
+        # failure is a real environment fault and still raises.
+        msg: dict | None = None
+        for attempt in (0, 1):
+            ready = None
+            if (
+                attempt == 0
+                and not self._respawn
+                and not recycle_due
+                and self._proc is not None
+                and self._proc.poll() is None
+            ):
+                # In-process reset (~3ms vs ~2s respawn): the CLI waits for a
+                # lifecycle command after each episode's `done`.
+                try:
+                    self._send_raw({"cmd": "reset", "seed": game_seed, "waves": self._waves})
+                    ready = self._await_ready(self._boot_timeout)
+                except (ProtocolError, TimeoutError, OSError):
+                    ready = None  # fall through to a clean respawn
+            if ready is None:
+                self.close()
+                self._spawn(game_seed)
                 ready = self._await_ready(self._boot_timeout)
-            except (ProtocolError, TimeoutError, OSError):
-                ready = None  # fall through to a clean respawn
-        if ready is None:
-            self.close()
-            self._spawn(game_seed)
-            ready = self._await_ready(self._boot_timeout)
-            self._episodes_since_spawn = 0
-        self._episodes_since_spawn += 1
-        self._check_versions(ready)
-        self._ready_reward_config = ready.get("rewardConfig") or {}
+                self._episodes_since_spawn = 0
+            self._episodes_since_spawn += 1
+            self._check_versions(ready)
+            self._ready_reward_config = ready.get("rewardConfig") or {}
+            try:
+                msg = self._drive_setup()
+                break
+            except ProtocolError:
+                if attempt:
+                    raise
+                msg = None  # CLI died mid-setup — retry once on a fresh process
+        assert msg is not None
 
+        self._needs_reset = False
+        self._invalid_action_count = 0
+        self._last_warning = None
+        self._seen_obs = set()
+        self._no_progress = 0
+        obs = self._obs_from(msg)
+        self._last_obs = obs.copy()
+        self.last_info = self._info_from(msg)
+        return obs, self.last_info
+
+    def _drive_setup(self) -> dict:
+        """Auto-play the setup phases until the first real decision state.
+        Raises ProtocolError if the CLI dies or ends the episode during setup
+        (reset() retries that once on a fresh process)."""
         msg = self._next_decision()
         while msg.get("type") == "state" and msg.get("phase") in SETUP_PHASES:
             valid = self._valid_actions(msg)
@@ -268,16 +304,7 @@ class PokeRogueEnv(gym.Env):
             raise ProtocolError(
                 "state message has no `reward` field — dist/rl/cli.js is stale; rebuild with: pnpm rl:build"
             )
-
-        self._needs_reset = False
-        self._invalid_action_count = 0
-        self._last_warning = None
-        self._seen_obs = set()
-        self._no_progress = 0
-        obs = self._obs_from(msg)
-        self._last_obs = obs.copy()
-        self.last_info = self._info_from(msg)
-        return obs, self.last_info
+        return msg
 
     def step(self, action):
         if self._needs_reset or self._proc is None:
@@ -430,9 +457,13 @@ class PokeRogueEnv(gym.Env):
             cmd.append(f"--starters={self._starters}")
         # stderr must be discarded or drained: an unread PIPE deadlocks node at 64KB
         if self._stderr_log:
-            # "w": fresh log per process generation — append mode grows
-            # unbounded across respawn_every recycles on long runs
-            self._stderr_fh = open(self._stderr_log, "w")
+            # Append with a generation marker: truncating per spawn erased the
+            # DYING process's stderr the moment the reset retry respawned —
+            # exactly the evidence the log exists to capture. Long runs grow
+            # it, but node is quiet on stderr unless something is wrong.
+            self._stderr_fh = open(self._stderr_log, "a")
+            self._stderr_fh.write(f"----- spawn (episode {self._episode}, seed {game_seed}) -----\n")
+            self._stderr_fh.flush()
         else:
             self._stderr_fh = subprocess.DEVNULL
         self._proc = subprocess.Popen(
