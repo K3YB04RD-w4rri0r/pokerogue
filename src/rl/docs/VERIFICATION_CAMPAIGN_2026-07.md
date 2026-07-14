@@ -201,10 +201,17 @@ verdict confirmed. Full ledger: campaign artifacts. The load-bearing ones:
     `randSeedInt` draw on the global stream — i.e. order is a pure function
     of RNG stream position at that instant, re-anchored by the
     phase-router re-sow (phase-router.ts:2550) before the fallback runs.
-  - The historical divergence was transport-dependent stream position, made
-    possible by two since-fixed campaign bugs (either sufficient):
-    Math.random trainer ids per process (fixed eb73e2a7f6e) and rendered
-    runtime overrides silently inert (fixed e06c8ec32e7).
+  - The historical flip was RUN-LEVEL nondeterminism, not a code or
+    transport difference: a 21-version scan (pre-campaign tip d87f998fe47
+    through every campaign commit, rebuilt and probed per commit) shows
+    every version deterministically producing String-Shot-first headless —
+    no committed code ever produced the observed "Tackle headless". The
+    effective RNG stream at the draw differed per RUN via the entropy
+    escapes the campaign closed independently: the MockClock wall-clock
+    escape (pre-fix builds failed ~5/6 loaded determinism trials) and
+    Math.random trainer ids per process (eb73e2a7f6e). A level-override
+    experiment ruled OUT the third candidate (rendered override inertness):
+    STARTING_LEVEL_OVERRIDE=6 does not change the order.
   - Verified healed empirically: 5 seed/starter combinations (CATERPIE x2
     seeds, BULBASAUR, SQUIRTLE, PIDGEY) produce identical slot order on both
     transports; the cross-transport equivalence gate (byte-identical reset
