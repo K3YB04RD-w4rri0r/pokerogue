@@ -49,6 +49,13 @@ jobs:
         id: filter
         with:
           filters: .github/test-filters.yml
+          # On push events, diff the push itself (before..after). The action's
+          # default base is the repo DEFAULT branch (beta), so pushes to any
+          # OTHER branch (rl-framework) take the merge-base path — deepening a
+          # shallow clone across the full divergence until git exits 1, failing
+          # this job before a single test runs. Ignored on pull_request events
+          # (the PR base is used automatically); empty string = action default.
+          base: ${{ github.event_name == 'push' && github.ref_name || '' }}
 
   run-tests:
     name: Run Tests
