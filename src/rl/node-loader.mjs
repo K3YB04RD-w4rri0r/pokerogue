@@ -10,6 +10,11 @@ import { URL as NodeURL } from "node:url";
 
 const RAW_EXTENSIONS = new Set([".frag", ".vert", ".glsl"]);
 
+/**
+ * @param {string} specifier
+ * @param {object} context
+ * @param {(specifier: string, context?: object) => Promise<object>} nextResolve
+ */
 export async function resolve(specifier, context, nextResolve) {
   // Strip ?raw query params from specifiers
   if (specifier.includes("?raw")) {
@@ -18,6 +23,11 @@ export async function resolve(specifier, context, nextResolve) {
   return nextResolve(specifier, context);
 }
 
+/**
+ * @param {string} url
+ * @param {object} context
+ * @param {(url: string, context?: object) => Promise<object>} nextLoad
+ */
 export async function load(url, context, nextLoad) {
   const parsed = new NodeURL(url);
   const ext = parsed.pathname.match(/\.[^.]+$/)?.[0] ?? "";

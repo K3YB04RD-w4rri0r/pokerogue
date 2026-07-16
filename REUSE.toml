@@ -36,6 +36,27 @@ path = [
 SPDX-FileCopyrightText = "2024-2025 Pagefault Games"
 SPDX-License-Identifier = "AGPL-3.0-only"
 
+# RL framework (rl-framework branch): everything the branch adds outside the
+# upstream *.ts/*.json globs above — Python env/tooling, docs, examples,
+# fixtures, scripts, model artifacts, and the headless/interactive vite
+# configs. AGPL-3.0-only like the rest of the codebase (derivative work).
+[[annotations]]
+path = [
+    "src/rl/**",
+    "test/rl/**",
+    "tools/**",
+    "examples/rl/**",
+    "scripts/rl-setup.sh",
+    "scripts/rl-verify.sh",
+    "models/**",
+    "pyproject.toml",
+    "requirements-rl.txt",
+    "vite.headless.config.ts",
+    "vite.interactive.config.ts",
+]
+SPDX-FileCopyrightText = "2026 K3YB04RD-w4rri0r"
+SPDX-License-Identifier = "AGPL-3.0-only"
+
 # Files with no copyright
 [[annotations]]
 path = [
