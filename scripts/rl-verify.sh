@@ -109,6 +109,16 @@ step "V7 determinism (interactive, seeded actions)"
 step "V7b determinism (in-process reset == fresh process, bitwise)"
 "$PY" tools/verify/check_determinism.py --seed verify-det --waves 6 --mode inprocess --action-seed 42
 
+# Grunt-wave depth: masked-random policies die around wave 6-10, so the
+# default matrix never reached the evil-grunt trainer waves (35+) whose
+# gender-variant roll was a seeded-determinism fix (eb73e2a7f6e) — it was
+# only ever validated manually. STARTING_WAVE_OVERRIDE pins the episode
+# into a verified grunt battle (seed verify-det-grunt @ wave 35 = Magma
+# Grunt), making the trainer-name/variant path part of the bitwise gate.
+step "V7c determinism at grunt-wave depth (seeded gender roll)"
+"$PY" tools/verify/check_determinism.py --seed verify-det-grunt --waves 40 --mode inprocess --action-seed 42 \
+  --cli-arg=--override=STARTING_WAVE_OVERRIDE=35
+
 if [ "$MODE" != "quick" ]; then
   step "V12 throughput bench (per-process)"
   "$PY" tools/verify/bench_throughput.py --episodes 3 --waves 8 --out "$ART/bench.json"

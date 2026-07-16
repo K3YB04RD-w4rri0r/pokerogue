@@ -44,9 +44,9 @@ from common import (  # noqa: E402
 )
 
 
-def run_auto(seed: str, waves: int, dump_path: Path) -> None:
+def run_auto(seed: str, waves: int, dump_path: Path, extra_args: list[str] | None = None) -> None:
     subprocess.run(
-        ["node", str(CLI_PATH), f"--seed={seed}", f"--waves={waves}", f"--dump-obs={dump_path}"],
+        ["node", str(CLI_PATH), f"--seed={seed}", f"--waves={waves}", f"--dump-obs={dump_path}", *(extra_args or [])],
         cwd=REPO_ROOT,
         check=True,
         stdout=subprocess.DEVNULL,
@@ -93,9 +93,11 @@ def _play_one_episode(proc, reader, seed: str, action_seed: str) -> None:
         send_action(proc, action)
 
 
-def run_inprocess(seed: str, waves: int, action_seed: str, dump_path: Path, episodes: int) -> None:
+def run_inprocess(
+    seed: str, waves: int, action_seed: str, dump_path: Path, episodes: int, extra_args: list[str] | None = None
+) -> None:
     """One process, `episodes` runs of the SAME seed via {"cmd":"reset"}."""
-    proc, reader, stderr_fh = spawn_cli(seed, waves, interactive=True, dump_path=dump_path)
+    proc, reader, stderr_fh = spawn_cli(seed, waves, interactive=True, dump_path=dump_path, extra_args=extra_args)
     try:
         for ep in range(episodes):
             ready = read_json(reader, 180)
@@ -187,6 +189,10 @@ def main() -> int:
     ap.add_argument("--waves", type=int, default=8)
     ap.add_argument("--mode", choices=["auto", "interactive", "inprocess"], default="auto")
     ap.add_argument("--action-seed", type=str, default="42")
+    # Repeatable raw CLI arg passthrough (same flag as run_episodes.py), e.g.
+    # --cli-arg=--override=STARTING_WAVE_OVERRIDE=35 to pin the episode into
+    # grunt-trainer territory the masked-random policy never reaches itself.
+    ap.add_argument("--cli-arg", action="append", default=[])
     args = ap.parse_args()
 
     require_cli()
@@ -197,9 +203,9 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="rl-det-") as td:
             ip_dump = Path(td) / "inprocess.jsonl"
             ref_dump = Path(td) / "reference.jsonl"
-            run_inprocess(args.seed, args.waves, args.action_seed, ip_dump, episodes=2)
+            run_inprocess(args.seed, args.waves, args.action_seed, ip_dump, episodes=2, extra_args=args.cli_arg)
             print("in-process run complete (2 episodes, 1 process)")
-            run_inprocess(args.seed, args.waves, args.action_seed, ref_dump, episodes=1)
+            run_inprocess(args.seed, args.waves, args.action_seed, ref_dump, episodes=1, extra_args=args.cli_arg)
             print("fresh-process reference complete")
 
             ip_eps = load_episode_steps(ip_dump)
@@ -219,7 +225,7 @@ def main() -> int:
         dumps = [Path(td) / "run1.jsonl", Path(td) / "run2.jsonl"]
         for dump in dumps:
             if args.mode == "auto":
-                run_auto(args.seed, args.waves, dump)
+                run_auto(args.seed, args.waves, dump, extra_args=args.cli_arg)
             else:
                 # Interactive determinism: same game seed + same action RNG seed
                 import run_episodes
@@ -234,6 +240,7 @@ def main() -> int:
                     dump_dir=dump_dir,
                     boot_timeout=180,
                     step_timeout=60,
+                    extra_args=args.cli_arg,
                 )
                 if r["result"] not in ("game_over", "step_cap", "wave_cap", "livelock") or r["errors"]:
                     sys.exit(f"interactive episode did not finish cleanly: {r['result']} {r['errors']}")
